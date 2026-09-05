@@ -91,7 +91,10 @@ def _env_prefix(piton_root: str, core: str) -> str:
         lines += [
             'export ARIANE_ROOT="$PITON_ROOT/piton/design/chip/tile/ariane/"',
             'export RISCV="${RISCV:-$HOME/scratch/riscv_install}"',
-            'export VERILATOR_ROOT="$ARIANE_ROOT/tmp/verilator-4.014/"',
+            # Overridable: ariane_setup.sh puts Verilator inside the submodule,
+            # which on a Windows-mounted checkout is painfully slow to install
+            # to and run from. Workers may point it at local storage instead.
+            'export VERILATOR_ROOT="${VERILATOR_ROOT:-$ARIANE_ROOT/tmp/verilator-4.014/}"',
             'export PATH="$RISCV/bin:$VERILATOR_ROOT/bin:$PATH"',
             'export LIBRARY_PATH="$RISCV/lib"',
             'export LD_LIBRARY_PATH="$RISCV/lib:$LD_LIBRARY_PATH"',

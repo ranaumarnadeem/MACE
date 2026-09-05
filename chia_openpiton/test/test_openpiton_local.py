@@ -88,6 +88,30 @@ class TestRootBinding:
         assert demands == {"openpiton": 1}
 
 
+class TestEnvironment:
+    """The env prologue must match what OpenPiton's own CI exports."""
+
+    def test_ariane_env_is_overridable_but_defaulted(self):
+        from chia_openpiton.openpiton_workspace import _env_prefix
+
+        env = _env_prefix("/work/openpiton", "ariane")
+        assert 'export PITON_ROOT=/work/openpiton' in env
+        # ARIANE_ROOT needs its trailing slash; RISCV and VERILATOR_ROOT must
+        # defer to the worker's own values when set.
+        assert 'ARIANE_ROOT="$PITON_ROOT/piton/design/chip/tile/ariane/"' in env
+        assert '${RISCV:-' in env
+        assert '${VERILATOR_ROOT:-' in env
+        assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
+
+    def test_sparc_needs_no_riscv_toolchain(self):
+        from chia_openpiton.openpiton_workspace import _env_prefix
+
+        env = _env_prefix("/work/openpiton", "sparc")
+        assert "ARIANE_ROOT" not in env
+        assert "VERILATOR_ROOT" not in env
+        assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
+
+
 class TestBuildArgv:
     def test_mesh_core_and_network_reach_sims(self, node, sims_argv):
         node.build(PitonConfig(x_tiles=2, y_tiles=2, core="sparc"))
