@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Site-specific values (GCP project, paths, hostnames, auth keys) — resolved at
+# cluster-config load time, never committed.
+.env
+
+# Loop run artifacts: caches, metrics DBs, logs, collected simulation output.
+runs/
+*.db
