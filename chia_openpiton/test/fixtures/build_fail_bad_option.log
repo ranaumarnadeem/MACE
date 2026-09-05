@@ -1,0 +1,2 @@
+%Error: Invalid option: --no-pch
+sims: Caught a SIGDIE. failed building model at /mnt/c/Users/Potato/Desktop/openpiton/piton/tools/src/sims/sims,2.0 line 1572.

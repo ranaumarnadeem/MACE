@@ -1,0 +1,4 @@
+%Error-NEEDTIMINGOPT: /mnt/c/Users/Potato/Desktop/openpiton/piton/verif/env/manycore/sas_task.v:1388:5: Use --timing or --no-timing to specify how delays should be handled
+%Error-NEEDTIMINGOPT: /mnt/c/Users/Potato/Desktop/openpiton/piton/verif/env/manycore/pc_cmp.tmp.v:661:5: Use --timing or --no-timing to specify how delays should be handled
+%Error: Exiting due to 49 error(s)
+%Error: Exiting due to too many errors encountered; --error-limit=50
