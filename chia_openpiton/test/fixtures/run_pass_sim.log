@@ -1,0 +1,22 @@
+Started
+Vcmp_top created
+Before first ticks
+wait cycles =          10
+rtl_timeout =     1000000
+                 250: finish_mask 00000001
+                 250: good_trap 0080000540
+                 250: bad_trap 0080000542
+After very first tick
+Before second ticks
+Before third ticks
+Reset complete
+Info: Qsel value(0)
+Info: cpx request 1
+Info: cpx packet from iob ->1700000000000000000000000000000010001
+Info: cpx request 0
+Doing IOB stuff - got values: 00017000 00000000 00000000 00000000 00010001
+IOB sending to tile X:  0 Y:  0
+   raw tileid 00000000
+Info: spc(0) thread(0) Hit Good trap
+179911750: Simulation -> PASS (HIT GOOD TRAP)
+- /home/potato/openpiton/piton/verif/env/manycore/pc_cmp.tmp.v:1775: Verilog $finish

@@ -196,6 +196,10 @@ class PitonRunResult:
     sim_type: str
     run_dir: str
     verdict: Verdict | None = None  # None when nothing matched (parse failure)
+    # $time stamped on the verdict line. This, not `cycles`, is what these
+    # configurations actually report: the status.log regreport writes for them
+    # carries no Cyc= field.
+    sim_time: int | None = None
     cycles: int | None = None
     exec_cycles: int | None = None
     wall_time_s: float = 0.0

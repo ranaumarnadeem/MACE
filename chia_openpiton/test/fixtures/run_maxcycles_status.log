@@ -1,1 +1,4 @@
-Diag: hello_world.c-20745                        Unknown
+Diag: hello_world.c-76470                        MaxCycles Hit
+Sat Sep  5 12:26:17 PKT 2026
+sim.log: max cycles =        2000
+sim.log: 1000250 : Simulation -> (terminated by reaching max cycles = 2000)

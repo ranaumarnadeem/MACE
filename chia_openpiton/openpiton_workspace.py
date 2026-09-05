@@ -586,6 +586,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             sim_type=sim_type,
             run_dir=run_dir,
             verdict=verdict,
+            sim_time=parse.sim_time(sim_log),
             cycles=parse.cycles(status_log),
             exec_cycles=parse.exec_cycles(status_log),
             wall_time_s=wall,

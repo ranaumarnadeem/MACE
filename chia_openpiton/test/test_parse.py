@@ -57,6 +57,43 @@ class TestSimVerdict:
         assert parse.max_cycles(PASS_LINE) is None
 
 
+class TestRealCaptures:
+    """Against logs captured from a real Ariane 1x1 run on this machine."""
+
+    def test_real_pass_transcript(self, fixtures):
+        assert parse.sim_verdict(fixtures("run_pass_sim.log")) == "pass"
+
+    def test_real_maxcycles_transcript(self, fixtures):
+        assert parse.sim_verdict(fixtures("run_maxcycles_sim.log")) == "maxcycles"
+
+    def test_sim_time_comes_off_the_verdict_line(self, fixtures):
+        """These configs' status.log has no Cyc=, so this is the real source."""
+        assert parse.sim_time(fixtures("run_pass_sim.log")) == 179911750
+
+    def test_real_pass_status_log(self, fixtures):
+        name, status = parse.status_diag(fixtures("run_pass_status.log"))
+        assert name.startswith("hello_world.c")
+        assert status == "PASS"
+
+    def test_real_status_log_has_no_cycle_counts(self, fixtures):
+        """Documents why sim_time exists: regreport emits no Cyc= here."""
+        assert parse.cycles(fixtures("run_pass_status.log")) is None
+
+    def test_unclassified_run_is_not_a_pass(self, fixtures):
+        """A real -rtl_timeout expiry: regreport says 'Unknown (No Status)'."""
+        _, status = parse.status_diag(fixtures("run_timeout_status.log"))
+        assert status == "Unknown (No Status)"
+
+    def test_timeout_happen_is_classified_when_no_verdict_line(self):
+        """A real RTL timeout ends without ever printing FAIL(TIMEOUT)."""
+        text = "Info: spc(0) thread(3) -> timeout happen\n"
+        assert parse.sim_verdict(text) == "timeout"
+
+    def test_timeout_happen_never_overrides_a_real_verdict(self):
+        text = f"Info: spc(0) thread(0) -> timeout happen\n{PASS_LINE}\n"
+        assert parse.sim_verdict(text) == "pass"
+
+
 class TestStatusLog:
     # regreport renders "Diag: %-40s   %s"
     STATUS = (

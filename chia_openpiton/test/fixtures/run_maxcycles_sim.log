@@ -1,0 +1,15 @@
+Started
+Vcmp_top created
+Before first ticks
+wait cycles =          10
+max cycles =        2000
+rtl_timeout =     1000000
+                 250: finish_mask 00000001
+                 250: good_trap 0080000540
+                 250: bad_trap 0080000542
+After very first tick
+Before second ticks
+Before third ticks
+1000250 : Simulation -> (terminated by reaching max cycles = 2000)
+- /home/potato/openpiton/piton/verif/env/manycore/monitor.tmp.v:66: Verilog $finish
+Reset complete

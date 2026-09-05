@@ -33,6 +33,18 @@ _FAIL_RE = re.compile(r"Simulation\s*->\s*FAIL\s*\((.*?)\)")
 _MAXCYC_RE = re.compile(r"Simulation\s*->\s*\(terminated by reaching max cycles\s*=\s*(\d+)\)")
 _TIMEOUT_TEXT_RE = re.compile(r"TIMEOUT", re.IGNORECASE)
 
+# Observed on a real -rtl_timeout expiry: pc_cmp prints this Info line per
+# thread and the run ends WITHOUT ever reaching the monitor's FAIL(TIMEOUT)
+# (regreport then reports "Unknown (No Status)"). Used only as a fallback when
+# no real verdict line exists, so it can never override a PASS or a FAIL.
+_TIMEOUT_HAPPEN_RE = re.compile(r"->\s*timeout happen")
+
+# The verdict line is prefixed with $time, e.g.
+#   "179911750: Simulation -> PASS (HIT GOOD TRAP)"
+_VERDICT_TIME_RE = re.compile(
+    r"^\s*(\d+)\s*:?\s*Simulation\s*->", re.MULTILINE
+)
+
 
 def sim_verdict(text: str) -> Verdict | None:
     """Classify a simulation transcript.
@@ -55,7 +67,20 @@ def sim_verdict(text: str) -> Verdict | None:
         return "maxcycles"
     if _PASS_RE.search(text):
         return "pass"
+    if _TIMEOUT_HAPPEN_RE.search(text):
+        return "timeout"
     return None
+
+
+def sim_time(text: str) -> int | None:
+    """Simulation time stamped on the verdict line, or None.
+
+    This is where a run's duration actually comes from: the ``status.log``
+    regreport writes for these configurations carries no ``Cyc=`` field, but
+    the testbench prefixes its verdict with ``$time``.
+    """
+    m = _VERDICT_TIME_RE.search(text or "")
+    return int(m.group(1)) if m else None
 
 
 def fail_reason(text: str) -> str:

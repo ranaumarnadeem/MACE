@@ -1,1 +1,4 @@
-Diag: hello_world.c-20179                        Unknown
+Diag: hello_world.c-57392                        PASS
+Sat Sep  5 12:26:15 PKT 2026
+sim.log: 179911750: Simulation -> PASS (HIT GOOD TRAP)
+NumTiles=         0
