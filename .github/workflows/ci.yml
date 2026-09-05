@@ -1,0 +1,41 @@
+name: tier-0 tests
+
+# Upstream CHIA runs no tests in CI (its workflows only build images), but two
+# people commit here daily into one integration branch, so tier 0 -- which needs
+# neither Ray nor OpenPiton -- runs on every push.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  tier0:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the Python pinned inside the CHIA worker images.
+          python-version: "3.10"
+
+      - name: Install CHIA (source; not published to PyPI at our pinned rev)
+        run: |
+          git clone --depth 1 https://github.com/ucb-bar/chia.git /tmp/chia
+          pip install -e /tmp/chia
+
+      - name: Install mace and test deps
+        run: pip install -e ".[test]"
+
+      - name: chia_openpiton must not depend on mace
+        run: |
+          python -c "
+          import chia_openpiton, sys
+          leaked = sorted(m for m in sys.modules if m.startswith('mace'))
+          assert not leaked, f'chia_openpiton pulled in {leaked}'
+          print('isolation OK')
+          "
+
+      - name: Tier-0 tests
+        run: pytest chia_openpiton/test -q
