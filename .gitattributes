@@ -1,0 +1,11 @@
+# These are consumed on Linux workers and in containers. CRLF breaks shebangs
+# and Dockerfile line continuations, which is exactly how OpenPiton's tooling
+# broke when it was first checked out on Windows.
+* text=auto eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.pdf binary
