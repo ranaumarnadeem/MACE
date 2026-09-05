@@ -1,0 +1,29 @@
+[project]
+name = "mace"
+version = "0.1.0"
+description = "MACE: Multi-core Agentic Co-design Engine — CHIA support for OpenPiton"
+requires-python = ">=3.10,<3.11"
+
+# CHIA (the `chialoops` distribution) is intentionally NOT listed here: it is
+# not on PyPI at the pinned revision we build against, so it is installed
+# separately from a clone (`pip install -e /path/to/chia`). See README.
+
+[project.optional-dependencies]
+test = ["pytest==9.0.3"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["chia_openpiton*", "mace*"]
+
+[tool.pytest.ini_options]
+# Import tests under their full package path, not by bare filename: the test
+# directories have no __init__.py and several files share names across packages.
+addopts = "--import-mode=importlib -q"
+testpaths = ["chia_openpiton/test"]
+markers = [
+    "openpiton: needs a real OpenPiton checkout and Verilator (set OPENPITON_TEST_REAL=1)",
+    "ray_local: needs a local Ray instance",
+]
