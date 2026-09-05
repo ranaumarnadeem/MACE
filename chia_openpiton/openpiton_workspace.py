@@ -100,15 +100,21 @@ def _env_prefix(piton_root: str, core: str) -> str:
             'if [ -z "${VERILATOR_ROOT:-}" ] && '
             '[ -x "$ARIANE_ROOT/tmp/verilator-4.014/bin/verilator" ]; then '
             'export VERILATOR_ROOT="$ARIANE_ROOT/tmp/verilator-4.014/"; fi',
-            'if [ -n "${VERILATOR_ROOT:-}" ]; then '
-            'export PATH="$VERILATOR_ROOT/bin:$PATH"; fi',
-            'export PATH="$RISCV/bin:$PATH"',
             'export LIBRARY_PATH="$RISCV/lib"',
             'export LD_LIBRARY_PATH="$RISCV/lib:$LD_LIBRARY_PATH"',
-            'export C_INCLUDE_PATH="$RISCV/include:$VERILATOR_ROOT/include"',
-            'export CPLUS_INCLUDE_PATH="$RISCV/include:$VERILATOR_ROOT/include"',
         ]
     lines.append('source "$PITON_ROOT/piton/piton_settings.bash"')
+    if core == "ariane":
+        # AFTER sourcing, deliberately. piton_settings.bash prepends
+        # "$DV_ROOT/tools/bin:$CC_BIN" (CC_BIN is /usr/bin) to PATH, so a
+        # distro riscv64-unknown-elf-gcc shadows ours -- and Ubuntu's package
+        # ships no newlib, so every diag fails with "string.h: No such file".
+        # Re-prepending here keeps the toolchain we actually installed.
+        lines += [
+            'export PATH="$RISCV/bin:$PATH"',
+            'if [ -n "${VERILATOR_ROOT:-}" ]; then '
+            'export PATH="$VERILATOR_ROOT/bin:$PATH"; fi',
+        ]
     return " && ".join(lines) + " && "
 
 

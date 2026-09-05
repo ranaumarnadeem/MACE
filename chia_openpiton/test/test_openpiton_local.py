@@ -102,6 +102,17 @@ class TestEnvironment:
         assert '${RISCV:-' in env
         assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
 
+    def test_riscv_bin_is_prepended_after_sourcing_piton_settings(self):
+        """piton_settings.bash prepends /usr/bin to PATH, and Ubuntu's
+        riscv64-unknown-elf-gcc package ships no newlib -- so if our toolchain
+        is added before the source, every diag fails on a missing string.h."""
+        from chia_openpiton.openpiton_workspace import _env_prefix
+
+        env = _env_prefix("/work/openpiton", "ariane")
+        source_at = env.index("piton_settings.bash")
+        riscv_path_at = env.index('export PATH="$RISCV/bin:$PATH"')
+        assert riscv_path_at > source_at
+
     def test_verilator_root_is_only_set_when_a_real_install_exists(self):
         """Verilator finds its data files via VERILATOR_ROOT; pointing it at a
         missing or half-built tree breaks a working system Verilator."""
