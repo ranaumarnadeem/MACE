@@ -1,0 +1,75 @@
+# MACE cluster: WSL head (native OpenPiton toolchain, validated locally)
+# + GCP workers (once hackathon compute credits are provisioned).
+#
+# Env vars to export before `chia up cluster.yaml` / `chia down cluster.yaml`:
+#   HEAD_IP       this WSL machine's IP CHIA uses to SSH in, e.g.:
+#                 export HEAD_IP=$(hostname -I | awk '{print $1}')
+#   GCP_PROJECT   your GCP project id (from hackathon registration)
+#   GCP_SSH_KEY   private key whose .pub gets injected into GCP VM metadata,
+#                 e.g. ${HOME}/.ssh/id_ed25519
+#   TS_AUTHKEY    reusable tailscale auth key (only needed once gcp_nodes is
+#                 actually in use — see "Cloud nodes" below)
+#
+# GCP API access: `gcloud auth application-default login` on this machine
+# (+ `gcloud auth application-default set-quota-project $GCP_PROJECT`),
+# `pip install google-cloud-compute`, Compute Engine API enabled.
+
+cluster_name: MaceCluster
+
+provider:
+    head_ip: ${HEAD_IP}
+
+auth:
+    ssh_user: ${USER}
+    # ssh_private_key: ~/.ssh/<key>   # omit if the key is in your ssh-agent
+
+available_node_types:
+
+    # Runs directly on the WSL head — no container, uses the OpenPiton +
+    # Verilator toolchain already validated on this machine (PITON_ROOT etc.
+    # set up in ~/.bashrc or via worker_setup_commands below).
+    openpiton_local:
+        resources: {"openpiton": 2}
+        num_workers: 1
+        compatible_ips: ["${HEAD_IP}"]
+        worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+
+    # --- Cloud burst capacity: uncomment once GCP_PROJECT is set (i.e. once
+    # you've registered for the hackathon's compute credits) ---
+    # openpiton_gcp:
+    #     resources: {"openpiton": 8}
+    #     num_workers: 2
+    #     compatible_ips: ["@openpiton_gcp:0", "@openpiton_gcp:1"]
+    #     docker:
+    #         image: "ghcr.io/<you>/mace-openpiton:latest"   # see docker/Dockerfile
+    #         container_name: "mace-openpiton-${USER}"
+    #         run_options:
+    #             - --shm-size=10.24gb
+
+head_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+head_setup_commands: ["source ~/.bashrc && conda activate chia_env"]
+head_start_ray_commands:
+    - "source ~/.bashrc && conda activate chia_env && ray stop"
+    - "source ~/.bashrc && conda activate chia_env && \
+        ray start --head --port=6379 \
+        --include-dashboard=True --dashboard-agent-listen-port=0"
+
+worker_start_ray_commands:
+    - "ray stop"
+    - "ray start --address=$RAY_HEAD_IP:6379 --dashboard-agent-listen-port=0"
+
+# --- Cloud nodes (uncomment alongside openpiton_gcp above) ---
+# gcp_nodes:
+#     project: ${GCP_PROJECT}
+#     zone: us-central1-a
+#     openpiton_gcp:
+#         machine_type: c2-standard-30   # size to actual build/regression needs
+#         count: 2
+#         spot: true                     # cheaper; stretches the $100-$1500 budget
+#         ssh_user: chia
+#         ssh_public_key: ${GCP_SSH_KEY}.pub
+#         ssh_private_key: ${GCP_SSH_KEY}
+#
+# tailnet:
+#     manage_all: true       # WSL sits behind NAT; tailnet avoids needing
+#     auth_key: ${TS_AUTHKEY} # reverse-SSH-tunnel/port-forwarding on this side
