@@ -91,11 +91,18 @@ def _env_prefix(piton_root: str, core: str) -> str:
         lines += [
             'export ARIANE_ROOT="$PITON_ROOT/piton/design/chip/tile/ariane/"',
             'export RISCV="${RISCV:-$HOME/scratch/riscv_install}"',
-            # Overridable: ariane_setup.sh puts Verilator inside the submodule,
-            # which on a Windows-mounted checkout is painfully slow to install
-            # to and run from. Workers may point it at local storage instead.
-            'export VERILATOR_ROOT="${VERILATOR_ROOT:-$ARIANE_ROOT/tmp/verilator-4.014/}"',
-            'export PATH="$RISCV/bin:$VERILATOR_ROOT/bin:$PATH"',
+            # Only export VERILATOR_ROOT when it points at a real install.
+            # ariane_setup.sh sets it unconditionally to a path inside the
+            # submodule, but Verilator locates its own data files through this
+            # variable -- pointing it at a missing or half-built tree breaks a
+            # perfectly good system Verilator. Workers that build the pinned
+            # 4.014 get it; workers using a packaged Verilator keep their own.
+            'if [ -z "${VERILATOR_ROOT:-}" ] && '
+            '[ -x "$ARIANE_ROOT/tmp/verilator-4.014/bin/verilator" ]; then '
+            'export VERILATOR_ROOT="$ARIANE_ROOT/tmp/verilator-4.014/"; fi',
+            'if [ -n "${VERILATOR_ROOT:-}" ]; then '
+            'export PATH="$VERILATOR_ROOT/bin:$PATH"; fi',
+            'export PATH="$RISCV/bin:$PATH"',
             'export LIBRARY_PATH="$RISCV/lib"',
             'export LD_LIBRARY_PATH="$RISCV/lib:$LD_LIBRARY_PATH"',
             'export C_INCLUDE_PATH="$RISCV/include:$VERILATOR_ROOT/include"',

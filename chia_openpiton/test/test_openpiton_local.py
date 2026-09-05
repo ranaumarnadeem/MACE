@@ -100,8 +100,16 @@ class TestEnvironment:
         # defer to the worker's own values when set.
         assert 'ARIANE_ROOT="$PITON_ROOT/piton/design/chip/tile/ariane/"' in env
         assert '${RISCV:-' in env
-        assert '${VERILATOR_ROOT:-' in env
         assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
+
+    def test_verilator_root_is_only_set_when_a_real_install_exists(self):
+        """Verilator finds its data files via VERILATOR_ROOT; pointing it at a
+        missing or half-built tree breaks a working system Verilator."""
+        from chia_openpiton.openpiton_workspace import _env_prefix
+
+        env = _env_prefix("/work/openpiton", "ariane")
+        assert '[ -x "$ARIANE_ROOT/tmp/verilator-4.014/bin/verilator" ]' in env
+        assert '[ -z "${VERILATOR_ROOT:-}" ]' in env
 
     def test_sparc_needs_no_riscv_toolchain(self):
         from chia_openpiton.openpiton_workspace import _env_prefix
