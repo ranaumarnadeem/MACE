@@ -82,3 +82,23 @@ Before proposing `chia_openpiton/` as `chia/openpiton/`:
 - [ ] Commits as `feat(openpiton): …` with `Assisted-by:` and `Signed-off-by:`
 - [ ] AI-assistance disclosed in the PR description
 - [ ] No edits to README / CONTRIBUTING / LICENSE / SECURITY
+
+## Checkout location (not optional)
+
+Build the checkout on **native Linux storage** (e.g. `/home/you/openpiton`), not a
+Windows-mounted path. `/mnt/c` is a 9p mount, and beyond being slow it showed
+read-after-write coherency gaps during the boot ROM step. Measured here: an
+Ariane 1x1 Verilator build takes **37 s** on ext4; the smaller SPARC design took
+roughly six minutes on `/mnt/c`.
+
+## Toolchain patches this design needs
+
+Modern binutils (2.38+) split `zicsr`/`zifencei` out of base RV64I, so
+OpenPiton's 2019 assembly no longer assembles with a current toolchain:
+
+- **Boot ROM:** `piton/design/chipset/rv64_platform/bootrom/linux/Makefile`
+  hardcodes `-march=rv64imac` with a plain `=`, so neither the environment nor a
+  `sims` flag can override it. It must be patched to
+  `-march=rv64imac_zicsr_zifencei`.
+- **Diags:** reachable without patching — pass
+  `-rv64_march=rv64imafdc_zicsr_zifencei` through `PitonConfig.extra_flags`.
