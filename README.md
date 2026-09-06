@@ -91,14 +91,41 @@ read-after-write coherency gaps during the boot ROM step. Measured here: an
 Ariane 1x1 Verilator build takes **37 s** on ext4; the smaller SPARC design took
 roughly six minutes on `/mnt/c`.
 
-## Toolchain patches this design needs
+## Patching a checkout for a modern toolchain
 
-Modern binutils (2.38+) split `zicsr`/`zifencei` out of base RV64I, so
-OpenPiton's 2019 assembly no longer assembles with a current toolchain:
+Run this once per checkout (and in the worker image build):
 
-- **Boot ROM:** `piton/design/chipset/rv64_platform/bootrom/linux/Makefile`
-  hardcodes `-march=rv64imac` with a plain `=`, so neither the environment nor a
-  `sims` flag can override it. It must be patched to
-  `-march=rv64imac_zicsr_zifencei`.
-- **Diags:** reachable without patching — pass
-  `-rv64_march=rv64imafdc_zicsr_zifencei` through `PitonConfig.extra_flags`.
+```bash
+scripts/patch_openpiton.sh /path/to/openpiton
+```
+
+It is idempotent and fixes two ways OpenPiton's 2019 boot ROM breaks under a
+current RISC-V GCC. Both live in
+`piton/design/chipset/rv64_platform/bootrom/linux/Makefile`, which hardcodes its
+flags with plain `=` assignments, so neither the environment nor a `sims` flag
+can override them:
+
+- **`zicsr`/`zifencei`**: binutils 2.38+ split these out of base RV64I, so
+  `csrr s2, mhartid` no longer assembles under `-march=rv64imac`.
+- **C23**: GCC 15+ defaults to C23, where `void init_uart();` declares a
+  function taking *no* arguments — making the boot ROM's own two-argument call a
+  hard error. Pinned to `-std=gnu17`.
+
+The second one hides: the boot ROM's `clean` target removes only the image and
+the DTB, never the `.o` files, so a stale `main.o` masks the failure until
+something invalidates it — a fresh checkout, a new worker, or the image.
+
+**Diags** need no patch: pass `-rv64_march=rv64imafdc_zicsr_zifencei` through
+`PitonConfig.extra_flags` and `sims` handles it.
+
+## Status
+
+Phase 1 acceptance, measured on this machine (Ariane, Verilator 5.049):
+
+| # | Check | Result |
+|---|---|---|
+| 1 | `configure` → `build` → `run(hello_world.c)` | pass, verdict from transcript |
+| 2 | 2×2 build on a GCP worker | deferred, pending credits |
+| 3 | Parallel builds across two checkouts | pass — 176 s vs 324 s serial |
+| 4 | `chia viz` renders the example graph | pass |
+| 5 | Tier-0 tests on captured fixtures | pass (114 tests) |
