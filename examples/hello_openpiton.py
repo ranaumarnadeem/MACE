@@ -111,8 +111,15 @@ def main() -> int:
             bash.stop()
 
     print("\n--- configure + build ---")
-    config = get(configure_model.chia_remote(piton_root, args.core))
-    artifact = get(build_model.chia_remote(piton_root, config))
+    # Dispatch and resolve in separate statements. `chia viz` reads this file
+    # statically and pairs `ref = fn.chia_remote(...)` with `val = get(ref)`;
+    # collapsing them into `val = get(fn.chia_remote(...))` renders an empty
+    # graph.
+    config_ref = configure_model.chia_remote(piton_root, args.core)
+    config = get(config_ref)
+
+    build_ref = build_model.chia_remote(piton_root, config)
+    artifact = get(build_ref)
     print(
         f"build success={artifact.success} rc={artifact.returncode} "
         f"({artifact.wall_time_s:.0f}s) verilator={artifact.verilator_version}"
@@ -123,7 +130,8 @@ def main() -> int:
         return 1
 
     print("\n--- run the built model ---")
-    output = get(model_startup_output.chia_remote(artifact.binary_path))
+    output_ref = model_startup_output.chia_remote(artifact.binary_path)
+    output = get(output_ref)
     found = MARKER in output
     print(output[:800])
     print(f"\n{'PASS' if found else 'FAIL'}: marker {'found' if found else 'not found'}")
