@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from mace.integrator import integrate, topological_order
+from mace.integrator import integrate, topological_levels, topological_order
 from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM
 
@@ -62,6 +62,43 @@ class TestTopologicalOrder:
         b = task("b", deps=("a",))
         with pytest.raises(ValueError, match="cycle"):
             topological_order((a, b))
+
+
+class TestTopologicalLevels:
+    def test_empty_is_empty(self):
+        assert topological_levels(()) == ()
+
+    def test_independent_roots_are_one_level(self):
+        a, b = task("a"), task("b")
+        assert topological_levels((a, b)) == ((a, b),)
+
+    def test_linear_chain_is_one_task_per_level(self):
+        a, b = task("a"), task("b", deps=("a",))
+        assert topological_levels((a, b)) == ((a,), (b,))
+
+    def test_diamond_dependency(self):
+        a = task("a")
+        b = task("b", deps=("a",))
+        c = task("c", deps=("a",))
+        d = task("d", deps=("b", "c"))
+        assert topological_levels((a, b, c, d)) == ((a,), (b, c), (d,))
+
+    def test_unknown_dep_raises(self):
+        with pytest.raises(ValueError, match="unknown task"):
+            topological_levels((task("a", deps=("nope",)),))
+
+    def test_cycle_raises(self):
+        a = task("a", deps=("b",))
+        b = task("b", deps=("a",))
+        with pytest.raises(ValueError, match="cycle"):
+            topological_levels((a, b))
+
+    def test_flattening_levels_matches_topological_order(self):
+        a = task("a")
+        b = task("b", deps=("a",))
+        c = task("c", deps=("a",))
+        flattened = tuple(t for level in topological_levels((c, b, a)) for t in level)
+        assert flattened == topological_order((c, b, a))
 
 
 class TestIntegrate:

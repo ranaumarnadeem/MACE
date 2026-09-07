@@ -16,6 +16,7 @@ from __future__ import annotations
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
+from mace.workloads import RECOMMENDED_RTL_TIMEOUT
 
 
 def run_mace_step(piton_root: str, spec: MaceSpec, task: Task, llm, tools=()) -> StepResult:
@@ -42,5 +43,7 @@ def run_mace_step(piton_root: str, spec: MaceSpec, task: Task, llm, tools=()) ->
     if not build.success:
         return StepResult(task=task, query=query, build=build, run=None, passed=False)
 
-    run = OpenPitonWorkspaceNode.run(piton_root, config, spec.workloads[0])
+    run = OpenPitonWorkspaceNode.run(
+        piton_root, config, spec.workloads[0], rtl_timeout=RECOMMENDED_RTL_TIMEOUT
+    )
     return StepResult(task=task, query=query, build=build, run=run, passed=run.success)
