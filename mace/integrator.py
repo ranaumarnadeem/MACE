@@ -26,7 +26,7 @@ from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
 from mace.loop import run_mace_step
 from mace.spec import MaceSpec, StepResult, Task
-from mace.workloads import RECOMMENDED_RTL_TIMEOUT
+from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 
 def topological_levels(tasks: tuple[Task, ...]) -> tuple[tuple[Task, ...], ...]:
@@ -86,7 +86,12 @@ def integrate(
 
 
 def integrate_parallel(
-    piton_roots: tuple[str, ...], spec: MaceSpec, tasks: tuple[Task, ...], llm, tools=()
+    piton_roots: tuple[str, ...],
+    spec: MaceSpec,
+    tasks: tuple[Task, ...],
+    llm,
+    tools=(),
+    asm_diag_root: str | None = None,
 ) -> tuple[StepResult, ...]:
     """Apply *tasks* across *piton_roots* in parallel, one level at a time.
 
@@ -102,12 +107,17 @@ def integrate_parallel(
     level gets to build on a tree that just failed verification. Returns
     every StepResult produced up to and including that level (or all of
     them, if every task passed).
+
+    ``asm_diag_root`` defaults to mace's own ``workloads/`` directory --
+    see run_mace_step's docstring for why that's safe as a default even for
+    an OpenPiton-native test name.
     """
+    root_dir = str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root
     nodes = [OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120) for root in piton_roots]
     try:
         results: list[StepResult] = []
         for level in topological_levels(tasks):
-            level_results = _run_level(nodes, spec, level, llm, tools)
+            level_results = _run_level(nodes, spec, level, llm, tools, root_dir)
             results.extend(level_results)
             if not all(r.passed for r in level_results):
                 break
@@ -118,7 +128,7 @@ def integrate_parallel(
 
 
 def _run_level(
-    nodes: list, spec: MaceSpec, level: tuple[Task, ...], llm, tools
+    nodes: list, spec: MaceSpec, level: tuple[Task, ...], llm, tools, asm_diag_root: str
 ) -> list[StepResult]:
     """One level, batched to at most ``len(nodes)`` tasks in flight at once."""
     results: list[StepResult] = []
@@ -126,12 +136,12 @@ def _run_level(
     while tasks:
         batch = tasks[: len(nodes)]
         tasks = tasks[len(nodes) :]
-        results.extend(_run_batch(nodes[: len(batch)], spec, batch, llm, tools))
+        results.extend(_run_batch(nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root))
     return results
 
 
 def _run_batch(
-    nodes: list, spec: MaceSpec, batch: list[Task], llm, tools
+    nodes: list, spec: MaceSpec, batch: list[Task], llm, tools, asm_diag_root: str
 ) -> list[StepResult]:
     """One (node, task) pair per entry; prompt, build, run each fully
     dispatched across the batch before any of that round is resolved."""
@@ -145,7 +155,10 @@ def _run_batch(
 
     run_refs = {
         i: nodes[i].run.chia_remote(
-            config, spec.workloads[0], rtl_timeout=RECOMMENDED_RTL_TIMEOUT
+            config,
+            spec.workloads[0],
+            asm_diag_root=asm_diag_root,
+            rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
         )
         for i, build in enumerate(builds)
         if build.success

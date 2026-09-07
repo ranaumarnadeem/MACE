@@ -123,3 +123,26 @@ class TestConfigFromSpec:
 
         run_argv = sims_argv.lines()[1]
         assert "-rtl_timeout=" in run_argv
+
+    def test_run_defaults_asm_diag_root_to_mace_workloads(
+        self, stub_piton_root, monkeypatch, sims_argv
+    ):
+        """Without this, a spec naming one of mace/workloads/*.c would never
+        be found by sims -- only OpenPiton-native diag names would resolve."""
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+
+        run_mace_step(str(stub_piton_root), make_spec(), TASK, llm)
+
+        run_argv = sims_argv.lines()[1]
+        assert "-asm_diag_root=" in run_argv
+        assert "mace" in run_argv and "workloads" in run_argv
+
+    def test_run_asm_diag_root_is_overridable(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+
+        run_mace_step(str(stub_piton_root), make_spec(), TASK, llm, asm_diag_root="/somewhere/else")
+
+        run_argv = sims_argv.lines()[1]
+        assert "-asm_diag_root=/somewhere/else" in run_argv

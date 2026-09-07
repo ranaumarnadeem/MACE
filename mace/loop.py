@@ -16,10 +16,12 @@ from __future__ import annotations
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
-from mace.workloads import RECOMMENDED_RTL_TIMEOUT
+from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 
-def run_mace_step(piton_root: str, spec: MaceSpec, task: Task, llm, tools=()) -> StepResult:
+def run_mace_step(
+    piton_root: str, spec: MaceSpec, task: Task, llm, tools=(), asm_diag_root: str | None = None
+) -> StepResult:
     """Run one task: an LLM turn, a build, then a run of the spec's first
     gate workload, gated on that run's transcript verdict.
 
@@ -33,6 +35,12 @@ def run_mace_step(piton_root: str, spec: MaceSpec, task: Task, llm, tools=()) ->
     Only the spec's first workload is checked -- gating on every workload is
     fan-out (mace.spec.MaceSpec.workloads plural exists for that), which
     belongs to a later, multi-task version of this loop.
+
+    ``asm_diag_root`` defaults to mace's own ``workloads/`` directory, since
+    a spec's workloads are normally one of the frozen gate programs there --
+    ``sims`` searches it as an *extra* directory alongside the checkout's
+    own diags, so an OpenPiton-native test name (e.g. ``hello_world.c``)
+    still resolves fine with the default in place.
     """
     query = llm.prompt(task.spec, tools=list(tools))
 
@@ -44,6 +52,10 @@ def run_mace_step(piton_root: str, spec: MaceSpec, task: Task, llm, tools=()) ->
         return StepResult(task=task, query=query, build=build, run=None, passed=False)
 
     run = OpenPitonWorkspaceNode.run(
-        piton_root, config, spec.workloads[0], rtl_timeout=RECOMMENDED_RTL_TIMEOUT
+        piton_root,
+        config,
+        spec.workloads[0],
+        asm_diag_root=str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root,
+        rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
     )
     return StepResult(task=task, query=query, build=build, run=run, passed=run.success)
