@@ -1,6 +1,15 @@
 # MACE cluster: WSL head (native OpenPiton toolchain, validated locally)
 # + GCP workers (once hackathon compute credits are provisioned).
 #
+# Both node types are BARE — no Docker. openpiton_local already ran that way
+# all session (every acceptance test, the MCP tool, 143 tests). openpiton_gcp
+# mirrors it: gcp_nodes' own default host setup installs git/conda for us
+# (skip_default_setup defaults to False), so setup_commands below only needs
+# the OpenPiton-specific pieces — same apt packages, RISC-V toolchain and
+# zicsr/C23 patches this repo already proved work, just applied to a fresh VM
+# instead of a Dockerfile. See dockerfiles/openpiton-chia.Dockerfile's history
+# if a container is wanted again later; nothing here depends on it existing.
+#
 # Env vars to export before `chia up cluster.yaml` / `chia down cluster.yaml`:
 #   HEAD_IP       this WSL machine's IP CHIA uses to SSH in, e.g.:
 #                 export HEAD_IP=$(hostname -I | awk '{print $1}')
@@ -13,6 +22,11 @@
 # GCP API access: `gcloud auth application-default login` on this machine
 # (+ `gcloud auth application-default set-quota-project $GCP_PROJECT`),
 # `pip install google-cloud-compute`, Compute Engine API enabled.
+#
+# None of the gcp_nodes / openpiton_gcp config below has been run against
+# real GCP yet (still credit-blocked) — it's written to the same standard as
+# the rest of the adapter, but treat the FIRST real `chia up` against it as a
+# fresh acceptance test, not an assumption.
 
 cluster_name: MaceCluster
 
@@ -40,11 +54,7 @@ available_node_types:
     #     resources: {"openpiton": 8}
     #     num_workers: 2
     #     compatible_ips: ["@openpiton_gcp:0", "@openpiton_gcp:1"]
-    #     docker:
-    #         image: "ghcr.io/<you>/mace-openpiton:latest"   # see docker/Dockerfile
-    #         container_name: "mace-openpiton-${USER}"
-    #         run_options:
-    #             - --shm-size=10.24gb
+    #     worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
 
 head_env_commands: ["source ~/.bashrc && conda activate chia_env"]
 head_setup_commands: ["source ~/.bashrc && conda activate chia_env"]
@@ -65,10 +75,42 @@ worker_start_ray_commands:
 #     openpiton_gcp:
 #         machine_type: c2-standard-30   # size to actual build/regression needs
 #         count: 2
+#         image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64
 #         spot: true                     # cheaper; stretches the $100-$1500 budget
 #         ssh_user: chia
 #         ssh_public_key: ${GCP_SSH_KEY}.pub
 #         ssh_private_key: ${GCP_SSH_KEY}
+#         setup_commands:
+#             # System deps (matches what dockerfiles/openpiton-chia.Dockerfile
+#             # installs; kept in sync by hand since apt has no lockfile here).
+#             - sudo apt-get update -qq && sudo apt-get install -y -qq
+#                 gawk build-essential bison flex texinfo
+#                 python3-pexpect libusb-1.0-0-dev default-jdk zlib1g-dev
+#                 valgrind csh device-tree-compiler
+#                 libbit-vector-perl libelf-dev
+#                 verilator dos2unix openssh-client rsync
+#                 curl ca-certificates xz-utils git
+#             # Prebuilt RISC-V toolchain -> /opt/riscv (same asset validated
+#             # on this project's WSL host and in the Docker image).
+#             - sudo mkdir -p /opt/riscv && curl -fL
+#                 https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2026.08.27/riscv64-elf-ubuntu-24.04-gcc.tar.xz
+#                 | sudo tar -xJ -C /opt/riscv --strip-components=1
+#             - echo 'export RISCV=/opt/riscv' >> ~/.bashrc
+#             # OpenPiton, pinned to the commit + Ariane submodule this repo
+#             # has validated (state_def.PitonConfig.source_rev/ariane_rev).
+#             - test -d ~/openpiton ||
+#                 git clone https://github.com/PrincetonUniversity/openpiton.git ~/openpiton
+#             - cd ~/openpiton && git checkout 1c6bfd2 &&
+#                 git submodule update --init --recursive --force piton/design/chip/tile/ariane
+#             # zicsr/zifencei + C23 patches -- see scripts/patch_openpiton.sh
+#             # for why these two exist; inlined here (rather than relying on
+#             # that script) since worker setup runs before mace's own code is
+#             # synced onto the machine.
+#             - F=~/openpiton/piton/design/chipset/rv64_platform/bootrom/linux/Makefile;
+#                 grep -q zicsr_zifencei "$F" ||
+#                 sed -i 's/-march=rv64imac /-march=rv64imac_zicsr_zifencei /' "$F";
+#                 grep -q -- -std=gnu17 "$F" ||
+#                 sed -i 's/^\(CFLAGS = .*\)$/\1 -std=gnu17/' "$F"
 #
 # tailnet:
 #     manage_all: true       # WSL sits behind NAT; tailnet avoids needing
