@@ -22,7 +22,7 @@ include = ["chia_openpiton*", "mace*"]
 # Import tests under their full package path, not by bare filename: the test
 # directories have no __init__.py and several files share names across packages.
 addopts = "--import-mode=importlib -q"
-testpaths = ["chia_openpiton/test"]
+testpaths = ["chia_openpiton/test", "mace/test"]
 markers = [
     "openpiton: needs a real OpenPiton checkout and Verilator (set OPENPITON_TEST_REAL=1)",
     "ray_local: needs a local Ray instance",
