@@ -218,6 +218,15 @@ class PitonRunResult:
         return returncode != -1 and verdict == "pass"
 
 
+@dataclass(frozen=True)
+class DiagEntry:
+    """One test from a diaglist group, before it has been run."""
+
+    alias: str
+    source: str
+    args: tuple[str, ...] = ()
+
+
 @dataclass
 class PitonRegressResult:
     """Result of one regression group (many :class:`PitonRunResult`)."""

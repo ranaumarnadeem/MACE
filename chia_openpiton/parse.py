@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 
-from chia_openpiton.state_def import Verdict
+from chia_openpiton.state_def import DiagEntry, Verdict
 
 # --- simulation transcript (sim.log / stdout) -------------------------------
 
@@ -272,3 +272,73 @@ def needs_no_timing(version_text: str) -> bool:
     """
     version = verilator_version(version_text)
     return version is not None and version[0] >= 5
+
+
+# --- diaglist -----------------------------------------------------------------
+
+_COMMENT_RE = re.compile(r"//.*$")
+_RUNARGS_OPEN_RE = re.compile(r"^<runargs(?:\s+(.*))?>$")
+
+
+def diaglist_group(text: str, group: str) -> tuple[DiagEntry, ...]:
+    """Tests in one ``<group>...</group>`` of a ``master_diaglist_*`` file.
+
+    This format is XML-shaped but not XML: tags are matched by name alone
+    (attributes on a group's own opening tag, like the ``sys=manycore``
+    build tags, are ignored), ``//`` starts a comment that runs to end of
+    line, and groups nest arbitrarily (``tile1_mini`` contains
+    ``princeton-test`` and ``tile1_mini_icache`` as sub-groups plus loose
+    test lines of its own). Selecting a group returns every test found
+    anywhere in its span, sub-groups included -- any nested tag this
+    function does not otherwise recognise is simply skipped over.
+
+    A ``<runargs ...>`` block's own flags apply to every test line inside
+    it. A test line is ``alias source [args...]``; args may appear on
+    either side of source (OpenPiton's own file has both), so the source is
+    identified as the first token after the alias that does not start with
+    ``-``, and every other token becomes a trailing arg, in file order,
+    appended after the enclosing runargs' flags.
+
+    Args:
+        text: Full contents of a master_diaglist-style file.
+        group: Group name to select, e.g. ``"ariane_tile1_simple"`` -- what
+            ``-group=`` would select.
+
+    Returns:
+        The group's tests in file order. Empty if the group has no tests.
+
+    Raises:
+        ValueError: If no ``<group>...</group>`` block exists in ``text``.
+    """
+    lines = [_COMMENT_RE.sub("", ln).strip() for ln in text.splitlines()]
+
+    open_re = re.compile(rf"^<{re.escape(group)}(?:\s[^>]*)?>$")
+    close_re = re.compile(rf"^</{re.escape(group)}>$")
+    start = next((i for i, ln in enumerate(lines) if open_re.match(ln)), None)
+    if start is None:
+        raise ValueError(f"group {group!r} not found in diaglist")
+    end = next(i for i in range(start + 1, len(lines)) if close_re.match(lines[i]))
+
+    entries: list[DiagEntry] = []
+    runargs: tuple[str, ...] = ()
+    for ln in lines[start + 1 : end]:
+        if not ln:
+            continue
+        runargs_open = _RUNARGS_OPEN_RE.match(ln)
+        if runargs_open:
+            runargs = tuple((runargs_open.group(1) or "").split())
+            continue
+        if ln == "</runargs>":
+            runargs = ()
+            continue
+        if ln.startswith("<"):
+            continue  # some other tag (cmp_default, a nested sub-group, ...)
+        parts = ln.split()
+        alias, rest = parts[0], parts[1:]
+        source_idx = next((i for i, tok in enumerate(rest) if not tok.startswith("-")), None)
+        if source_idx is None:
+            continue  # no source file on this line -- not a test we can run
+        source = rest[source_idx]
+        extra = tuple(tok for i, tok in enumerate(rest) if i != source_idx)
+        entries.append(DiagEntry(alias=alias, source=source, args=runargs + extra))
+    return tuple(entries)

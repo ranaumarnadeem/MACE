@@ -220,3 +220,56 @@ class TestVerilatorVersion:
 
     def test_missing_verilator_does_not_add_the_flag(self):
         assert parse.needs_no_timing("") is False
+
+
+class TestDiaglistGroup:
+    """Against the real master_diaglist_princeton, not a hand-written excerpt."""
+
+    def test_ariane_tile1_simple_inherits_runargs(self, fixtures):
+        text = fixtures("master_diaglist_princeton")
+        entries = parse.diaglist_group(text, "ariane_tile1_simple")
+        want_args = ("-x_tiles=1", "-y_tiles=1", "-ariane", "-rtl_timeout", "1000000")
+        assert [(e.alias, e.source, e.args) for e in entries] == [
+            ("ariane-hello-world", "hello_world.c", want_args),
+            ("ariane-accu", "accu_test.c", want_args),
+            ("ariane-amo-align", "amo_align.c", want_args),
+        ]
+
+    def test_flattens_nested_subgroups_and_loose_lines(self, fixtures):
+        """tile1_mini has no runargs of its own -- it nests princeton-test and
+        tile1_mini_icache as named sub-groups, then a loose test line after
+        the last sub-group closes, all of which must come back as one list.
+        """
+        text = fixtures("master_diaglist_princeton")
+        entries = parse.diaglist_group(text, "tile1_mini")
+        assert len(entries) == 46
+        by_alias = {e.alias: e for e in entries}
+        assert by_alias["princeton-test-test"].source == "princeton-test-test.s"
+        assert by_alias["princeton-test-test"].args == ()
+        assert by_alias["imiss_sameset"].source == "Imiss_sameset.s"
+        assert by_alias["imiss_sameset"].args == ("-max_cycle=50000",)
+
+    def test_args_keep_file_order_regardless_of_side(self, fixtures):
+        """Real lines put args after source (tr_tcc) or before it (lsu_mbar);
+        either way the arg list must come back left-to-right, source excluded.
+        """
+        text = fixtures("master_diaglist_princeton")
+        by_alias = {e.alias: e for e in parse.diaglist_group(text, "tile1_mini")}
+        assert by_alias["tr_tcc"].args == ("-max_cycle=500000", "-midas_args=-DBUG6262")
+        assert by_alias["lsu_mbar"].args == ("-max_cycle=1500000", "-midas_args=-allow_tsb_conflicts")
+
+    def test_trailing_comment_is_not_an_arg(self, fixtures):
+        text = fixtures("master_diaglist_princeton")
+        by_alias = {e.alias: e for e in parse.diaglist_group(text, "tile1_mini")}
+        assert by_alias["lsu_stbar"].args == ("-midas_args=-allow_tsb_conflicts",)
+        assert by_alias["ssi_ldst"].args == ("-max_cycle=3000000", "-rtl_timeout=50000", "-nofast_boot")
+
+    def test_commented_out_test_is_skipped(self, fixtures):
+        text = fixtures("master_diaglist_princeton")
+        entries = parse.diaglist_group(text, "tile1_mini")
+        assert "fail_perf_chase_l1hit" not in {e.alias for e in entries}
+
+    def test_unknown_group_raises(self, fixtures):
+        text = fixtures("master_diaglist_princeton")
+        with pytest.raises(ValueError, match="no_such_group"):
+            parse.diaglist_group(text, "no_such_group")
