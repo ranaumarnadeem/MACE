@@ -132,8 +132,14 @@ class PitonToolServer(AsyncJobTool):
         longer) -- returns immediately. Poll with ``{name}_job_status``. Use
         ``{name}_config_set`` first to change the mesh, core, or RTL defines.
 
+        Calling this again for a configuration that already built successfully
+        is cheap: it is served from disk instead of re-invoking the toolchain
+        (``job_status``'s ``reused`` field says whether that happened). Pass
+        ``clean=True`` to force a real rebuild.
+
         Args:
-            clean: Remove this configuration's previous build output first.
+            clean: Force a rebuild even if this configuration already built
+                successfully; also discards the previous build's output.
         """
         config = self._config  # snapshot now: config_set must not race the build
 
@@ -147,6 +153,7 @@ class PitonToolServer(AsyncJobTool):
                 "success": art.success,
                 "returncode": art.returncode,
                 "failure_reason": art.failure_reason,
+                "reused": art.reused,
                 "wall_time_s": art.wall_time_s,
                 "binary_path": art.binary_path,
             }

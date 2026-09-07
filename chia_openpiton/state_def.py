@@ -178,6 +178,9 @@ class PitonBuildArtifact:
     verilator_version: str = ""
     cache_key: str = ""
     failure_reason: str = ""  # parse.build_failure_reason, "" on success
+    # True when this call skipped `sims` entirely because a prior successful
+    # build for the identical config.key already exists on this worker.
+    reused: bool = False
     stdout: str = ""  # capped tail
     stderr: str = ""  # capped tail
 

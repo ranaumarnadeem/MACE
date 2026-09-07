@@ -193,6 +193,52 @@ class TestBuildResult:
         assert node.build(cfg).cache_key == cfg.key
 
 
+class TestBuildReuse:
+    """A build_id that already succeeded is served from disk, not rebuilt --
+    this is what makes repeated agent iterations against one config cheap."""
+
+    def test_first_build_is_not_marked_reused(self, node, cfg):
+        assert node.build(cfg).reused is False
+
+    def test_second_identical_build_skips_sims_entirely(self, node, cfg, sims_argv):
+        node.build(cfg)
+        assert len(sims_argv) == 1
+        second = node.build(cfg)
+        assert len(sims_argv) == 1  # sims was NOT invoked again
+        assert second.reused is True
+        assert second.success is True
+
+    def test_reused_artifact_still_has_a_valid_binary_path(self, node, cfg):
+        node.build(cfg)
+        second = node.build(cfg)
+        assert second.binary_path.endswith("obj_dir/Vcmp_top")
+        assert os.path.exists(second.binary_path)
+
+    def test_clean_forces_a_real_rebuild(self, node, cfg, sims_argv):
+        node.build(cfg)
+        again = node.build(cfg, clean=True)
+        assert len(sims_argv) == 2  # sims WAS invoked the second time
+        assert again.reused is False
+
+    def test_a_different_config_is_never_served_from_the_first(self, node, sims_argv):
+        a = PitonConfig(x_tiles=1, core="sparc")
+        b = PitonConfig(x_tiles=2, core="sparc")
+        node.build(a)
+        result_b = node.build(b)
+        assert len(sims_argv) == 2
+        assert result_b.reused is False
+
+    def test_a_failed_build_leaves_no_marker_to_reuse(self, node, cfg, sims_argv, monkeypatch):
+        monkeypatch.setenv("FAKE_SIMS_FAIL_BUILD", "1")
+        first = node.build(cfg)
+        assert first.success is False
+        monkeypatch.delenv("FAKE_SIMS_FAIL_BUILD")
+        second = node.build(cfg)
+        assert len(sims_argv) == 2  # the failed attempt must not be "reused"
+        assert second.success is True
+        assert second.reused is False
+
+
 class TestRunVerdicts:
     @pytest.mark.parametrize(
         "verdict,expected_success",

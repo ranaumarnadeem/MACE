@@ -55,6 +55,12 @@ LOG_TAIL_BYTES = 8000
 # OpenPiton's Verilator model, relative to a model directory.
 MODEL_BINARY = "obj_dir/Vcmp_top"
 
+# Written after a successful build, alongside the binary. Presence of the
+# binary alone isn't proof of a good build: a worker killed mid-link can leave
+# a truncated file. The marker is only written after `build()` has already
+# confirmed success, so its presence is the actual signal to trust.
+BUILD_OK_MARKER = ".mace_build_ok"
+
 
 def _require_root(piton_root: object) -> str:
     """Validate ``piton_root`` before anything touches the filesystem.
@@ -415,7 +421,14 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
         Every configuration gets its own ``-build_id`` (from
         :attr:`PitonConfig.build_id`), because sims otherwise writes every model
-        to ``rel-0.1`` and two configurations silently overwrite each other.
+        to ``rel-0.1`` and two configurations silently overwrite each other. That
+        same key means a config identical in everything that affects the model
+        (mesh, core, RTL defines, caches, extra flags, source revisions,
+        Verilator version) reliably produces the same binary -- so unless
+        ``clean=True``, a build whose marker (written only after a prior success)
+        already exists is served from disk instead of re-invoking ``sims``. This
+        is what makes "agent iterations that only change the test being run
+        never rebuild" true without needing CHIA's cache machinery.
 
         ``--no-timing`` is added for Verilator 5 only, decided from the version
         reported inside OpenPiton's own environment: v5 refuses OpenPiton's bare
@@ -427,7 +440,8 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             config: The configuration to build, from :meth:`configure`.
             sim_type: Simulator selector; ``"vlt"`` (Verilator) is the only
                 license-free option.
-            clean: Remove this build_id's ``obj_dir`` first. sims' own
+            clean: Force a rebuild even if this build_id already succeeded.
+                Also removes this build_id's ``obj_dir`` first -- sims' own
                 ``-clean`` only removes VCS leftovers and never touches
                 Verilator output, so this is done here.
             extra_build_args: Extra ``-<sim>_build_args=`` values.
@@ -435,7 +449,8 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
         Returns:
             A :class:`PitonBuildArtifact`; ``success`` requires exit 0 *and* the
-            model binary to exist.
+            model binary to exist. ``reused=True`` when a prior build was
+            served from disk instead of invoking ``sims`` again.
 
         Raises:
             ValueError: On an unknown ``sim_type`` or an invalid root.
@@ -446,6 +461,23 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
         model_dir = os.path.join(root, "build", "manycore", config.build_id)
         binary = os.path.join(model_dir, MODEL_BINARY)
+        marker = os.path.join(model_dir, BUILD_OK_MARKER)
+
+        if not clean and os.path.exists(marker) and os.path.exists(binary):
+            logger.info("reusing prior build at %s (build_id=%s)", model_dir, config.build_id)
+            return PitonBuildArtifact(
+                success=True,
+                returncode=0,
+                config=config,
+                sim_type=sim_type,
+                model_dir=model_dir,
+                binary_path=binary,
+                wall_time_s=0.0,
+                verilator_version=config.verilator_version,
+                cache_key=config.key,
+                reused=True,
+            )
+
         if clean:
             obj_dir = os.path.join(model_dir, "obj_dir")
             if os.path.isdir(obj_dir):
@@ -453,6 +485,10 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
                 shutil.rmtree(obj_dir, ignore_errors=True)
                 logger.info("removed %s", obj_dir)
+            try:
+                os.remove(marker)
+            except FileNotFoundError:
+                pass
 
         build_args = list(extra_build_args)
         version_text = config.verilator_version or OpenPitonWorkspaceNode.verilator_version_text(
@@ -480,6 +516,12 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         reason = "" if success else (parse.build_failure_reason(stdout, stderr) or "no_model_binary")
         if rc == 0 and not built:
             logger.error("sims exited 0 but %s was not produced", binary)
+        if success:
+            # Written last, and only on a confirmed-good build: its presence
+            # is what a later call trusts to skip rebuilding, so it must never
+            # exist next to a truncated or failed binary.
+            with open(marker, "w") as f:
+                f.write(config.key)
 
         return PitonBuildArtifact(
             success=success,
