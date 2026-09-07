@@ -110,3 +110,16 @@ class TestConfigFromSpec:
         assert "-x_tiles=2" in build_argv
         assert "-y_tiles=1" in build_argv
         assert "-ariane" not in build_argv
+
+    def test_run_passes_an_explicit_rtl_timeout(self, stub_piton_root, monkeypatch, sims_argv):
+        """Real hardware needs more than sims' own default (see mace.workloads.
+        RECOMMENDED_RTL_TIMEOUT) -- the stub ignores timing entirely, so this
+        is the argv-shape check that would have caught the gap without
+        needing a real run."""
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+
+        run_mace_step(str(stub_piton_root), make_spec(), TASK, llm)
+
+        run_argv = sims_argv.lines()[1]
+        assert "-rtl_timeout=" in run_argv
