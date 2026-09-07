@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from chia_openpiton.state_def import MAX_TILES_PER_AXIS, PitonCore
+from chia.base.llm_call import QueryResult
+from chia_openpiton.state_def import MAX_TILES_PER_AXIS, PitonBuildArtifact, PitonCore, PitonRunResult
 
 
 @dataclass(frozen=True)
@@ -99,3 +100,19 @@ class Task:
         for d in self.deps:
             if not isinstance(d, str) or not d.strip():
                 raise ValueError(f"dep ids must be non-empty strings, got {d!r}")
+
+
+@dataclass
+class StepResult:
+    """Outcome of one run_mace_step call: an edit attempt, gated by a build+run.
+
+    Not frozen -- unlike MaceSpec/Task (validated inputs to a run), this is a
+    result record, the same convention chia_openpiton.state_def's own result
+    types (PitonBuildArtifact, PitonRunResult, ...) use.
+    """
+
+    task: Task
+    query: QueryResult
+    build: PitonBuildArtifact
+    run: PitonRunResult | None
+    passed: bool

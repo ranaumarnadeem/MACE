@@ -3,9 +3,10 @@
 Run:
     conda activate chia_env && pytest mace/test -q
 
-Tier 0 needs no Ray, no LLM and no OpenPiton checkout: FakeLLM stands in for
-any real chia.base.llm_call.LLMCallBase backend, and a `@ChiaFunction` called
-directly runs in the caller's process.
+Tier 0 needs no Ray, no LLM and no real OpenPiton checkout: FakeLLM stands in
+for any real chia.base.llm_call.LLMCallBase backend, stub_piton_root stands in
+for a real checkout, and a `@ChiaFunction` called directly runs in the
+caller's process.
 """
 
 from __future__ import annotations
@@ -18,6 +19,12 @@ import pytest
 from chia.base.ChiaFunction import ChiaFunction
 from chia.base.llm_call import LLMCallBase, QueryResult
 from chia.base.tools.ChiaTool import ChiaTool
+
+# The stub `sims` + throwaway checkout are chia_openpiton test infrastructure,
+# not application code, and pytest conftest fixtures don't cross sibling test
+# directories -- so these are imported (not duplicated) from there, the one
+# place that owns what a fake OpenPiton checkout looks like.
+from chia_openpiton.test.conftest import sims_argv, stub_piton_root  # noqa: F401
 
 
 @pytest.fixture(scope="session", autouse=True)
