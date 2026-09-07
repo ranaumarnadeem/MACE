@@ -1,0 +1,85 @@
+"""mace.llm -- pick an LLM backend by env var, one call site for all of them.
+
+``MACE_LLM`` selects which real chia.models backend the loop talks to:
+``opencode`` (default, used all session so far), ``claude``,
+``antigravity``, or ``vertex``. Model and other per-backend knobs are
+separate (``MACE_LLM_MODEL`` env var, or keyword overrides), so switching
+backends is a config change, not a call-site change -- mace.loop and
+mace.planner only ever see an LLMCallBase, never a specific class.
+
+Each backend module is imported lazily, inside its own builder function:
+their SDKs (anthropic, google-genai, ...) are optional dependencies this
+project does not otherwise need, matching chia.models.vertex's own lazy
+import of google-genai.
+"""
+
+from __future__ import annotations
+
+import os
+
+from chia.base.llm_call import LLMCallBase
+
+
+class UnknownLLMBackendError(ValueError):
+    """MACE_LLM (or the backend argument) named something not recognized."""
+
+
+def _build_opencode(model, overrides):
+    from chia.models.opencode import OpenCodeLLM
+
+    kwargs = {"model": model} if model else {}
+    kwargs.update(overrides)
+    return OpenCodeLLM(**kwargs)
+
+
+def _build_claude(model, overrides):
+    from chia.models.claude import ClaudeCodeLLM
+
+    kwargs = {"model": model} if model else {}
+    kwargs.update(overrides)
+    return ClaudeCodeLLM(**kwargs)
+
+
+def _build_antigravity(model, overrides):
+    from chia.models.antigravity import AntigravityLLM
+
+    kwargs = {"model": model} if model else {}
+    kwargs.update(overrides)
+    return AntigravityLLM(**kwargs)
+
+
+def _build_vertex(model, overrides):
+    from chia.models.vertex import VertexGeminiLLM
+
+    kwargs = {"model": model} if model else {}
+    kwargs.update(overrides)
+    return VertexGeminiLLM(**kwargs)  # raises TypeError if no model ends up set
+
+
+_BACKENDS = {
+    "opencode": _build_opencode,
+    "claude": _build_claude,
+    "antigravity": _build_antigravity,
+    "vertex": _build_vertex,
+}
+
+
+def make_llm(backend: str | None = None, **overrides) -> LLMCallBase:
+    """Construct the backend named by *backend*, or the ``MACE_LLM`` env var.
+
+    ``MACE_LLM_MODEL`` (if set) becomes the backend's ``model``; *overrides*
+    are forwarded to the backend's constructor verbatim and take precedence
+    over it, so ``make_llm(model="...")`` always wins.
+
+    Raises:
+        UnknownLLMBackendError: the backend name isn't one of opencode/
+            claude/antigravity/vertex.
+    """
+    backend = (backend or os.environ.get("MACE_LLM", "opencode")).lower()
+    builder = _BACKENDS.get(backend)
+    if builder is None:
+        raise UnknownLLMBackendError(
+            f"MACE_LLM must be one of {sorted(_BACKENDS)}, got {backend!r}"
+        )
+    model = os.environ.get("MACE_LLM_MODEL")
+    return builder(model, overrides)
