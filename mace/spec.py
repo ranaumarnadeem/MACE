@@ -73,3 +73,29 @@ class MaceSpec:
                 raise ValueError(f"{axis} must be 1..{MAX_TILES_PER_AXIS}, got {n}")
         if not isinstance(self.budget, Budget):
             raise ValueError(f"budget must be a Budget, got {type(self.budget).__name__}")
+
+
+TASK_KINDS: frozenset[str] = frozenset(("config", "workload"))
+
+
+@dataclass(frozen=True)
+class Task:
+    """One node in a Planner-produced task DAG.
+
+    See mace.agents.parse_tasks -- this is deliberately just the parsed shape
+    (id, deps, kind, spec), not a runnable unit; dispatch belongs to the loop.
+    """
+
+    id: str
+    deps: tuple[str, ...]
+    kind: str
+    spec: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, str) or not self.id.strip():
+            raise ValueError(f"task id must be a non-empty string, got {self.id!r}")
+        if self.kind not in TASK_KINDS:
+            raise ValueError(f"kind must be one of {sorted(TASK_KINDS)}, got {self.kind!r}")
+        for d in self.deps:
+            if not isinstance(d, str) or not d.strip():
+                raise ValueError(f"dep ids must be non-empty strings, got {d!r}")
