@@ -72,6 +72,18 @@ class FakeLLM(LLMCallBase):
     requests is the test's own bug, so running out raises immediately rather
     than hanging like a real backend waiting on a rate limit, or silently
     repeating the last response and hiding a fan-out bug behind a green test.
+
+    Mixing local and ``.chia_remote(...)`` calls against the SAME instance
+    does not share one queue position: ``.chia_remote(llm, ...)`` cloudpickles
+    a snapshot of ``llm`` to the worker, which pops from its OWN copy --
+    invisible to this instance and to any later local call. Concretely: if a
+    test's flow is "local call, then N remote-dispatched calls, then another
+    local call", only the two local calls actually advance ``self._queue``;
+    each remote dispatch just needs the queue non-empty *at that moment* (so
+    reserve one throwaway entry per such call if nothing else already
+    covers it) and its own response content is otherwise unobservable from
+    the driver. Don't count remote-dispatched calls when working out which
+    scripted response a SUBSEQUENT local call will see.
     """
 
     supports_dangerously_skip_permissions = True

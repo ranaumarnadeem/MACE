@@ -183,6 +183,22 @@ def mark_recovered(db: SQLiteNode, run_id: str, iteration: int, task_id: str) ->
     )
 
 
+def mark_all_recovered(db: SQLiteNode, run_id: str) -> None:
+    """Every recorded failure in *run_id* is recovered.
+
+    A replanned task DAG is not guaranteed to reuse the same task id for
+    "retry the same thing" (that's entirely the Planner's call each time),
+    so matching a specific later success back to a specific earlier failure
+    by id is unreliable. This is the coarser, robust alternative mace.loop's
+    replan loop actually uses: if the run ultimately finishes "passed" after
+    one or more earlier iterations recorded a failure, every failure
+    recorded so far in this run is marked recovered -- whatever was
+    diagnosed and fixed evidently led to the run succeeding, even without
+    tracing which specific task carried the fix forward.
+    """
+    db.execute("UPDATE failures SET recovered = 1 WHERE run_id = ?", (run_id,))
+
+
 def summary(db: SQLiteNode, run_id: str) -> dict:
     """The five metrics the proposal promises, for one run."""
     return {

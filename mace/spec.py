@@ -116,3 +116,25 @@ class StepResult:
     build: PitonBuildArtifact
     run: PitonRunResult | None
     passed: bool
+
+
+@dataclass(frozen=True)
+class Triage:
+    """One failed task's diagnosis, from mace.triage.triage()."""
+
+    diagnosis: str
+    fix: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.diagnosis, str) or not self.diagnosis.strip():
+            raise ValueError(f"diagnosis must be a non-empty string, got {self.diagnosis!r}")
+
+
+@dataclass
+class LoopResult:
+    """Outcome of one full mace.loop.run_mace_loop call: every iteration it
+    took, and why it stopped."""
+
+    run_id: str
+    status: str  # "passed" | "failed" | "planning_failed" | "budget_exceeded"
+    iterations: tuple[tuple[StepResult, ...], ...]

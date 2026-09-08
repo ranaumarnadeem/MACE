@@ -11,7 +11,7 @@ import dataclasses
 import pytest
 
 from chia_openpiton.state_def import MAX_TILES_PER_AXIS
-from mace.spec import Budget, MaceSpec, Task
+from mace.spec import Budget, LoopResult, MaceSpec, Task, Triage
 
 
 def make_spec(**override):
@@ -130,3 +130,24 @@ class TestTaskValidation:
 def test_task_is_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):
         Task(id="t1", deps=(), kind="config", spec="s").spec = "other"
+
+
+class TestTriageValidation:
+    def test_minimal_triage_is_valid(self):
+        t = Triage(diagnosis="timeout", fix="")
+        assert t.fix == ""
+
+    @pytest.mark.parametrize("bad", ["", "   "])
+    def test_diagnosis_must_be_non_empty(self, bad):
+        with pytest.raises(ValueError, match="diagnosis"):
+            Triage(diagnosis=bad, fix="x")
+
+
+def test_triage_is_immutable():
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        Triage(diagnosis="timeout", fix="").fix = "other"
+
+
+def test_loop_result_holds_its_fields():
+    result = LoopResult(run_id="r1", status="passed", iterations=())
+    assert (result.run_id, result.status, result.iterations) == ("r1", "passed", ())

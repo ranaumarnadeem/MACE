@@ -103,6 +103,20 @@ class TestFailures:
         row = db.query_one("SELECT recovered FROM failures WHERE run_id = ? AND task_id = 'a'", (run_id,))
         assert row["recovered"] == 1
 
+    def test_mark_all_recovered_covers_every_failure_in_the_run(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        other_run_id = metrics.start_run(db, make_spec())
+
+        metrics.record_failure(db, run_id, 0, "a", "timeout")
+        metrics.record_failure(db, run_id, 1, "b", "config_error")
+        metrics.record_failure(db, other_run_id, 0, "c", "timeout")
+
+        metrics.mark_all_recovered(db, run_id)
+
+        rows = {r["task_id"]: r["recovered"] for r in db.query("SELECT task_id, recovered FROM failures")}
+        assert rows == {"a": 1, "b": 1, "c": 0}  # other_run_id's failure is untouched
+
 
 class TestSummary:
     def test_aggregates_across_iterations(self, tmp_path):
