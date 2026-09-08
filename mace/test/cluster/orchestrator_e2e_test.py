@@ -19,6 +19,7 @@ ray = pytest.importorskip("ray")
 
 from chia_openpiton.test.conftest import STUB_SETTINGS, STUB_SIMS  # noqa: E402
 
+import mace.integrator as integrator_mod  # noqa: E402
 from mace.metrics import open_db, summary  # noqa: E402
 from mace.orchestrator import run_mace_loop  # noqa: E402
 from mace.spec import Budget, MaceSpec  # noqa: E402
@@ -224,3 +225,106 @@ class TestWallTimeBudget:
         assert result.status == "budget_exceeded"
         assert result.iterations == ()
         assert llm.calls == []
+
+
+class TestCostBudget:
+    """extract_cost_usd itself is tested in isolation in mace/test/test_llm.py
+    (TestExtractCostUsd) -- these tests monkeypatch it to a fixed value, the
+    same way TestWallTimeBudget monkeypatches time.monotonic, to prove the
+    accumulate-and-check logic in run_mace_loop independent of which LLM
+    backend actually reported the cost."""
+
+    def test_stops_when_accumulated_cost_exceeds_max_usd(self, ray_local, tmp_path, monkeypatch):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="fail")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        budget = Budget(max_iterations=5, max_usd=1.0)
+        llm = FakeLLM(
+            responses=[
+                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+            ]
+        )
+        monkeypatch.setattr("mace.orchestrator.extract_cost_usd", lambda query: 0.6)
+
+        result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db)
+
+        assert result.status == "budget_exceeded"
+        # iter0: total=0.6 (<=1.0, iter1 allowed); iter1: total=1.2 (iter2 blocked)
+        assert len(result.iterations) == 2
+
+    def test_iteration_usd_is_recorded_in_the_db(self, ray_local, tmp_path, monkeypatch):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[TASK_LINE, "edit t1"])
+        monkeypatch.setattr("mace.orchestrator.extract_cost_usd", lambda query: 0.25)
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)
+
+        assert result.status == "passed"
+        row = db.query_one(
+            "SELECT usd FROM iterations WHERE run_id = ? AND iteration = 0", (result.run_id,)
+        )
+        assert row["usd"] == 0.25
+
+
+class TestReplayTagsReachIntegrateParallel:
+    """integrate_parallel's own run_id/iteration wiring is tested directly in
+    mace/test/cluster/integrator_e2e_test.py::TestReplayTagging -- this only
+    proves run_mace_loop actually passes its run_id and the current
+    iteration number through on each call, not just that the parameters
+    exist."""
+
+    def test_passes_its_own_run_id_and_iteration_number(self, ray_local, tmp_path, monkeypatch):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[TASK_LINE, "edit t1"])
+
+        calls = []
+        real_integrate_parallel = integrator_mod.integrate_parallel
+
+        def _spy(*args, **kwargs):
+            calls.append((kwargs.get("run_id"), kwargs.get("iteration")))
+            return real_integrate_parallel(*args, **kwargs)
+
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", _spy)
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)
+
+        assert calls == [(result.run_id, 0)]
+
+
+class TestChecksumMismatch:
+    """verify_checksums itself is tested in isolation in mace/test/test_workloads.py
+    -- these tests monkeypatch it to prove run_mace_loop actually calls it
+    before spending anything, and stops cleanly when it raises."""
+
+    def test_stops_before_any_llm_call_or_iteration(self, ray_local, tmp_path, monkeypatch):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[])  # must never be called
+
+        def _tampered(*a, **kw):
+            raise ValueError("checksum mismatch: barrier_atomic.c")
+
+        monkeypatch.setattr("mace.orchestrator.verify_checksums", _tampered)
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)
+
+        assert result.status == "checksum_mismatch"
+        assert result.iterations == ()
+        assert llm.calls == []
+
+    def test_recorded_in_the_runs_table(self, ray_local, tmp_path, monkeypatch):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[])
+
+        def _tampered(*a, **kw):
+            raise ValueError("checksum mismatch")
+
+        monkeypatch.setattr("mace.orchestrator.verify_checksums", _tampered)
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)
+
+        row = db.query_one("SELECT status FROM runs WHERE run_id = ?", (result.run_id,))
+        assert row["status"] == "checksum_mismatch"

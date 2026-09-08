@@ -132,9 +132,10 @@ class Triage:
 
 @dataclass
 class LoopResult:
-    """Outcome of one full mace.loop.run_mace_loop call: every iteration it
-    took, and why it stopped."""
+    """Outcome of one full mace.orchestrator.run_mace_loop call: every
+    iteration it took, and why it stopped."""
 
     run_id: str
     status: str  # "passed" | "failed" | "planning_failed" | "budget_exceeded"
+    #             | "checksum_mismatch"
     iterations: tuple[tuple[StepResult, ...], ...]
