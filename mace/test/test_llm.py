@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from chia.base.llm_call import LLMCallBase
-from mace.llm import UnknownLLMBackendError, make_llm
+from chia.base.llm_call import LLMCallBase, QueryResult
+from mace.llm import UnknownLLMBackendError, extract_cost_usd, make_llm
 
 
 class TestBackendSelection:
@@ -83,3 +83,41 @@ class TestEachBackendConstructs:
         llm = make_llm("vertex", model="gemini-2.5-pro")
         assert isinstance(llm, LLMCallBase)
         assert type(llm).prompt._chia_options["resources"] == {"vertex_creds": 0.01}
+
+
+class TestExtractCostUsd:
+    def test_reads_cost_from_a_usage_dict(self):
+        from chia.models.opencode import OpenCodeQueryResult
+
+        query = OpenCodeQueryResult(
+            result="ok", returncode=0, stderr="", stream_result="ok", success=True,
+            usage={"cost_usd": 0.0042, "input_tokens": 100},
+        )
+        assert extract_cost_usd(query) == 0.0042
+
+    def test_missing_usage_attribute_returns_zero(self):
+        query = QueryResult(result="ok", returncode=0, stderr="", stream_result="ok", success=True)
+        assert extract_cost_usd(query) == 0.0
+
+    def test_none_usage_returns_zero(self):
+        from chia.models.opencode import OpenCodeQueryResult
+
+        query = OpenCodeQueryResult(
+            result="ok", returncode=0, stderr="", stream_result="ok", success=True, usage=None,
+        )
+        assert extract_cost_usd(query) == 0.0
+
+    def test_usage_without_cost_key_returns_zero(self):
+        from chia.models.opencode import OpenCodeQueryResult
+
+        query = OpenCodeQueryResult(
+            result="ok", returncode=0, stderr="", stream_result="ok", success=True,
+            usage={"input_tokens": 100},
+        )
+        assert extract_cost_usd(query) == 0.0
+
+    def test_fake_llm_responses_have_no_usage_and_cost_zero(self):
+        from mace.test.conftest import FakeLLM
+
+        query = FakeLLM(responses=["hi"]).prompt("hi")
+        assert extract_cost_usd(query) == 0.0

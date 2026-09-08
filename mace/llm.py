@@ -17,11 +17,30 @@ from __future__ import annotations
 
 import os
 
-from chia.base.llm_call import LLMCallBase
+from chia.base.llm_call import LLMCallBase, QueryResult
 
 
 class UnknownLLMBackendError(ValueError):
     """MACE_LLM (or the backend argument) named something not recognized."""
+
+
+def extract_cost_usd(query: QueryResult) -> float:
+    """Best-effort $ cost of one LLM call, from whatever its backend reports.
+
+    Only backends whose QueryResult subclass carries usage data on the
+    result itself survive a ``.chia_remote(...)`` round-trip:
+    ``OpenCodeQueryResult.usage`` and ``AntigravityQueryResult.usage`` both
+    do. Claude's cost tracking lives on the ``LLMCallBase`` instance's own
+    ``_last_metadata`` instead (chia.models.claude), which is a different
+    copy on the remote worker after dispatch and never visible back here --
+    so this always returns ``0.0`` for that backend. Not a bug to fix in
+    this function: a real API-shape limitation this project doesn't
+    control, not something worth papering over with a wrong number.
+    """
+    usage = getattr(query, "usage", None)
+    if not usage:
+        return 0.0
+    return float(usage.get("cost_usd", 0.0) or 0.0)
 
 
 def _build_opencode(model, overrides):
