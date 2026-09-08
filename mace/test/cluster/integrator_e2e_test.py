@@ -27,6 +27,7 @@ ray = pytest.importorskip("ray")
 
 from chia_openpiton.test.conftest import STUB_SETTINGS, STUB_SIMS  # noqa: E402
 
+import mace.integrator as integrator_mod  # noqa: E402
 from mace.integrator import integrate_parallel  # noqa: E402
 from mace.spec import MaceSpec, Task  # noqa: E402
 from mace.test.conftest import FakeLLM  # noqa: E402
@@ -141,6 +142,85 @@ class TestParallelDispatch:
         # level 0 (a, b) both fail their gate -> level 1 (c) never runs.
         assert [r.task.id for r in results] == ["a", "b"]
         assert all(not r.passed for r in results)
+
+
+class TestReplayTagging:
+    """Proves integrate_parallel's run_id/iteration params actually reach
+    mace.replay.tag_for with the expected shape. mace.replay's own
+    cache/bypass round-trip (a tagged call auto-caches, a later call with
+    that tag is served from cache) is proven separately in
+    mace/test/cluster/replay_e2e_test.py -- this only proves the wiring
+    between integrate_parallel and tag_for, via a spy rather than a real
+    cache actor, since that's the part this test actually owns.
+    """
+
+    def test_run_id_given_tags_every_phase_of_every_task(
+        self, ray_local, stub_checkouts, monkeypatch
+    ):
+        calls = []
+        real_tag_for = integrator_mod.tag_for
+
+        def _spy(run_id, iteration, task_id, phase):
+            calls.append((run_id, iteration, task_id, phase))
+            return real_tag_for(run_id, iteration, task_id, phase)
+
+        monkeypatch.setattr(integrator_mod, "tag_for", _spy)
+
+        tasks = (task("a"), task("b"))
+        llm = FakeLLM(responses=["edit a", "edit b"])
+
+        results = integrate_parallel(
+            stub_checkouts, make_spec(), tasks, llm, run_id="run7", iteration=3
+        )
+
+        assert all(r.passed for r in results)
+        assert set(calls) == {
+            ("run7", 3, "a", "prompt"), ("run7", 3, "a", "build"), ("run7", 3, "a", "run"),
+            ("run7", 3, "b", "prompt"), ("run7", 3, "b", "build"), ("run7", 3, "b", "run"),
+        }
+        # No wasted computation: exactly one tag_for call per (task, phase).
+        assert len(calls) == 6
+
+    def test_run_id_omitted_never_tags_anything(self, ray_local, stub_checkouts, monkeypatch):
+        calls = []
+        monkeypatch.setattr(integrator_mod, "tag_for", lambda *a: calls.append(a))
+
+        tasks = (task("a"),)
+        llm = FakeLLM(responses=["edit a"])
+
+        results = integrate_parallel(stub_checkouts, make_spec(), tasks, llm)
+
+        assert all(r.passed for r in results)
+        assert calls == []
+
+    def test_a_failed_build_still_tags_only_dispatched_phases(
+        self, ray_local, failing_stub_checkouts, monkeypatch
+    ):
+        """A failed build means run() never dispatches (integrate_parallel's
+        own if build.success filter) -- so its "run" tag must never be
+        computed either, not just never used."""
+        calls = []
+        real_tag_for = integrator_mod.tag_for
+
+        def _spy(run_id, iteration, task_id, phase):
+            calls.append((run_id, iteration, task_id, phase))
+            return real_tag_for(run_id, iteration, task_id, phase)
+
+        monkeypatch.setattr(integrator_mod, "tag_for", _spy)
+
+        tasks = (task("a"),)
+        llm = FakeLLM(responses=["edit a"])
+
+        integrate_parallel(
+            failing_stub_checkouts, make_spec(), tasks, llm, run_id="run7", iteration=0
+        )
+
+        # verdict="fail" checkouts still build successfully (the stub sims'
+        # build step always succeeds; only the run verdict is "fail" -- see
+        # STUB_SIMS), so run() *does* dispatch and get tagged here too.
+        assert set(calls) == {
+            ("run7", 0, "a", "prompt"), ("run7", 0, "a", "build"), ("run7", 0, "a", "run"),
+        }
 
 
 @pytest.fixture(scope="module")

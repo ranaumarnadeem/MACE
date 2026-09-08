@@ -25,6 +25,7 @@ from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
 from mace.loop import run_mace_step
+from mace.replay import tag_for
 from mace.spec import MaceSpec, StepResult, Task
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
@@ -92,6 +93,8 @@ def integrate_parallel(
     llm,
     tools=(),
     asm_diag_root: str | None = None,
+    run_id: str | None = None,
+    iteration: int = 0,
 ) -> tuple[StepResult, ...]:
     """Apply *tasks* across *piton_roots* in parallel, one level at a time.
 
@@ -111,13 +114,23 @@ def integrate_parallel(
     ``asm_diag_root`` defaults to mace's own ``workloads/`` directory --
     see run_mace_step's docstring for why that's safe as a default even for
     an OpenPiton-native test name.
+
+    ``run_id`` (with ``iteration``) tags every remote dispatch here with
+    ``mace.replay.tag_for(run_id, iteration, task.id, phase)`` for
+    ``phase`` in ``"prompt"``/``"build"``/``"run"`` -- the one place in this
+    codebase these calls are structurally cacheable/replayable (see
+    mace.replay's module docstring: a local call, which is all
+    mace.loop.run_mace_step and mace.integrator.integrate ever make, can't
+    be tagged at all). Omitting ``run_id`` (the default) dispatches
+    untagged, exactly as before -- tagging alone does nothing without a
+    caller that has also called mace.replay.enable_caching/enable_replay.
     """
     root_dir = str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root
     nodes = [OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120) for root in piton_roots]
     try:
         results: list[StepResult] = []
         for level in topological_levels(tasks):
-            level_results = _run_level(nodes, spec, level, llm, tools, root_dir)
+            level_results = _run_level(nodes, spec, level, llm, tools, root_dir, run_id, iteration)
             results.extend(level_results)
             if not all(r.passed for r in level_results):
                 break
@@ -128,7 +141,14 @@ def integrate_parallel(
 
 
 def _run_level(
-    nodes: list, spec: MaceSpec, level: tuple[Task, ...], llm, tools, asm_diag_root: str
+    nodes: list,
+    spec: MaceSpec,
+    level: tuple[Task, ...],
+    llm,
+    tools,
+    asm_diag_root: str,
+    run_id: str | None,
+    iteration: int,
 ) -> list[StepResult]:
     """One level, batched to at most ``len(nodes)`` tasks in flight at once."""
     results: list[StepResult] = []
@@ -136,21 +156,39 @@ def _run_level(
     while tasks:
         batch = tasks[: len(nodes)]
         tasks = tasks[len(nodes) :]
-        results.extend(_run_batch(nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root))
+        results.extend(
+            _run_batch(nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root, run_id, iteration)
+        )
     return results
 
 
 def _run_batch(
-    nodes: list, spec: MaceSpec, batch: list[Task], llm, tools, asm_diag_root: str
+    nodes: list,
+    spec: MaceSpec,
+    batch: list[Task],
+    llm,
+    tools,
+    asm_diag_root: str,
+    run_id: str | None,
+    iteration: int,
 ) -> list[StepResult]:
     """One (node, task) pair per entry; prompt, build, run each fully
     dispatched across the batch before any of that round is resolved."""
     config = PitonConfig(core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1])
 
-    prompt_refs = [llm.prompt.chia_remote(llm, task.spec, list(tools)) for task in batch]
+    def _tag(task_id: str, phase: str) -> str | None:
+        return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None
+
+    prompt_refs = [
+        llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
+        for task in batch
+    ]
     queries = [get(ref) for ref in prompt_refs]
 
-    build_refs = [node.build.chia_remote(config) for node in nodes]
+    build_refs = [
+        node.build.chia_remote(config, _chia_tag=_tag(task.id, "build"))
+        for node, task in zip(nodes, batch)
+    ]
     builds = [get(ref) for ref in build_refs]
 
     run_refs = {
@@ -159,6 +197,7 @@ def _run_batch(
             spec.workloads[0],
             asm_diag_root=asm_diag_root,
             rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
+            _chia_tag=_tag(batch[i].id, "run"),
         )
         for i, build in enumerate(builds)
         if build.success
