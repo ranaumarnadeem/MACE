@@ -39,18 +39,25 @@ class PlanningError(Exception):
     """The Planner's response produced no usable task DAG."""
 
 
-def build_prompt(spec: MaceSpec) -> str:
-    return _PROMPT_TEMPLATE.format(
+def build_prompt(spec: MaceSpec, feedback: str = "") -> str:
+    prompt = _PROMPT_TEMPLATE.format(
         core=spec.core,
         objective=spec.objective,
         x_tiles=spec.target_mesh[0],
         y_tiles=spec.target_mesh[1],
         workloads=", ".join(spec.workloads),
     )
+    if feedback:
+        prompt += f"\nFeedback from a previous attempt, to inform this plan:\n{feedback}\n"
+    return prompt
 
 
-def plan(spec: MaceSpec, llm, tools=()) -> tuple[Task, ...]:
+def plan(spec: MaceSpec, llm, tools=(), feedback: str = "") -> tuple[Task, ...]:
     """One LLM call, turned into a validated task DAG.
+
+    ``feedback`` (from mace.triage.triage, via mace.loop's replan-on-failure
+    loop) is appended as extra context for a replan attempt; empty for a
+    first attempt.
 
     Raises:
         PlanningError: no ``TASK:`` lines, or the ones that parsed don't
@@ -60,7 +67,7 @@ def plan(spec: MaceSpec, llm, tools=()) -> tuple[Task, ...]:
             failed plan means (retry with more context, give up) is the
             caller's job; this only refuses to hand back something broken.
     """
-    query = llm.prompt(build_prompt(spec), tools=list(tools))
+    query = llm.prompt(build_prompt(spec, feedback), tools=list(tools))
     tasks = parse_tasks(query.result)
     if not tasks:
         raise PlanningError(f"no TASK: lines in the planner's response: {query.result!r}")

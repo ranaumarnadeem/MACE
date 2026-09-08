@@ -58,6 +58,20 @@ class TestPlan:
         assert message == build_prompt(make_spec())
         assert tools == (sentinel_tool,)
 
+    def test_no_feedback_by_default(self):
+        assert "Feedback from a previous attempt" not in build_prompt(make_spec())
+
+    def test_feedback_is_appended_when_given(self):
+        prompt = build_prompt(make_spec(), feedback="task x failed: timeout")
+        assert "Feedback from a previous attempt" in prompt
+        assert "task x failed: timeout" in prompt
+
+    def test_feedback_is_passed_through_to_the_prompt(self):
+        llm = FakeLLM(responses=[PLANNER_TRANSCRIPT])
+        plan(make_spec(), llm, feedback="task x failed: timeout")
+        message, _ = llm.calls[0]
+        assert message == build_prompt(make_spec(), feedback="task x failed: timeout")
+
     def test_no_task_lines_raises_planning_error(self):
         llm = FakeLLM(responses=["I don't have enough information to plan yet."])
         with pytest.raises(PlanningError, match="no TASK:"):
