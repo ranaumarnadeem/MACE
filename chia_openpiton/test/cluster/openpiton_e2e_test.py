@@ -11,6 +11,12 @@ Run:
     RISCV=/home/you/scratch/riscv_install \
     pytest chia_openpiton/test/cluster/openpiton_e2e_test.py -q -s
 
+    # tier 2, GCP -- acceptance test 2, against an already-running
+    # `chia up cluster/local.yaml` cluster (head + a real GCP worker)
+    OPENPITON_TEST_GCP=1 \
+    OPENPITON_GCP_ROOT=/home/chia/openpiton \
+    pytest chia_openpiton/test/cluster/openpiton_e2e_test.py -q -s -k Acceptance2
+
 Tier 2 is gated because a real build needs a checkout, a RISC-V toolchain and
 Verilator. Fixtures skip rather than error when the environment is absent, per
 CHIA's own convention.
@@ -18,6 +24,12 @@ CHIA's own convention.
 The two-checkout requirement in the fan-out test is not incidental: OpenPiton's
 template preprocessor writes generated .tmp.v files into the source tree on
 every build, so concurrent builds must not share a checkout.
+
+Acceptance test 2 (GCP) must run from the cluster's head node (this attaches
+to the live cluster via ``ray.init(address="auto")`` rather than creating a
+fresh local one) and pins every dispatch to the GCP worker's node_id by hand
+-- see TestAcceptance2's docstring for why OpenPitonWorkspaceNode's normal
+placement-group pinning is not enough by itself on a multi-machine cluster.
 """
 
 from __future__ import annotations
@@ -30,6 +42,7 @@ import pytest
 ray = pytest.importorskip("ray")
 
 from chia.base.ChiaFunction import get  # noqa: E402
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy  # noqa: E402
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode  # noqa: E402
 from chia_openpiton.state_def import PitonConfig  # noqa: E402
@@ -38,6 +51,8 @@ REAL = os.environ.get("OPENPITON_TEST_REAL") == "1"
 ROOT = os.environ.get("OPENPITON_ROOT", "")
 ROOT_2 = os.environ.get("OPENPITON_ROOT_2", "")
 CORE = os.environ.get("OPENPITON_TEST_CORE", "ariane")
+GCP = os.environ.get("OPENPITON_TEST_GCP") == "1"
+GCP_ROOT = os.environ.get("OPENPITON_GCP_ROOT", "")
 
 # binutils 2.38+ split zicsr/zifencei out of base RV64I; OpenPiton's 2019 diags
 # need it spelled out. sims exposes this without patching anything.
@@ -45,6 +60,11 @@ ZICSR = ("-rv64_march=rv64imafdc_zicsr_zifencei",)
 
 real_only = pytest.mark.skipif(
     not REAL, reason="set OPENPITON_TEST_REAL=1 (and OPENPITON_ROOT) to run"
+)
+gcp_only = pytest.mark.skipif(
+    not GCP,
+    reason="set OPENPITON_TEST_GCP=1 (and OPENPITON_GCP_ROOT) against a live "
+    "'chia up cluster/local.yaml' cluster",
 )
 
 
@@ -169,3 +189,88 @@ class TestAcceptance3:
         finally:
             for n in nodes:
                 n.close()
+
+
+@pytest.fixture(scope="module")
+def ray_cluster():
+    """Attach to an already-running `chia up` cluster (head + GCP worker).
+
+    Unlike ray_local, this does not create a fresh local Ray -- it connects
+    to real multi-machine infrastructure that must already be up (this test
+    is meant to run from the cluster's head node). No ray.shutdown() on
+    teardown: this cluster belongs to `chia down`, not to this fixture.
+    """
+    if not GCP:
+        pytest.skip("tier-2-GCP not enabled")
+    ray.init(address="auto", ignore_reinit_error=True, log_to_driver=False)
+    yield
+
+
+@pytest.fixture(scope="module")
+def gcp_pin(ray_cluster):
+    """NodeAffinitySchedulingStrategy pinned to the GCP worker.
+
+    OpenPitonWorkspaceNode's own placement-group pinning (ColocatedNode)
+    reserves resource *shape*, not a specific machine. This cluster's two
+    node types both advertise the same "openpiton" resource name
+    (cluster/local.yaml: openpiton_local -> 2 slots on this WSL head,
+    openpiton_gcp -> 8 slots on a real GCP VM with a different filesystem
+    entirely) -- a vanilla PG bundle request for {"openpiton": 1} can
+    legally land on either. Matched here by resource count (8 vs 2) rather
+    than by IP: chia's tailnet relay renumbers node-manager addresses, so
+    IP matching would be fragile in a way resource count isn't.
+    """
+    candidates = [
+        n for n in ray.nodes()
+        if n.get("Alive") and n.get("Resources", {}).get("openpiton", 0) > 2
+    ]
+    if not candidates:
+        pytest.skip("no live Ray node advertising >2 openpiton slots (GCP worker not up?)")
+    return NodeAffinitySchedulingStrategy(node_id=candidates[0]["NodeID"], soft=False)
+
+
+@pytest.fixture(scope="module")
+def gcp_checkout():
+    if not GCP_ROOT:
+        pytest.skip("set OPENPITON_GCP_ROOT to the checkout path on the GCP worker")
+    return GCP_ROOT
+
+
+@gcp_only
+class TestAcceptance2:
+    """2x2 Ariane build+run on a real GCP worker.
+
+    Phase 1's long-deferred acceptance test: the same configure -> build ->
+    run shape as TestAcceptance1, but against real GCP compute instead of
+    this WSL host, and pinned to that specific worker by hand (see gcp_pin)
+    rather than trusting OpenPitonWorkspaceNode's default placement-group
+    reservation, which cannot tell this cluster's two same-named
+    "openpiton" pools apart.
+
+    Uses hello_world_many.c (not hello_world.c) and a matching finish_mask:
+    hello_world.c is only Verilator-validated upstream for a single tile
+    (ariane_tile1_simple); hello_world_many.c is the multi-tile-validated
+    counterpart (ariane_tile16_simple), which is what a 2x2 mesh needs.
+    """
+
+    def test_2x2_build_and_run_on_gcp(self, gcp_pin, gcp_checkout):
+        node = OpenPitonWorkspaceNode(
+            gcp_checkout, require_colocated=False, root_on_remote_worker=True
+        )
+        try:
+            cfg = get(node.configure.options(scheduling_strategy=gcp_pin).chia_remote(
+                x_tiles=2, y_tiles=2, core="ariane", extra_flags=ZICSR))
+            assert cfg.build_id.startswith("mace_")
+
+            art = get(node.build.options(scheduling_strategy=gcp_pin).chia_remote(
+                cfg, timeout_seconds=5400))
+            assert art.success, f"build failed ({art.failure_reason}): {art.stderr[-1500:]}"
+            assert art.binary_path
+
+            res = get(node.run.options(scheduling_strategy=gcp_pin).chia_remote(
+                cfg, "hello_world_many.c", finish_mask="1111",
+                rtl_timeout=10_000_000, timeout_seconds=1800))
+            assert res.verdict == "pass", f"verdict={res.verdict}: {res.sim_log_tail[-1500:]}"
+            assert res.success is True
+        finally:
+            node.close()
