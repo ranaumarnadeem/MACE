@@ -1,22 +1,19 @@
-"""End-to-end MACE loop: Planner -> parallel task execution -> metrics.
+"""End-to-end MACE loop: plan -> execute -> triage -> replan -> metrics.
 
-Composes every piece built in mace/ (spec, llm, planner, integrator,
-metrics) into one real run: a real LLM plans a task DAG for the given
-objective, integrate_parallel executes it against real OpenPiton
-checkouts, and mace.metrics records the result.
+Composes every piece built in mace/ into one real run via
+mace.orchestrator.run_mace_loop: a real LLM plans a task DAG, executes it
+against real OpenPiton checkouts, triages and replans on failure, and
+mace.metrics records every iteration -- until something passes or the
+spec's budget runs out.
 
 Deliberately depends on BOTH chia_openpiton and mace -- this script (not
 either package) is where the two compose, matching the project's layout
 rule: chia_openpiton never imports mace, and mace holds no driver script
 for a specific run. examples/ is the one place that mixes them.
 
-No tools are given to the LLM this run: the per-task prompt calls (both
-the Planner's and each task's, inside integrate_parallel) happen for real,
-but with nothing able to edit the checkout -- this proves the real
-plan -> execute -> record wiring without also handing a small, free model
-unsupervised write access to a working checkout. See mace.loop.
-run_mace_step's docstring for the same deliberate split (prove the wiring
-first, prove an LLM can write RTL separately).
+No tools are given to the LLM this run -- see mace.loop.run_mace_step's
+docstring for why (prove the wiring first, prove an LLM can write RTL
+separately).
 
 Run:
     conda activate chia_env
@@ -28,15 +25,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import time
 
 import ray
 
-from mace.integrator import integrate_parallel
 from mace.llm import make_llm
-from mace.metrics import finish_run, open_db, record_iteration, start_run, summary
-from mace.planner import PlanningError, plan
-from mace.spec import MaceSpec, Task
+from mace.metrics import open_db, summary
+from mace.orchestrator import run_mace_loop
+from mace.spec import Budget, MaceSpec
 
 
 def main() -> int:
@@ -49,6 +44,7 @@ def main() -> int:
         "--objective",
         default="Verify the barrier_atomic gate workload passes on a 1x1 mesh.",
     )
+    ap.add_argument("--max-iterations", type=int, default=3)
     ap.add_argument("--db-path", default=os.path.abspath("runs/mace_end_to_end.db"))
     args = ap.parse_args()
 
@@ -63,45 +59,33 @@ def main() -> int:
         objective=args.objective,
         core=args.core,
         target_mesh=(1, 1),
+        budget=Budget(max_iterations=args.max_iterations),
     )
     llm = make_llm("opencode", model=args.model)
-
     db = open_db(args.db_path, ray_placement=False)
-    run_id = start_run(db, spec)
-    print(f"run_id={run_id}")
 
-    print("\n--- planning (real LLM call) ---")
-    try:
-        tasks = plan(spec, llm)
-        for t in tasks:
-            print(f"  TASK {t.id}: deps={t.deps} kind={t.kind} spec={t.spec!r}")
-    except PlanningError as e:
-        print(f"planning failed, falling back to a single hand-written task: {e}")
-        tasks = (
-            Task(id="verify", deps=(), kind="workload", spec=spec.objective),
-        )
+    result = run_mace_loop(piton_roots, spec, llm, db)
 
-    print("\n--- executing ---")
-    started = time.time()
-    results = integrate_parallel(piton_roots, spec, tasks, llm)
-    wall_s = time.time() - started
-
-    for r in results:
-        verdict = r.run.verdict if r.run else None
-        print(
-            f"  {r.task.id}: passed={r.passed} "
-            f"build.success={r.build.success} verdict={verdict}"
-        )
-
-    record_iteration(db, run_id, 0, results, wall_s)
-    all_passed = bool(results) and all(r.passed for r in results)
-    finish_run(db, run_id, "passed" if all_passed else "failed")
+    print(f"run_id={result.run_id} status={result.status}")
+    for i, iteration_results in enumerate(result.iterations):
+        print(f"\n--- iteration {i} ---")
+        for r in iteration_results:
+            verdict = r.run.verdict if r.run else None
+            print(
+                f"  {r.task.id} ({r.task.kind}): passed={r.passed} "
+                f"build.success={r.build.success} verdict={verdict}"
+            )
+        for row in db.query(
+            "SELECT task_id, diagnosis, fix FROM failures WHERE run_id = ? AND iteration = ?",
+            (result.run_id, i),
+        ):
+            print(f"  triage[{row['task_id']}]: {row['diagnosis']} -- {row['fix']}")
 
     print(f"\n--- summary (db={args.db_path}) ---")
-    for key, value in summary(db, run_id).items():
+    for key, value in summary(db, result.run_id).items():
         print(f"  {key}: {value}")
 
-    return 0 if all_passed else 1
+    return 0 if result.status == "passed" else 1
 
 
 if __name__ == "__main__":
