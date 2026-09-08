@@ -65,6 +65,42 @@ class TestRootValidation:
             OpenPitonWorkspaceNode("/nope/does/not/exist", require_colocated=False)
 
 
+class TestRootOnRemoteWorker:
+    """root_on_remote_worker=True: for a checkout that only exists on a
+    different machine than whatever constructs the node (a real,
+    multi-machine cluster, not this test's stub setup) -- see
+    OpenPitonWorkspaceNode.__init__'s own docstring for why this is a
+    separate flag from require_colocated rather than inferred from it."""
+
+    def test_absolute_path_not_locally_present_is_accepted(self, tmp_path):
+        missing = str(tmp_path / "not-actually-here")
+        node = OpenPitonWorkspaceNode(
+            missing, require_colocated=False, root_on_remote_worker=True
+        )
+        assert node.piton_root == missing
+
+    def test_relative_path_is_still_rejected(self):
+        with pytest.raises(ValueError, match="absolute path"):
+            OpenPitonWorkspaceNode(
+                "relative/path", require_colocated=False, root_on_remote_worker=True
+            )
+
+    def test_requires_require_colocated_false(self):
+        """A self-reserved placement group can't promise it lands on the
+        machine holding piton_root, so pairing this with the default
+        require_colocated=True is a configuration mistake, not a valid
+        multi-machine setup -- must fail loudly, not silently reserve the
+        wrong machine."""
+        with pytest.raises(ValueError, match="require_colocated=False"):
+            OpenPitonWorkspaceNode("/some/remote/path", root_on_remote_worker=True)
+
+    def test_default_still_validates_locally(self, tmp_path):
+        """root_on_remote_worker defaults to False -- existing callers who
+        never pass it keep the original, always-check-locally behavior."""
+        with pytest.raises(ValueError, match="not a directory"):
+            OpenPitonWorkspaceNode(str(tmp_path / "missing"), require_colocated=False)
+
+
 class TestRootBinding:
     """Both call styles must work: bound instance members and raw class members."""
 

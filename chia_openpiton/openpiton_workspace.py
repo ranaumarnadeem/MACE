@@ -62,7 +62,7 @@ MODEL_BINARY = "obj_dir/Vcmp_top"
 BUILD_OK_MARKER = ".mace_build_ok"
 
 
-def _require_root(piton_root: object) -> str:
+def _require_root(piton_root: object, check_exists: bool = True) -> str:
     """Validate ``piton_root`` before anything touches the filesystem.
 
     This guard exists because of a real bug: the members are staticmethods with
@@ -70,6 +70,18 @@ def _require_root(piton_root: object) -> str:
     object sent a node where a path belonged. ``os.makedirs`` ran before the
     failure surfaced and created a directory literally named
     ``<...OpenPitonWorkspaceNode object at 0x...>``.
+
+    ``check_exists=False`` (only set via ``OpenPitonWorkspaceNode``'s explicit
+    ``root_on_remote_worker=True`` -- see its docstring; deliberately NOT
+    inferred from ``require_colocated``, which this test suite also passes
+    False just to skip placement-group reservation for fast local stub
+    testing, where the root very much should still be checked) skips the
+    local directory check and local ``abspath`` normalization: on a
+    multi-machine cluster the checkout can legitimately live only on a
+    remote worker, invisible to whatever process constructs the node. An
+    absolute-path check is the only thing this process can honestly verify
+    in that case -- a relative root would resolve against the wrong
+    machine's cwd wherever it actually dispatches.
     """
     if not isinstance(piton_root, str):
         raise ValueError(
@@ -79,6 +91,13 @@ def _require_root(piton_root: object) -> str:
         )
     if not piton_root.strip():
         raise ValueError("piton_root must not be empty")
+    if not check_exists:
+        if not os.path.isabs(piton_root):
+            raise ValueError(
+                f"piton_root must be an absolute path when root_on_remote_worker=True "
+                f"(it may live only on a remote worker), got {piton_root!r}"
+            )
+        return piton_root
     if not os.path.isdir(piton_root):
         raise ValueError(f"piton_root is not a directory: {piton_root!r}")
     return os.path.abspath(piton_root)
@@ -254,8 +273,30 @@ class OpenPitonWorkspaceNode(ColocatedNode):
     )
     _DEFAULT_BUNDLE = {"CPU": 1, "openpiton": 1}
 
-    def __init__(self, piton_root: str, **kwargs):
-        self.piton_root = _require_root(piton_root)
+    def __init__(self, piton_root: str, *, root_on_remote_worker: bool = False, **kwargs):
+        """See ColocatedNode.__init__ for the placement-related kwargs.
+
+        Args:
+            piton_root: OpenPiton checkout root. Must be a real, local
+                directory unless ``root_on_remote_worker`` says otherwise.
+            root_on_remote_worker: set True only when *piton_root* is known
+                to exist solely on a remote worker's filesystem (a
+                multi-machine cluster where this constructor necessarily
+                runs somewhere else) -- skips the local directory check
+                (which would always, incorrectly, fail) in favor of an
+                absolute-path check, and requires the caller to handle its
+                own dispatch placement (pass ``require_colocated=False`` and
+                pin scheduling itself; a self-reserved placement group would
+                reserve capacity on the wrong machine just as easily as
+                Ray's default scheduler would).
+        """
+        if root_on_remote_worker and kwargs.get("require_colocated", True):
+            raise ValueError(
+                "root_on_remote_worker=True requires require_colocated=False -- "
+                "a self-reserved placement group cannot promise which machine "
+                "it lands on, so it cannot promise the one holding piton_root."
+            )
+        self.piton_root = _require_root(piton_root, check_exists=not root_on_remote_worker)
         super().__init__(**kwargs)
         # Rebind each member with the root prepended, replacing the plain
         # PinnedChiaFn wrappers ColocatedNode.__init__ just installed.
