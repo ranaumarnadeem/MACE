@@ -76,7 +76,7 @@ worker_start_ray_commands:
 # --- Cloud nodes ---
 gcp_nodes:
     project: ${GCP_PROJECT}
-    zone: us-central1-a
+    zone: us-central1-b
     openpiton_gcp:
         # c2-standard-30 was the original size target, but this fresh GCP
         # project has a 12-vCPU-total default quota and zero quota for the
@@ -91,7 +91,13 @@ gcp_nodes:
         # just the RISC-V toolchain (real failure, first attempt) -- an
         # OpenPiton checkout + Verilator build artifacts need real headroom.
         disk_size_gb: 64
-        spot: true                     # cheaper; stretches the $100-$1500 budget
+        spot: false                    # spot e2-standard-8 hit stockout in both
+                                        # us-central1-a and -b within minutes of
+                                        # each other (confirmed via gcloud compute
+                                        # operations list -- ZONE_RESOURCE_POOL_
+                                        # EXHAUSTED_WITH_DETAILS/stockout both times);
+                                        # on-demand for this short diagnostic run,
+                                        # revert to spot for any longer-running use
         ssh_user: chia
         ssh_public_key: ${GCP_SSH_KEY}.pub
         ssh_private_key: ${GCP_SSH_KEY}
