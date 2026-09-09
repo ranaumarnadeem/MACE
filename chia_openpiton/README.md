@@ -104,7 +104,7 @@ Phase 1 acceptance, measured on this machine (Ariane, Verilator 5.049):
 | # | Check | Result |
 |---|---|---|
 | 1 | `configure` → `build` → `run(hello_world.c)` | pass, verdict from transcript |
-| 2 | 2×2 build on a GCP worker | deferred, pending credits |
+| 2 | 2×2 build on a GCP worker | blocked — real CHIA-side bug, filed as [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72) |
 | 3 | Parallel builds across two checkouts | pass — 176 s vs 324 s serial |
 | 4 | `chia viz` renders the example graph | pass |
 | 5 | Tier-0 tests on captured fixtures | pass (149 tests) |
