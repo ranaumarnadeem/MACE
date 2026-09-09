@@ -68,7 +68,7 @@ class TestMaceSpecValidation:
 
     def test_unknown_core_rejected(self):
         with pytest.raises(ValueError, match="core"):
-            make_spec(core="pico")
+            make_spec(core="mips")
 
     @pytest.mark.parametrize("bad", [(1,), (1, 1, 1), [1, 1]])
     def test_target_mesh_must_be_a_2tuple(self, bad):

@@ -40,7 +40,7 @@ class TestValidation:
 
     def test_unknown_core_rejected(self):
         with pytest.raises(ValueError, match="core"):
-            PitonConfig(core="pico")
+            PitonConfig(core="mips")
 
     def test_network_config_must_be_one_sims_accepts(self):
         """Unset makes sims default to '2d_mesh', a spelling pyhplib ignores."""
@@ -107,6 +107,13 @@ class TestSimsFlags:
     def test_sparc_does_not_pass_the_ariane_flag(self):
         """-ariane and the default SPARC path are mutually exclusive in sims."""
         assert "-ariane" not in PitonConfig(core="sparc").sims_flags()
+
+    def test_pico_flag_and_target_triple_present_only_for_pico(self):
+        flags = PitonConfig(core="pico").sims_flags()
+        assert "-pico" in flags
+        assert "-ariane" not in flags
+        assert "-rv32_target_triple=riscv64-unknown-elf" in flags
+        assert "-rv32_target_triple=riscv64-unknown-elf" not in PitonConfig(core="ariane").sims_flags()
 
     def test_config_rtl_becomes_one_flag_per_define(self):
         flags = PitonConfig(config_rtl=("MINIMAL_MONITORING", "PITON_X")).sims_flags()

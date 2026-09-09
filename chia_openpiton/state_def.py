@@ -25,10 +25,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Literal
 
-# Cores this adapter supports. OpenPiton also ships a PicoRV32 ("pico") tile,
-# but it needs a 32-bit toolchain nothing in the OpenPiton repo installs and
-# has no Verilator run job in OpenPiton's own CI, so it is out of scope.
-PitonCore = Literal["ariane", "sparc"]
+# Cores this adapter supports. "pico" (PicoRV32) has a complete upstream
+# non-coherent adapter (pico_l15_transducer.v et al.) but no riscv32-unknown-elf
+# toolchain exists on this machine or in OpenPiton's own CI; it reuses the
+# installed riscv64-unknown-elf-gcc as an rv32ima/ilp32 cross-compiler via
+# sims' own -rv32_target_triple override (see PitonConfig.sims_flags).
+PitonCore = Literal["ariane", "sparc", "pico"]
 
 # sims simulator selectors (-<sim>_build / -<sim>_run / -sim_type=<sim>).
 # Only "vlt" (Verilator) is license-free; the rest need commercial tools.
@@ -86,8 +88,8 @@ class PitonConfig:
     diff: str = ""
 
     def __post_init__(self) -> None:
-        if self.core not in ("ariane", "sparc"):
-            raise ValueError(f"core must be 'ariane' or 'sparc', got {self.core!r}")
+        if self.core not in ("ariane", "sparc", "pico"):
+            raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
         for axis, n in (("x_tiles", self.x_tiles), ("y_tiles", self.y_tiles)):
             if not isinstance(n, int) or isinstance(n, bool):
                 raise ValueError(f"{axis} must be an int, got {n!r}")
@@ -154,6 +156,16 @@ class PitonConfig:
         ]
         if self.core == "ariane":
             flags.append("-ariane")
+        elif self.core == "pico":
+            flags.append("-pico")
+            # No riscv32-unknown-elf toolchain exists on this machine (or is
+            # apt-packaged for this distro); the installed riscv64-unknown-elf-gcc
+            # supports rv32ima/ilp32 via multilib (confirmed:
+            # -print-multi-directory resolves cleanly to rv32ia/ilp32, and a
+            # real trial assemble+link of a pico diag succeeds). This makes
+            # piton/tools/bin/rv32_as invoke that compiler instead of sims'
+            # own default of the nonexistent "riscv32-unknown-elf".
+            flags.append("-rv32_target_triple=riscv64-unknown-elf")
         for unit in self.config_rtl:
             flags.append(f"-config_rtl={unit}")
         for name in sorted(self.caches):

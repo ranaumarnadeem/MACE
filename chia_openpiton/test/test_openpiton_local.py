@@ -166,6 +166,18 @@ class TestEnvironment:
         assert "VERILATOR_ROOT" not in env
         assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
 
+    def test_pico_needs_no_riscv_toolchain(self):
+        """pico reuses the installed riscv64-unknown-elf-gcc via a sims flag
+        (-rv32_target_triple, see PitonConfig.sims_flags) rather than any
+        _env_prefix PATH/env-var override -- it needs exactly what sparc
+        already gets: nothing beyond piton_settings.bash."""
+        from chia_openpiton.openpiton_workspace import _env_prefix
+
+        env = _env_prefix("/work/openpiton", "pico")
+        assert "ARIANE_ROOT" not in env
+        assert "VERILATOR_ROOT" not in env
+        assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
+
 
 class TestBuildArgv:
     def test_mesh_core_and_network_reach_sims(self, node, sims_argv):
@@ -179,6 +191,13 @@ class TestBuildArgv:
     def test_ariane_flag_present_only_for_ariane(self, node, sims_argv):
         node.build(PitonConfig(core="sparc"))
         assert "-ariane" not in sims_argv.last()
+
+    def test_pico_flags_present_only_for_pico(self, node, sims_argv):
+        node.build(PitonConfig(core="pico"))
+        argv = sims_argv.last()
+        assert "-pico" in argv
+        assert "-rv32_target_triple=riscv64-unknown-elf" in argv
+        assert "-ariane" not in argv
 
     def test_build_id_isolates_configurations(self, node, sims_argv):
         """Without -build_id every model would land in rel-0.1 and collide."""

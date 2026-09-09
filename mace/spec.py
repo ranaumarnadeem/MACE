@@ -54,8 +54,8 @@ class MaceSpec:
     budget: Budget = field(default_factory=Budget)
 
     def __post_init__(self) -> None:
-        if self.core not in ("ariane", "sparc"):
-            raise ValueError(f"core must be 'ariane' or 'sparc', got {self.core!r}")
+        if self.core not in ("ariane", "sparc", "pico"):
+            raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
         if not self.workloads:
             raise ValueError("workloads must be non-empty -- nothing to gate on")
         for w in self.workloads:

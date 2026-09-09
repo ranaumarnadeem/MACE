@@ -129,7 +129,11 @@ class TestAcceptance1:
             assert art.success, f"build failed ({art.failure_reason}): {art.stderr[-1500:]}"
             assert os.path.exists(art.binary_path)
 
-            test = "hello_world.c" if CORE == "ariane" else "princeton-test-test.s"
+            test = (
+                "hello_world.c" if CORE == "ariane"
+                else "addi.S" if CORE == "pico"
+                else "princeton-test-test.s"
+            )
             res = get(node.run.chia_remote(
                 cfg, test, rtl_timeout=1000000, timeout_seconds=1800))
             assert res.verdict == "pass", f"verdict={res.verdict}: {res.sim_log_tail[-1500:]}"
