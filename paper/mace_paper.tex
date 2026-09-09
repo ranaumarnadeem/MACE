@@ -250,8 +250,12 @@ runs -- no simulated numbers appear in this paper.
 (c) \sys{}, run 2        & 2006.56s & 5            & pass \\
 (c) \sys{}, run 3        & 1849.86s & 1            & pass \\
 (c) \sys{}, run 4        & 2179.84s & 2            & pass \\
+(c) \sys{}, run 5\textsuperscript{*} & 2118.02s & 2   & pass \\
 \bottomrule
 \end{tabular}
+
+\footnotesize{\textsuperscript{*}\texttt{producer\_consumer.c}, not \texttt{barrier\_atomic.c}
+like runs 1--4 -- real coverage of a second gate workload, not repeated success on one.}
 \end{center}
 
 \begin{center}
@@ -277,6 +281,12 @@ nominal objective into multiple dependent tasks (run~2, five tasks) rather than 
 \S\ref{sec:pico}'s PicoRV32 run and (a)'s 2x2 mesh are exactly the harder cases -- a novel core, an
 untested mesh shape -- where baseline~(b)'s one-shot design has no mechanism to recover from an
 incorrect first answer at all. By construction, it simply fails.
+
+One honest gap in our own evidence: the detect-failure~$\rightarrow$~diagnose~$\rightarrow$~replan~$\rightarrow$~pass
+cycle is proven at the mechanism level (a stateful stub simulator that fails once, then passes) but has not yet
+fired on real hardware across any of the five real runs above, including run~5, chosen specifically because the
+LLM had no prior converged-on answer for that workload. We report this directly rather than let five passing
+runs imply more than they show.
 
 Phase~2's own internal fan-out (two real tasks across two real checkouts, integrated and gated
 through the same path baseline~(c) uses) measured 30s parallel versus a 57s serial-equivalent,

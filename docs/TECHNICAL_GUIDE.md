@@ -334,22 +334,29 @@ TDD throughout. The three gaps identified after the first pass are closed:
 
 The loop has completed multiple real end-to-end runs against real Ariane
 hardware via `examples/mace_end_to_end.py`, recorded in
-`runs/mace_end_to_end.db`: four runs, all `status=passed`, wall times ranging
-roughly 1835s–2180s, task counts 1/5/1/2 across the runs — the varying task
-count is the Planner genuinely deciding different decompositions for the same
-nominal objective, not noise.
+`runs/mace_end_to_end.db`: five runs now, all `status=passed`, wall times
+ranging roughly 1835s–2180s, task counts 1/5/1/2/2 across the runs — the
+varying task count is the Planner genuinely deciding different
+decompositions for the same nominal objective, not noise. The fifth run is
+new evidence of a different kind: it targeted `producer_consumer.c`, never
+previously run through the full loop (the first four all used
+`barrier_atomic.c`), and passed cleanly — real confirmation the loop
+generalizes across gate workloads, not just repeatedly succeeding on one.
 
-**One honest gap worth knowing about:** the mechanism for detect-failure →
-diagnose → replan → eventually-pass is real and proven at tier 1 (a stateful
-stub `sims` that fails its first run, passes after). It is *not* separately
-documented as having happened end-to-end against **real hardware** — i.e., a
-real Verilator run actually failing, getting triaged, and a subsequent real
-run passing as a direct result. This is very likely achievable (gate
-workloads were deliberately designed to fail on naive configs, and the
-mechanism itself is proven), but if you want to strengthen the project's
-evidence, deliberately provoking and capturing this on real hardware — rather
-than assuming the four passing runs above did this incidentally — is
-genuine, well-scoped, valuable work.
+**One honest gap that's still open, now checked twice:** the mechanism for
+detect-failure → diagnose → replan → eventually-pass is real and proven at
+tier 1 (a stateful stub `sims` that fails its first run, passes after). It is
+*not* documented as having happened end-to-end against **real hardware** —
+a real Verilator run actually failing, getting triaged, and a subsequent
+real run passing as a direct result. The `producer_consumer.c` run above was
+deliberately chosen partly to try to provoke this (the LLM has no prior
+converged-on answer for that specific workload) — it didn't: `failures_recovered: 0`,
+and the `failures` table is confirmed still completely empty across all
+five real runs, checked directly against the database, not assumed. This
+remains genuine, well-scoped, valuable work if you want to strengthen the
+project's evidence — try an objective more likely to trip up a first guess
+(a less-common cache configuration, or a harder mesh), rather than assuming
+it'll happen incidentally.
 
 ### The PicoRV32 extension (§7 in the paper)
 
@@ -702,13 +709,19 @@ noted rather than silently deleted, so you can see what actually happened.
    (the gate workload used to be silently hardcoded to `barrier_atomic.c`
    regardless of `--objective` text).
 5. **A real hardware proof of the fail→triage→replan→pass cycle** (§7's
-   "one honest gap") — the `failures` table in `runs/mace_end_to_end.db` was
-   confirmed completely empty across all four existing real runs. A run
-   deliberately targeting `producer_consumer.c` (never previously run
-   through the full loop, so the LLM has no prior converged-on answer for
-   it) is in progress as of this writing specifically to try to close this
-   gap — check `runs/mace_end_to_end.db`'s `failures` table for real rows
-   before assuming it's still open.
+   "one honest gap") — still open, checked twice now. A run deliberately
+   targeting `producer_consumer.c` (never previously run through the full
+   loop, so the LLM had no prior converged-on answer for it) was tried
+   specifically to provoke this, on the theory that a first guess is more
+   likely to be wrong for a workload the model has no track record on. It
+   passed cleanly on the first try instead (`failures_recovered: 0`) — a
+   real, useful result in its own right (the loop now has real coverage of
+   two gate workloads, not one), but not this one. The `failures` table in
+   `runs/mace_end_to_end.db` is confirmed still completely empty across all
+   five real runs. If you want to close this, the more reliable lever is
+   probably a harder starting point (an unusual cache configuration, or a
+   larger mesh) rather than an unfamiliar workload — see §10's walkthrough
+   for how to kick one off.
 6. ~~The mystery file, `examples/run_barrier_atomic.py`~~ — **done**:
    committed, it's a real, useful manual driver for baseline (a).
 7. **Paper polish** — the architecture figure is done (Figure 1); the author
