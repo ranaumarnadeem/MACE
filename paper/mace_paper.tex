@@ -5,6 +5,8 @@
 \usepackage{hyperref}
 \usepackage{enumitem}
 \usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{4.5pt}
@@ -45,6 +47,36 @@ iterate-until-verified loop is actually necessary.
 \end{center}
 \vspace{1.2em}
 ]
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners, minimum height=0.6cm, minimum width=1.5cm,
+                align=center, font=\footnotesize, fill=gray!8, inner sep=2pt},
+    arr/.style={-{Latex[length=1.8mm]}, thick}
+  ]
+  \node[box] (req) {Requirement};
+  \node[box, right=0.12cm of req] (plan) {Planning};
+  \node[box, right=0.12cm of plan] (dec) {Task\\Decomposition};
+  \node[box, right=0.12cm of dec] (par) {Parallel\\Execution};
+  \node[box, right=0.12cm of par] (int) {RTL/System\\Integration};
+  \node[box, right=0.12cm of int] (ver) {Verification};
+  \node[box, right=0.12cm of ver] (fail) {Failure\\Analysis};
+  \node[box, right=0.12cm of fail] (iter) {Iteration};
+  \draw[arr] (req) -- (plan);
+  \draw[arr] (plan) -- (dec);
+  \draw[arr] (dec) -- (par);
+  \draw[arr] (par) -- (int);
+  \draw[arr] (int) -- (ver);
+  \draw[arr] (ver) -- (fail);
+  \draw[arr] (fail) -- (iter);
+  \draw[arr] (iter.south) -- ++(0,-0.4cm) -| (plan.south);
+\end{tikzpicture}
+\caption{The MACE pipeline. Verification gates every integrated change
+against real Verilator simulation, never a self-report; a failure triggers
+failure analysis and a replan (the loop back to Planning), not a bare retry.}
+\label{fig:pipeline}
+\end{figure*}
 
 \section{Introduction}
 
@@ -127,9 +159,7 @@ outside this project's own code (\S\ref{sec:limits}).
 \section{Phase 2: The \sys{} Loop}
 \label{sec:phase2}
 
-\textbf{Pipeline.} Requirement~$\rightarrow$~Planning~$\rightarrow$~Task
-Decomposition~$\rightarrow$~Parallel Agent Execution~$\rightarrow$~RTL/System
-Integration~$\rightarrow$~Verification~$\rightarrow$~Failure Analysis~$\rightarrow$~Iteration. A
+\textbf{Pipeline.} Figure~\ref{fig:pipeline} shows the full loop. A
 planning agent turns a \code{MaceSpec} (core, target mesh, gate workloads, objective, budget) into
 a task DAG; workers dispatch dependency-satisfied tasks in parallel via Ray, each pinned to its own
 checkout. A deterministic integrator -- no LLM in this step -- applies accepted diffs to the
