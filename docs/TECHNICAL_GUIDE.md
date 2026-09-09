@@ -8,7 +8,9 @@ explained here rather than assumed — that's deliberate, so you can pick this
 up without a separate crash course.
 
 For a quick "how do I run this" without the depth, see [`README.md`](../README.md)
-instead. This doc is the one to actually read start to end.
+instead — §9 and §10 below cover the same ground plus GCP clustering setup
+and a full walkthrough, in more depth. This doc is the one to actually read
+start to end.
 
 Everything below reflects the repository as it stands right now — every
 number, every file, every bug described was checked against the real source
@@ -486,42 +488,337 @@ figure (the pipeline is presented as text only).
   the actual current division of labor directly with the project owner
   rather than assuming the original split still holds.
 
-## 9. Open problems — genuinely scoped things you could pick up
+## 9. Setting up your own machine — especially the clustering side
+
+This section is for you specifically if your main work is the cluster/GCP
+side. Nothing about this project is Windows/WSL-specific — that's just the
+host this was developed on — everything below works the same on native
+Linux, only without the WSL layer.
+
+### 9.1 The local half (same on any machine)
+
+```bash
+conda create -n chia_env -c conda-forge --override-channels python=3.10.19
+conda activate chia_env
+
+git clone https://github.com/ucb-bar/chia.git
+pip install -e ./chia
+
+git clone https://github.com/ranaumarnadeem/MACE.git
+cd MACE
+pip install -e ".[test]"
+pytest chia_openpiton/test mace/test -q --ignore=chia_openpiton/test/cluster --ignore=mace/test/cluster
+```
+
+That last command should be green with no real hardware or cloud access at
+all — it's the right first checkpoint before touching GCP.
+
+For real builds (not just tier-0 tests), you also need a real OpenPiton
+checkout, patched once:
+
+```bash
+git clone https://github.com/PrincetonUniversity/openpiton.git ~/openpiton
+cd ~/openpiton && git checkout 1c6bfd2 \
+    && git submodule update --init --recursive piton/design/chip/tile/ariane
+bash /path/to/MACE/scripts/patch_openpiton.sh ~/openpiton
+```
+
+Build the checkout on **native Linux storage**, not a Windows-mounted path —
+`chia_openpiton/README.md` measured a 1×1 Ariane build at 37s on ext4 versus
+several minutes on `/mnt/c`, and (§7 above) a Windows-mounted checkout is
+where the symlink and CRLF bugs came from in the first place. If you're on
+WSL, clone into your Linux home directory (`~/openpiton`), not
+`/mnt/c/...`.
+
+You'll also need Verilator and (for Ariane) a `riscv64-unknown-elf` GCC
+covering `rv64imafdc`/`lp64d` on `PATH` — `apt install verilator` plus the
+prebuilt toolchain URL in `cluster/local.yaml`'s own `setup_commands` (search
+for `riscv-gnu-toolchain`) is exactly what the GCP worker setup below
+installs, and is the fastest way to get an identical local setup.
+
+### 9.2 Getting onto the same GCP project
+
+The project credits live under GCP project **`mace-508004`**. To actually
+share the same project (same quota, same billing, the exact setup that's
+already been proven to work) rather than standing up your own from scratch,
+two things need to happen — one on the project owner's side, one on yours.
+
+**The project owner grants you access, once:**
+
+```bash
+gcloud projects add-iam-policy-binding mace-508004 \
+    --member="user:her-email@example.com" \
+    --role="roles/compute.admin"
+```
+
+(Substitute the real email. `roles/compute.admin` is enough to create,
+list, and tear down GCE instances — if something's still denied, the
+fallback is `roles/editor`, broader but simpler.) This is a GCP Console/CLI
+action only the project owner can do — I can't grant this myself.
+
+**You then authenticate as yourself, once:**
+
+```bash
+gcloud auth login                                          # your own Google account
+gcloud config set project mace-508004
+gcloud auth application-default login
+gcloud auth application-default set-quota-project mace-508004
+pip install google-cloud-compute
+```
+
+Confirm the Compute Engine API is enabled on the project (`gcloud services
+list --enabled | grep compute` — ask the owner to enable it if it's missing,
+that's also a project-level action).
+
+**What does *not* need to be shared:** your SSH key (`GCP_SSH_KEY` — generate
+your own, e.g. `ssh-keygen -t ed25519`) and your Tailscale account/auth key
+(`TS_AUTHKEY` — sign up for your own free Tailscale account and generate a
+reusable auth key at `login.tailscale.com/admin/settings/keys`). These are
+per-machine: `cluster/local.yaml`'s `tailnet:` block has each `chia up`
+session build its own private tailnet between your own head and your own
+GCP worker — you don't need to be on the *same* tailnet as the project
+owner for your own cluster to work end-to-end, only the same GCP project
+for the compute quota/billing to line up.
+
+### 9.3 Bringing the cluster up
+
+```bash
+export HEAD_IP=$(hostname -I | awk '{print $1}')   # your machine's IP, for CHIA to SSH into
+export GCP_PROJECT=mace-508004
+export GCP_SSH_KEY=$HOME/.ssh/id_ed25519             # your own key from 9.2
+export TS_AUTHKEY=<your own reusable Tailscale auth key>
+
+chia up cluster/local.yaml
+# ray status  -- or ray.nodes() from Python -- should show your local node
+# and the GCP worker, both Alive, advertising {"openpiton": 2} and
+# {"openpiton": 8} respectively.
+```
+
+Read `cluster/local.yaml`'s own header comments before your first run — it
+documents the exact machine type, zone, and disk size this project already
+validated (`e2-standard-8`, `us-central1-b`, 64GB, on-demand not spot — the
+comments explain the real stockout/quota issues that produced these exact
+choices, worth knowing before you change any of them).
+
+**When you're done, always:**
+
+```bash
+chia down cluster/local.yaml
+gcloud compute instances list      # confirm zero running instances
+```
+
+Real, billed compute — check the instance list after every session, not just
+when something looks wrong. This project's own standing rule throughout: never
+assume a teardown succeeded, verify it.
+
+## 10. Run this yourself: a real Ariane walkthrough
+
+The safest, fastest thing to actually run and see pass — no GCP needed, just
+the local setup from §9.1.
+
+**Step 1 — drive the adapter directly** (a few minutes, mostly the build):
+
+```python
+from chia.base.ChiaFunction import get
+from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
+
+node = OpenPitonWorkspaceNode("/home/you/openpiton")
+cfg = get(node.configure.chia_remote(x_tiles=1, y_tiles=1, core="ariane"))
+print(cfg.build_id)                                    # e.g. mace_a1b2c3d4e5f6
+
+art = get(node.build.chia_remote(cfg))
+print(art.success, art.wall_time_s)                     # True, ~37-100s depending on storage
+
+res = get(node.run.chia_remote(cfg, "hello_world.c"))
+print(res.verdict)                                       # "pass"
+node.close()
+```
+
+What you should see: `art.success` is `True`, and `res.verdict` is the
+literal string `"pass"` — read from `sim.log`'s own
+`Simulation -> PASS (HIT GOOD TRAP)` line, not from a process exit code
+(§2 explains why that distinction matters). If `res.verdict` is anything
+else, check `res.sim_log_tail` first — it's the actual simulator transcript,
+and will tell you far more than a stack trace would.
+
+**Step 2 — run the full agentic loop** (30-40 minutes; it makes real LLM
+calls and real hardware builds, and currently prints nothing until the whole
+run finishes — see §12 below for why that's exactly the kind of thing a
+real CLI should fix):
+
+```bash
+conda activate chia_env
+python examples/mace_end_to_end.py \
+    --piton-root /home/you/openpiton \
+    --model opencode/big-pickle \
+    --max-iterations 3
+```
+
+You'll get a per-iteration breakdown and the five summary metrics
+(successful tasks, iterations, failures recovered, execution time, compute
+cost) at the end, and everything lands in `runs/mace_end_to_end.db` — you can
+query it directly:
+
+```python
+import sqlite3
+con = sqlite3.connect("runs/mace_end_to_end.db")
+for row in con.execute("SELECT run_id, status FROM runs"):
+    print(row)
+```
+
+**Step 3 — try the cluster version once §9 is set up:** the same
+`mace_end_to_end.py` command works unchanged once `chia up cluster/local.yaml`
+is running — `ray.init()` inside the script picks up whatever cluster is
+already live. Pass `--piton-root-2` pointing at a second checkout to see real
+parallel fan-out across two machines.
+
+## 11. Open problems — genuinely scoped things you could pick up
 
 Ordered roughly by value-per-effort, not urgency — none of these block the
-paper or the core submission, which stand on their own already.
+paper or the core submission, which stand on their own already. A few items
+from the last pass have since closed out; kept here with their outcome
+noted rather than silently deleted, so you can see what actually happened.
 
 1. **Waiting on [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72).**
    A real CHIA-side bug (task leases from the GCS never reach a
    tailnet-relayed worker's raylet, even though that worker's own outbound
    registration/heartbeat works fine — confirmed via a direct raylet
    state-dump during a patient, six-minute-budget retest, not a guess) is
-   filed upstream. If you're curious and have GCP time to spend, the next
-   real step is packet-level tracing on both the head's relay process and
-   the GCP worker's raylet to see whether a lease-assignment RPC is sent and
-   lost, or never sent at all — described precisely in the issue itself.
+   filed upstream. If you're curious and have GCP time to spend (§9 gets you
+   set up to try), the next real step is packet-level tracing on both the
+   head's relay process and the GCP worker's raylet to see whether a
+   lease-assignment RPC is sent and lost, or never sent at all — described
+   precisely in the issue itself.
 2. **A real 4×4 fix** — §7 above has the exact diagnosis; forcing a real
    `-j1` into Verilator's own generated build-step `make` invocation (not
    just the environment) would likely get an actual 4×4 pass/fail verdict,
-   strengthening baseline (a).
+   strengthening baseline (a). Not yet attempted.
 3. **Waveform-level tracing of the 2×2/pico hangs** — genuinely open, and
    genuinely deeper work than anything else in this project so far. Start
    from the exact divergence point described in §7: boot/reset/IOB completes
    identically to a passing run, then the core never traps.
-4. **`examples/mace_end_to_end.py`'s `--core` choices don't include `"pico"`**
-   yet, even though the adapter supports it. Small, real, quick fix.
+4. ~~`examples/mace_end_to_end.py`'s `--core` choices don't include `"pico"`~~
+   — **done**: `--core=pico` and a `--workload` flag are both now exposed
+   (the gate workload used to be silently hardcoded to `barrier_atomic.c`
+   regardless of `--objective` text).
 5. **A real hardware proof of the fail→triage→replan→pass cycle** (§7's
-   "one honest gap") — deliberately provoke a real gate failure on real
-   hardware and let the loop recover from it, rather than relying on the
-   four existing runs which may not have exercised this path.
-6. **The mystery file**, `examples/run_barrier_atomic.py` — needs a human
-   decision, not more investigation.
-7. **Paper polish** — real author names/affiliations, an architecture figure.
+   "one honest gap") — the `failures` table in `runs/mace_end_to_end.db` was
+   confirmed completely empty across all four existing real runs. A run
+   deliberately targeting `producer_consumer.c` (never previously run
+   through the full loop, so the LLM has no prior converged-on answer for
+   it) is in progress as of this writing specifically to try to close this
+   gap — check `runs/mace_end_to_end.db`'s `failures` table for real rows
+   before assuming it's still open.
+6. ~~The mystery file, `examples/run_barrier_atomic.py`~~ — **done**:
+   committed, it's a real, useful manual driver for baseline (a).
+7. **Paper polish** — the architecture figure is done (Figure 1); the author
+   byline is still the placeholder "MACE Team" and needs real names.
 8. **`docs/api/openpiton.rst`** — only matters if actually filing a PR to
    upstream CHIA; the checklist for that is in
    [`chia_openpiton/README.md`](../chia_openpiton/README.md)'s last section.
+9. **The CLI proposed in §12** — the biggest single piece of unstarted work
+   left, and probably the best next thing to pick up if you want a
+   substantial, self-contained project of your own within MACE.
 
-## 10. Where to find more
+## 12. Proposed future work: a real CLI
+
+There is currently no `mace` command. Using any of this means writing or
+copy-pasting Python driver scripts, remembering positional/keyword argument
+shapes, WSL paths, and environment variables by hand — fine for the people
+who wrote it, a real barrier for anyone else, including a hackathon judge
+who wants to try it themselves. This is a genuinely good, self-contained
+piece of work for exactly the "clustering/UX side" — it naturally needs to
+wrap both the local adapter calls and the `chia up`/`chia down` cluster
+lifecycle from §9.
+
+### What it should look like
+
+```
+mace doctor                                   # environment sanity check
+mace configure --piton-root PATH --core ariane --mesh 1x1
+mace build <config-id>
+mace run <config-id> <workload>
+mace loop --piton-root PATH --objective "..." --workload W --max-iterations N
+mace baseline one-shot --piton-root PATH
+mace cluster up | down | status
+mace results [--run-id ID]
+```
+
+`mace doctor` is worth building first: a read-only check that the toolchain,
+checkout, and patches (§7's four fixes) are actually in place, printing a
+clear pass/fail per check. It has no side effects, is trivial to test, and
+would have saved real time earlier in this project — most of the bugs in §7
+were discovered by a build failing partway through, not by a targeted
+check that could have caught them up front.
+
+### Libraries
+
+- **[Typer](https://typer.tiangolo.com/)** for the CLI framework. It's built
+  on Click but driven by ordinary Python type hints — and this codebase
+  already leans hard on typed dataclasses (`PitonConfig`, `MaceSpec`, `Task`),
+  so a Typer command built straight from a typed function signature is a
+  natural extension of the existing style, not a bolt-on. It gets you
+  subcommand groups, automatic `--help`, and shell completion for free.
+- **[Rich](https://rich.readthedocs.io/)** — Typer already depends on it for
+  help-text formatting, so it costs nothing extra to use its `Progress`/
+  `Console` for real incremental output during long operations. This
+  directly fixes a real problem: right now `mace_end_to_end.py` prints
+  *nothing* for the full 30-40 minutes a loop run takes — the CLI should
+  show which iteration/task is currently running, not go silent.
+- Expose the command via `pyproject.toml`'s `[project.scripts]` (not present
+  today — check for yourself) so `pip install -e .` puts a real `mace`
+  binary on `PATH`, e.g.:
+  ```toml
+  [project.scripts]
+  mace = "mace.cli:app"
+  ```
+
+### Testing strategy — mirror the project's existing tier convention
+
+The project already has a real, consistent tier-0/1/2 pattern (§6). Extend
+it to the CLI rather than inventing a separate scheme:
+
+- **Tier 0 — CLI-only, no Ray, no hardware.** Use
+  `typer.testing.CliRunner` (in-process, no subprocess, fast) to invoke
+  commands and assert on exit code, stdout, and stderr. Monkeypatch
+  whatever the command calls underneath (`OpenPitonWorkspaceNode`,
+  `run_mace_loop`, etc.) exactly the way `chia_openpiton/test/`'s stub
+  `sims` pattern already does — this tier tests argument parsing,
+  validation, and error messages, never real dispatch. Include a **golden
+  test on `--help` output** for every command — cheap, and it catches a
+  silently renamed or removed flag immediately.
+- **Tier 1 — CLI + real Ray, stub hardware.** Invoke the CLI against a real
+  local Ray instance with the stub `sims` staged (reuse the existing
+  fixtures under `chia_openpiton/test/conftest.py`), to prove the CLI
+  actually reaches `chia_remote` correctly, not just that it parses flags.
+- **Tier 2 — CLI + real hardware.** A small number of true end-to-end
+  invocations, gated behind the same `OPENPITON_TEST_REAL=1` /
+  `OPENPITON_TEST_GCP=1` env vars the rest of the project already uses —
+  e.g. actually shelling out to `mace configure && mace build && mace run`
+  against a real checkout and asserting on the real exit code.
+- **Exit-code contract tests.** Every example script in this repo already
+  follows the convention "0 on success, 1 on failure" — the CLI must too,
+  since anything that scripts around it (CI, a judge's own quick check)
+  will rely on that.
+
+Put these under `mace/cli/test/`, wired into the same `testpaths` list in
+`pyproject.toml` the existing tiers use, so `pytest` picks them up without
+a separate invocation to remember.
+
+### Suggested build order (smallest slice first, same discipline as Phase 1/2)
+
+1. `mace doctor` — no side effects, easiest to get fully tested, immediately
+   useful on its own.
+2. `mace configure` / `build` / `run` — thin wrappers around already-tested
+   adapter calls; the risk here is in the CLI plumbing, not the underlying
+   logic.
+3. `mace loop` — wraps `run_mace_loop`, with a Rich progress display driven
+   by polling `mace.metrics` (or, better, by adding real iteration
+   callbacks to the loop itself — a small, real enhancement to `mace/`).
+4. `mace cluster up|down|status` — wraps `chia up`/`chia down`/`ray status`.
+5. `mace results` — a formatted reader over `mace.metrics.summary()`.
+
+## 13. Where to find more
 
 - [`README.md`](../README.md) — quickstart, install, the four ways to run
   MACE.
@@ -540,3 +837,6 @@ paper or the core submission, which stand on their own already.
   status, but worth reading if you want the full narrative of how the GCP
   finding was reached, including a wrong turn that was caught and corrected.
 - `CHIA_proposal.pdf` — the original hackathon proposal.
+- `cluster/local.yaml` — read its header comments directly before your first
+  `chia up`; they carry the exact machine type/zone/quota decisions and why,
+  in more operational detail than §9 above repeats.
