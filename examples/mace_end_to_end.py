@@ -38,8 +38,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--piton-root", required=True, help="First OpenPiton checkout")
     ap.add_argument("--piton-root-2", default=None, help="Second checkout, for fan-out")
-    ap.add_argument("--core", default="ariane", choices=("ariane", "sparc"))
+    ap.add_argument("--core", default="ariane", choices=("ariane", "sparc", "pico"))
     ap.add_argument("--model", default="opencode/big-pickle")
+    ap.add_argument("--workload", default="barrier_atomic.c")
     ap.add_argument(
         "--objective",
         default="Verify the barrier_atomic gate workload passes on a 1x1 mesh.",
@@ -55,7 +56,7 @@ def main() -> int:
     ray.init(resources={"openpiton": len(piton_roots), "opencode_creds": len(piton_roots)})
 
     spec = MaceSpec(
-        workloads=("barrier_atomic.c",),
+        workloads=(args.workload,),
         objective=args.objective,
         core=args.core,
         target_mesh=(1, 1),
