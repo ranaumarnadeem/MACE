@@ -12,3 +12,9 @@ dist/
 # Loop run artifacts: caches, metrics DBs, logs, collected simulation output.
 runs/
 *.db
+
+# LaTeX build junk -- only paper/*.tex and paper/*.pdf are committed.
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc

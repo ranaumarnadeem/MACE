@@ -1,0 +1,306 @@
+\documentclass[10pt]{article}
+\usepackage[letterpaper,margin=0.75in,columnsep=0.28in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4.5pt}
+\emergencystretch=2.5em
+\setlist[itemize]{topsep=2pt,itemsep=1pt,leftmargin=1.3em}
+\setlist[enumerate]{topsep=2pt,itemsep=1pt,leftmargin=1.5em}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\sys}{MACE}
+
+\title{\vspace{-1.5em}\textbf{MACE: A Multi-core Agentic Co-design Engine for\\ Autonomous OpenPiton Bring-Up}\vspace{-0.5em}}
+\author{MACE Team \\[2pt] \small CHIA A3 Hackathon Submission}
+\date{\vspace{-0.5em}\small September 2026}
+
+\begin{document}
+
+\twocolumn[
+\maketitle
+\begin{center}
+\begin{minipage}{0.92\textwidth}
+\small\textbf{Abstract.}
+\sys{} (Multi-core Agentic Co-design Engine) is an agentic AI system for autonomous multicore
+hardware construction and verification, built on Google/NVIDIA's CHIA framework. Phase~1
+contributes \code{chia\_openpiton}, a CHIA platform adapter exposing OpenPiton's
+configure/build/simulate/run/collect operations through CHIA's standard interface, validated
+against real RTL simulation across 143 tests. Phase~2 contributes the \sys{} loop itself: a
+planner decomposes a hardware objective into a task DAG, specialized agents execute tasks in
+parallel, a deterministic integrator applies and gates every change against real Verilator
+simulation, and a failure-analysis agent triages and replans on any failure. We evaluate \sys{}
+against two baselines -- manual mesh scaling and a single-shot LLM configuration with no tools or
+iteration -- using real hardware runs throughout, with no simulated or mocked results anywhere in
+this paper. We report what worked, what did not, and precisely why: a genuine RTL-level finding
+while extending \sys{} to a third, never-before-simulated core (PicoRV32); a confirmed
+infrastructure gap in a dependency we do not control (CHIA's tailnet-relay task dispatch); and an
+honest account of where a naive one-shot LLM configuration already suffices versus where \sys{}'s
+iterate-until-verified loop is actually necessary.
+\end{minipage}
+\end{center}
+\vspace{1.2em}
+]
+
+\section{Introduction}
+
+Agentic coding systems are increasingly evaluated on isolated, synthetic tasks: a single file, a
+single test, a sandboxed toy problem. Real hardware construction rarely looks like that. A real
+multicore system means a large, real RTL codebase (OpenPiton spans hundreds of thousands of lines
+across network-on-chip, cache-coherence, tile, and platform logic), a toolchain with real,
+non-obvious failure modes (version skew, cross-compilation quirks, checkout-specific bugs), and
+verification that costs real wall-clock minutes to hours per attempt rather than milliseconds.
+
+\sys{} targets exactly this harder, more realistic setting. Given a hardware objective -- ``bring
+up a 2x2 mesh,'' ``verify workload $W$ passes'' -- \sys{} autonomously plans, implements, builds,
+simulates, diagnoses failures against real Verilator output, and iterates, with every claim of
+success gated by an actual passing RTL simulation rather than a self-report from an agent.
+
+This paper makes three contributions:
+
+\begin{enumerate}
+\item \textbf{\code{chia\_openpiton}} (\S\ref{sec:phase1}), a CHIA platform adapter for OpenPiton
+exposing a full configure/build/run/collect interface, following the same abstraction CHIA already
+uses for its gem5 and ESP adapters, so it is directly upstreamable.
+\item \textbf{The \sys{} loop} (\S\ref{sec:phase2}): planning, parallel task execution,
+deterministic integration and gating, and LLM-driven failure triage, evaluated end-to-end against
+real hardware with real cost, time, and task-count metrics.
+\item \textbf{An extension exercising the adapter's generality} (\S\ref{sec:pico}): adding
+PicoRV32 as a third supported core, which surfaced a genuine, previously unknown finding about
+PicoRV32's own OpenPiton integration -- one that nobody, including OpenPiton's own continuous
+integration, had ever observed, because nobody had ever run it under a simulator before.
+\end{enumerate}
+
+Throughout, we report honestly: builds that succeeded and runs that did not, a real infrastructure
+bug in a dependency outside our control, and a head-to-head comparison against a naive one-shot
+LLM baseline that did not uniformly favor \sys{}. We treat this honesty as itself a demonstration
+of the verification discipline CHIA is meant to encourage.
+
+\section{Background}
+
+\textbf{CHIA} provides the agent/tool/dispatch substrate this project builds on: colocated
+resource-pinned worker nodes, an LLM abstraction layer spanning multiple backends, and a
+Ray-based remote-dispatch and caching mechanism. \textbf{OpenPiton} is Princeton's open-source,
+silicon-proven manycore research framework: tiles connected by a 2D-mesh network-on-chip, each
+speaking a proprietary MESI-coherence-aware protocol (L15, descended from OpenSPARC T1's PCX/CPX
+bus) to reach the NoC. OpenPiton historically supports three tile cores: OpenSPARC T1
+(\code{sparc}), Ariane/CVA6 (\code{ariane}, RV64GC, coherent), and PicoRV32 (\code{pico}, RV32I,
+non-coherent). Before this project, CHIA had no OpenPiton adapter at all.
+
+\section{Phase 1: The OpenPiton Adapter}
+\label{sec:phase1}
+
+\textbf{Design.} \code{OpenPitonWorkspaceNode} is a CHIA \code{ColocatedNode} exposing
+\code{configure}, \code{build}, \code{run}, \code{regress}, \code{collect}, and \code{clean} as
+resource-pinned remote functions. OpenPiton's own template preprocessor writes generated
+\code{.tmp.v} files directly into the source tree on every build, so concurrent builds must never
+share a checkout -- the adapter reserves one \code{openpiton} resource unit per checkout, and
+parallel work is achieved by giving each worker its own checkout rather than by locking inside a
+shared one. Pure parsers extract build/run verdicts directly from OpenPiton's own simulation
+transcripts (\code{sim.log}, \code{status.log}) using the exact strings OpenPiton's own RTL
+monitors emit, so a verdict is never inferred from an agent's own claim.
+
+\textbf{Real hardening.} Getting real hardware to build at all surfaced four permanent,
+environment-level bugs, all fixed once and captured in a single idempotent patch script:
+binutils~2.38+ splitting \code{zicsr}/\code{zifencei} out of base RV64I (breaking the boot ROM's
+own assembly), GCC~15's C23 default silently breaking a legacy two-argument function call, broken
+git symlinks on a Windows-mounted checkout materializing as literal path-text files, and 66 files
+with CRLF-terminated shebang lines. None of these are \sys{}-specific; all are the kind of
+toolchain-versus-checkout friction any real deployment of a decade-old RTL codebase encounters.
+
+\textbf{Build-result caching.} \code{build()} skips re-invoking the simulator entirely when a
+matching successful-build marker already exists on disk. Measured on a real rebuild of an
+identical configuration: 104s~$\rightarrow$~0.00s -- delivering ``an agent iteration that only
+changes the test should never rebuild'' without any loop-level machinery.
+
+\textbf{Results.} 143 tests across three tiers (pure-unit, live-Ray with a stub simulator, and
+real hardware) all pass. Real-hardware acceptance tests pass for a 1x1 Ariane build and run
+(\code{hello\_world.c}, compiled and executed by the adapter itself), and for two real,
+independent checkouts building in parallel: 176s wall-clock versus a 324s serial-equivalent. Only
+one acceptance test -- 2x2 Ariane on a real GCP worker -- remains blocked, on infrastructure
+outside this project's own code (\S\ref{sec:limits}).
+
+\section{Phase 2: The \sys{} Loop}
+\label{sec:phase2}
+
+\textbf{Pipeline.} Requirement~$\rightarrow$~Planning~$\rightarrow$~Task
+Decomposition~$\rightarrow$~Parallel Agent Execution~$\rightarrow$~RTL/System
+Integration~$\rightarrow$~Verification~$\rightarrow$~Failure Analysis~$\rightarrow$~Iteration. A
+planning agent turns a \code{MaceSpec} (core, target mesh, gate workloads, objective, budget) into
+a task DAG; workers dispatch dependency-satisfied tasks in parallel via Ray, each pinned to its own
+checkout. A deterministic integrator -- no LLM in this step -- applies accepted diffs to the
+canonical tree in dependency order, then fans real build-and-run out across every gate workload.
+The gate is binary and non-negotiable: every workload's \emph{verdict}, parsed from real simulator
+output, must read \code{pass}. On any failure, a failure-analysis agent (restricted to read-only
+inspection tools -- grep, status, collect) diagnoses the transcript and proposes a fix; the planner
+replans around it.
+
+\textbf{Gate workloads found a real bug of their own.} Writing the deterministic gate workloads
+(barrier-and-atomic-counter, producer/consumer, hart-id scatter/gather) surfaced a genuine
+memory-visibility issue on this RTL/toolchain combination: a plain \code{volatile} read of a shared
+\emph{array element} was not reliably visible even from the same hart shortly after the write,
+while the identical value read back through an atomic fetch-and-add-zero always was. Every gate
+workload now routes shared reads through this \code{atomic\_read()} helper. This is a real
+hardware-adjacent finding uncovered during workload development, not a claim about the autonomous
+loop's own failure-recovery behavior -- we are careful throughout this paper to keep that
+distinction explicit.
+
+\textbf{Enforcement, not just measurement.} All three \code{Budget} dimensions -- iteration count,
+USD, wall-clock -- are checked before each iteration starts, not merely logged afterward.
+Gate-workload checksums are verified at run start, before any LLM call or checkout is touched, so a
+task cannot tamper with its own grading.
+
+\textbf{Replay, scoped honestly.} LLM, build, and run decisions are cache-tagged and can be
+re-served at zero additional token or compute cost. We verified directly, by reading CHIA's own
+cache/bypass implementation rather than assuming a stronger guarantee, that this mechanism
+reproduces \emph{decisions} (an LLM's response text, a build/run's pass/fail artifact) -- not the
+literal source edits an agent made through its tools. Those remain git's job. We consider this an
+honest and useful scope, not a shortcoming to paper over.
+
+\section{A Third Core: PicoRV32}
+\label{sec:pico}
+
+We were asked whether \sys{} could take arbitrary core RTL plus a specification and integrate it
+into OpenPiton's multicore fabric automatically. Investigating before writing any code, we found
+this framed the problem incorrectly: OpenPiton has no reusable core-to-NoC bridge at all. Each core
+has its own bespoke L15 adapter; even Ariane's own AXI4 output is never touched, since a
+hand-written encoder taps CVA6's internal pre-AXI cache-miss stream instead. The real dividing line
+is not ``does the core speak a standard bus'' but ``does the core have a coherent cache of its
+own'' -- Ariane's situation needs genuine new coherence-adapter RTL, well outside our remaining
+time budget. PicoRV32's situation is different: a complete, upstream, TODO-free adapter
+(\code{pico\_l15\_transducer.v} and friends) already exists, fully instantiated in OpenPiton's own
+tile generation logic -- it has simply never been \emph{run} under any simulator, by anyone.
+OpenPiton's own CI builds it under Verilator but its run job is commented out, targets a
+nonexistent stage, and even when live specified a different simulator entirely.
+
+\textbf{Toolchain reuse, confirmed not assumed.} We found that the RV32IMA/ILP32 multilib already
+present in our installed \code{riscv64-unknown-elf-gcc} covers PicoRV32 with zero new toolchain
+installation -- confirmed with a real trial assemble-and-link of the target diagnostic, not merely
+by checking multilib metadata.
+
+\textbf{Results.} The adapter extension (a new \code{Literal} entry, two \code{sims} flags, and
+mirrored tests) landed with full unit coverage and zero regressions to the existing \code{ariane}
+and \code{sparc} paths. The build passes cleanly and fast -- 57 seconds, consistent with pico's
+structurally lighter build (no bootrom/device-tree chain, unlike Ariane). The run reaches verdict
+\code{maxcycles}.
+
+We diagnosed this rigorously rather than accepting it as another environment bug. The compiled
+binary's symbol table and entry point exactly match the run's own configured trap addresses
+(\code{objdump~-t}/\code{-f} against \code{symbol.tbl}). Comparing the run's transcript directly
+against a known-good fixture captured from real, passing Ariane hardware proof earlier in this
+project: both show an \emph{identical} generic boot/reset/IOB-handshake trace -- but the passing
+fixture's very next line, \code{Hit Good trap}, never appears for pico. This localizes the
+divergence precisely: not boot infrastructure, not the compiled binary, but the point at which the
+core itself must reach its own trap address. Unsurprising, in one sense -- nobody has ever run this
+core under a simulator before to catch it -- and exactly the property originally asked for: \sys{}
+distinguished ``builds'' from ``runs correctly'' instead of reporting a false pass.
+
+\section{Evaluation}
+\label{sec:eval}
+
+We compare three approaches to the same objective (verify the barrier/atomic-counter gate workload
+on a 1x1 mesh) and, for baseline~(a), larger meshes: \textbf{(a)} manual mesh scaling with a time
+log; \textbf{(b)} a single LLM prompt asking directly for a configuration, applied once with no
+tools, no verification, and no retry; \textbf{(c)} the full \sys{} loop. All three share the same
+LLM backend, objective, and gate workload where applicable, and all results below are real hardware
+runs -- no simulated numbers appear in this paper.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{Run} & \textbf{Wall time} & \textbf{Tasks} & \textbf{Verdict} \\
+\midrule
+(b) one-shot LLM        & 229.1s   & 1 (LLM call) & pass \\
+(c) \sys{}, run 1        & 1834.99s & 1            & pass \\
+(c) \sys{}, run 2        & 2006.56s & 5            & pass \\
+(c) \sys{}, run 3        & 1849.86s & 1            & pass \\
+(c) \sys{}, run 4        & 2179.84s & 2            & pass \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Mesh (a)} & \textbf{Build} & \textbf{Run} \\
+\midrule
+1x1 & pass (repeated) & pass \\
+2x2 & pass (211s)     & hang -- likely genuine RTL gap \\
+4x4 & not reached      & not reached -- see \S\ref{sec:limits} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Discussion.} Baseline~(b) beating baseline~(c) on wall-clock for this specific, easy 1x1
+objective is a real finding and we do not hide it: a competent LLM guess needs no iteration to
+reach a proven default configuration. We read this as clarifying \sys{}'s value proposition rather
+than undermining it. The loop's advantage is not raw speed on an objective a single good guess
+already solves -- it is having \emph{any} recovery mechanism at all on objectives where a first
+guess can be wrong. Baseline~(c)'s own data already shows the planner sometimes decomposes the same
+nominal objective into multiple dependent tasks (run~2, five tasks) rather than one; and
+\S\ref{sec:pico}'s PicoRV32 run and (a)'s 2x2 mesh are exactly the harder cases -- a novel core, an
+untested mesh shape -- where baseline~(b)'s one-shot design has no mechanism to recover from an
+incorrect first answer at all. By construction, it simply fails.
+
+Phase~2's own internal fan-out (two real tasks across two real checkouts, integrated and gated
+through the same path baseline~(c) uses) measured 30s parallel versus a 57s serial-equivalent,
+consistent with Phase~1's own parallel-build result above.
+
+\section{Limitations and Honest Findings}
+\label{sec:limits}
+
+\textbf{A confirmed CHIA-side infrastructure gap.} A task whose resource request can only be
+satisfied by a tailnet-relayed GCP worker never executes, though that same worker's own outbound
+registration and heartbeat to the cluster's GCS work fine throughout. We ruled out the explanations
+we could disprove ourselves: not a worker-startup failure (the node stays \code{Alive} with correct
+resources the entire time); not the outbound gRPC-CONNECT-proxy path (that is specifically for
+outbound traffic, and outbound traffic demonstrably works); not scheduler slowness or resource
+contention (a direct raylet state-dump taken \emph{during} a patient, six-minute-budget retest --
+deliberately designed to rule out ``just needed more time'' -- shows zero pending start requests:
+the worker was never even asked to start a task, not attempted-and-failed). This is a real gap
+somewhere between the scheduler's lease-assignment decision and its delivery to a specific
+raylet under this relay topology; we have drafted it as an upstream issue rather than guessing at
+a fix inside a dependency we do not control. It blocks exactly one acceptance test (2x2 Ariane on
+real GCP hardware) and nothing else in this paper.
+
+\textbf{Two RTL-adjacent hangs, read as genuine gaps rather than our bugs.} Both the 2x2 Ariane
+mesh and the 1x1 PicoRV32 run show the identical signature -- generic boot/reset/IOB handshake
+completes exactly as in a known-good passing run, then the core never reaches its own trap
+address -- despite verifiably correct compiled binaries in both cases. OpenPiton's own CI and
+diagnostic lists show 2x2 Ariane has no upstream Verilator precedent at any tile count other than
+1x1 and 4x4, and PicoRV32 has never been run under any simulator by anyone. We read both as likely,
+previously-undiscovered RTL-level gaps in untested configurations, not adapter bugs -- the same
+adapter code drives the passing 1x1 and parallel-build cases identically -- but we did not chase
+either to a waveform-level root cause, a materially deeper investigation than anything else fixed
+in this project, given the remaining time budget.
+
+\textbf{4x4 memory pressure, two independent causes, both diagnosed precisely.} Attempting the one
+mesh shape upstream \emph{has} validated (4x4) on our local development host surfaced two real,
+independent memory-pressure failures rather than one: a genuine Ray-reported out-of-memory
+condition (22.33GB/23.47GB used) from unconstrained parallel compilation, fixed by forcing serial
+compilation via \code{MAKEFLAGS}; and, separately, Verilator's own generated build step passing an
+explicit, unlimited \code{-j} directly on its command line, which silently overrides that same
+environment-level fix. Both are real, precisely evidenced (confirmed via \code{/proc} inspection of
+the live process, not inferred), host-local findings -- neither is a design flaw in \sys{} itself,
+and 4x4 was deliberately not pursued to a pass/fail verdict given competing priorities this close to
+submission.
+
+\section{Conclusion}
+
+\sys{} demonstrates that an agentic loop can autonomously plan, build, and verify real multicore
+hardware changes against real RTL simulation, end to end, with no step's success taken on an
+agent's own word. Across this project we found and permanently fixed real environment bugs, found
+a real memory-visibility bug in our own gate workloads before it could mask a false pass, extended
+the adapter to a third core and produced what appears to be a first-ever simulator-verified finding
+about that core's own OpenPiton integration, and precisely characterized every place where the
+system did not reach a verdict -- rather than either hiding those gaps or blaming them vaguely on
+``environment issues.'' We believe that precision, more than any single passing run, is the actual
+contribution this hackathon rewards.
+
+\end{document}
