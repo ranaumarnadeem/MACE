@@ -89,7 +89,9 @@ def main() -> int:
     args = ap.parse_args()
 
     piton_root = os.path.abspath(args.piton_root)
-    ray.init(resources={"openpiton": 1, "opencode_creds": 1})
+    # address="local": see examples/mace_end_to_end.py's ray.init() comment --
+    # avoids silently attaching to a stale torn-down cluster's marker.
+    ray.init(address="local", resources={"openpiton": 1, "opencode_creds": 1})
 
     if not args.skip_agent:
         print("--- agent editing RTL ---")

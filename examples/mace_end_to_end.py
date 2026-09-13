@@ -53,7 +53,14 @@ def main() -> int:
         os.path.abspath(p) for p in (args.piton_root, args.piton_root_2) if p
     )
     os.makedirs(os.path.dirname(args.db_path), exist_ok=True)
-    ray.init(resources={"openpiton": len(piton_roots), "opencode_creds": len(piton_roots)})
+    # address="local" forces a brand-new local instance regardless of any stale
+    # /tmp/ray/ray_current_cluster marker left by an earlier torn-down cluster
+    # (e.g. a `chia up`/`chia down` session) -- without it, ray.init() can
+    # silently try to attach to that dead address instead of starting fresh.
+    ray.init(
+        address="local",
+        resources={"openpiton": len(piton_roots), "opencode_creds": len(piton_roots)},
+    )
 
     spec = MaceSpec(
         workloads=(args.workload,),
