@@ -58,7 +58,14 @@ available_node_types:
         resources: {"openpiton": 8}
         num_workers: 1
         compatible_ips: ["@openpiton_gcp:0"]
-        worker_env_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env"]
+        # MAKEFLAGS=-j1: a real 2x2 Ariane build attempt crashed this worker
+        # (Ray heartbeat-missed, matching the exact OOM signature already
+        # diagnosed locally for 4x4 -- unconstrained parallel cc1plus during
+        # Verilator's C++ compile). Setting this in the DRIVER script's own
+        # os.environ does NOT reach a remotely-dispatched task's environment
+        # -- that comes from how the worker's own Ray process was started, so
+        # it has to be set here, in the environment that process inherits.
+        worker_env_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env && export MAKEFLAGS=-j1"]
 
 head_env_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env"]
 head_setup_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env"]
@@ -81,10 +88,16 @@ gcp_nodes:
         # c2-standard-30 was the original size target, but this fresh GCP
         # project has a 12-vCPU-total default quota and zero quota for the
         # C2 family specifically (both real, confirmed via direct gcloud
-        # create attempts, not assumptions) -- e2-standard-8 is the largest
-        # E2 size (a quota-enabled family here) that fits under the cap.
-        # Revisit once/if a quota increase is requested and granted.
-        machine_type: e2-standard-8
+        # create attempts, not assumptions) -- 8 vCPUs is the largest count
+        # that fits under the cap. e2-standard-8 (8 vCPU/32GB) crashed mid-build
+        # on a real 2x2 Ariane attempt -- Ray heartbeat-missed, the same OOM
+        # signature already diagnosed locally for 4x4 (unconstrained parallel
+        # cc1plus during Verilator's C++ compile). e2-highmem-8 keeps the same
+        # 8 vCPUs (same quota footprint) but roughly doubles memory to ~64GB,
+        # for headroom against that same failure mode -- paired with the
+        # MAKEFLAGS=-j1 fix above. Revisit machine family entirely if a quota
+        # increase is ever requested and granted.
+        machine_type: e2-highmem-8
         count: 1
         image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64
         # The image's own default boot disk (~10GB) ran out of space extracting
