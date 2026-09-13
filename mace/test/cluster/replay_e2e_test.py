@@ -48,7 +48,9 @@ def _write_yaml(content: str, tmp_path, name: str) -> str:
 
 @pytest.fixture(scope="module")
 def ray_local():
-    ray.init(ignore_reinit_error=True, log_to_driver=False)
+    # address="local": forces a fresh local instance regardless of any stale
+    # /tmp/ray/ray_current_cluster marker from an earlier torn-down cluster.
+    ray.init(address="local", ignore_reinit_error=True, log_to_driver=False)
     yield
     ray.shutdown()
 

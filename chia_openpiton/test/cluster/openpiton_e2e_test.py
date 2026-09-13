@@ -77,7 +77,14 @@ def ray_local():
     fan-out test.
     """
     slots = 2 if ROOT_2 else 1
-    ray.init(resources={"openpiton": slots}, ignore_reinit_error=True, log_to_driver=False)
+    # address="local": forces a fresh local instance regardless of any stale
+    # /tmp/ray/ray_current_cluster marker from an earlier torn-down cluster.
+    ray.init(
+        address="local",
+        resources={"openpiton": slots},
+        ignore_reinit_error=True,
+        log_to_driver=False,
+    )
     yield slots
     ray.shutdown()
 

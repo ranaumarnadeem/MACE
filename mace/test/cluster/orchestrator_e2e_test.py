@@ -28,7 +28,10 @@ from mace.test.conftest import FakeLLM  # noqa: E402
 
 @pytest.fixture(scope="module")
 def ray_local():
+    # address="local": forces a fresh local instance regardless of any stale
+    # /tmp/ray/ray_current_cluster marker from an earlier torn-down cluster.
     ray.init(
+        address="local",
         resources={"openpiton": 2, "fake_creds": 4},
         ignore_reinit_error=True,
         log_to_driver=False,

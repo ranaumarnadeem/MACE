@@ -43,7 +43,10 @@ real_only = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def ray_local():
+    # address="local": forces a fresh local instance regardless of any stale
+    # /tmp/ray/ray_current_cluster marker from an earlier torn-down cluster.
     ray.init(
+        address="local",
         resources={"openpiton": 3, "fake_creds": 3},
         ignore_reinit_error=True,
         log_to_driver=False,
