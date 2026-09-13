@@ -128,9 +128,12 @@ stated just as precisely.
 - A third core, PicoRV32, was added to the adapter and builds cleanly — a
   first for this core under any simulator, by anyone (OpenPiton's own CI only
   ever builds it, never runs it).
-- One real, previously-unknown CHIA infrastructure bug was found, precisely
-  diagnosed, and filed upstream:
-  [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72).
+- A real dispatch failure was found, filed upstream as
+  [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72), and resolved: not a CHIA
+  scheduler bug as first suspected, but a launch-configuration gap on our own side (a manually
+  launched driver needs three proxy env vars that `chia job submit` sets automatically) —
+  confirmed by a CHIA maintainer and verified directly, taking a task from a 6-minute hang to a
+  2-second real execution. See `docs/TECHNICAL_GUIDE.md` §11 for the full account.
 
 ## More detail
 

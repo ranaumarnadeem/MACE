@@ -282,7 +282,7 @@ and tested. Acceptance status:
 | # | Check | Status |
 |---|---|---|
 | 1 | Local Ariane: `configure(1,1)` → `build` → `run(hello_world.c)` → pass | **real hardware, proven** |
-| 2 | 2×2 Ariane build on a real GCP worker | **blocked** — real CHIA bug, filed upstream (§9) |
+| 2 | 2×2 Ariane build on a real GCP worker | **not yet green** — the dispatch blocker is resolved (§9), but the build itself hit a worker OOM/crash before reaching a verdict |
 | 3 | Fan-out: parallel builds across two checkouts | **real hardware, proven** — 176s vs 324s serial |
 | 4 | `chia viz` renders the example's task graph | proven |
 | 5 | Tier-0 suite green on fixtures | proven, currently green |
@@ -334,29 +334,36 @@ TDD throughout. The three gaps identified after the first pass are closed:
 
 The loop has completed multiple real end-to-end runs against real Ariane
 hardware via `examples/mace_end_to_end.py`, recorded in
-`runs/mace_end_to_end.db`: five runs now, all `status=passed`, wall times
-ranging roughly 1835s–2180s, task counts 1/5/1/2/2 across the runs — the
+`runs/mace_end_to_end.db`: seven runs now, all `status=passed`, wall times
+ranging roughly 1795s–3832s, task counts 1/5/1/2/2/5/5 across the runs — the
 varying task count is the Planner genuinely deciding different
-decompositions for the same nominal objective, not noise. The fifth run is
-new evidence of a different kind: it targeted `producer_consumer.c`, never
-previously run through the full loop (the first four all used
-`barrier_atomic.c`), and passed cleanly — real confirmation the loop
-generalizes across gate workloads, not just repeatedly succeeding on one.
+decompositions for the same nominal objective, not noise. Runs 5–7 are new
+evidence of a different kind: run 5 targeted `producer_consumer.c` (never
+previously run through the loop; the first four all used `barrier_atomic.c`)
+and passed cleanly; runs 6–7 targeted `scatter_gather.c` under deliberately
+harder L1D cache configurations (see the "one honest gap" note below) and
+also passed. Real confirmation the loop generalizes across gate workloads
+and across non-default configurations, not just repeatedly succeeding on one
+proven combination.
 
-**One honest gap that's still open, now checked twice:** the mechanism for
-detect-failure → diagnose → replan → eventually-pass is real and proven at
-tier 1 (a stateful stub `sims` that fails its first run, passes after). It is
-*not* documented as having happened end-to-end against **real hardware** —
-a real Verilator run actually failing, getting triaged, and a subsequent
-real run passing as a direct result. The `producer_consumer.c` run above was
-deliberately chosen partly to try to provoke this (the LLM has no prior
-converged-on answer for that specific workload) — it didn't: `failures_recovered: 0`,
-and the `failures` table is confirmed still completely empty across all
-five real runs, checked directly against the database, not assumed. This
-remains genuine, well-scoped, valuable work if you want to strengthen the
-project's evidence — try an objective more likely to trip up a first guess
-(a less-common cache configuration, or a harder mesh), rather than assuming
-it'll happen incidentally.
+**One honest gap that's still open, now checked four ways:** the mechanism
+for detect-failure → diagnose → replan → eventually-pass is real and proven
+at tier 1 (a stateful stub `sims` that fails its first run, passes after).
+It is *not* documented as having happened end-to-end against **real
+hardware**. Four deliberate, increasingly aggressive attempts to provoke it
+all instead passed cleanly on the first try: an unfamiliar workload
+(`producer_consumer.c`, then `scatter_gather.c`), an LLM-chosen reduced L1D
+cache, and finally a mandatory, explicit extreme L1D geometry (128 bytes,
+direct-mapped — one cache line) that both the human prompt and the planning
+agent's own task description explicitly predicted would fail. Verified via
+the real `sims` invocation line (not the agent's self-report) that this
+extreme value was genuinely used, not silently softened. It still passed.
+The `failures` table is confirmed completely empty across all seven real
+runs, checked directly against the database. Our read: this is a genuine,
+interesting finding about this RTL's coherence-protocol robustness to
+cache-capacity extremes, not a failed test design — see §11 item 5 for
+where a fifth attempt would need to look (mesh/NoC parameters, not cache
+geometry, since that lever now looks exhausted).
 
 ### The PicoRV32 extension (§7 in the paper)
 
@@ -686,16 +693,22 @@ paper or the core submission, which stand on their own already. A few items
 from the last pass have since closed out; kept here with their outcome
 noted rather than silently deleted, so you can see what actually happened.
 
-1. **Waiting on [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72).**
-   A real CHIA-side bug (task leases from the GCS never reach a
-   tailnet-relayed worker's raylet, even though that worker's own outbound
-   registration/heartbeat works fine — confirmed via a direct raylet
-   state-dump during a patient, six-minute-budget retest, not a guess) is
-   filed upstream. If you're curious and have GCP time to spend (§9 gets you
-   set up to try), the next real step is packet-level tracing on both the
-   head's relay process and the GCP worker's raylet to see whether a
-   lease-assignment RPC is sent and lost, or never sent at all — described
-   precisely in the issue itself.
+1. **[ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72) is resolved — read this before
+   assuming the old diagnosis still holds.** What looked like a real CHIA-side scheduler bug
+   (task leases from the GCS never reaching a tailnet-relayed worker's raylet, confirmed via a
+   raylet state-dump during a patient six-minute retest) turned out to be a launch-configuration
+   gap on our own side: CHIA sets three proxy env vars (`RAY_grpc_enable_http_proxy`,
+   `grpc_proxy`, `no_grpc_proxy`) on each node during `chia up`, inherited automatically by
+   `chia job submit` but not by a driver launched manually via `python driver.py` — exactly what
+   every script in this repo does — unless the launching shell sets the same three vars itself.
+   A CHIA maintainer identified this; we verified it directly by reading the exact values off the
+   head's own live raylet process (`/proc/<pid>/environ`) and exporting them before launching —
+   the identical forced-placement task went from a six-minute hang to a two-second real execution.
+   **This is now the correct pattern for any manually-launched driver against a tailnet cluster** —
+   worth adding to `OpenPitonWorkspaceNode`/the cluster docs so nobody has to rediscover it.
+   With dispatch fixed, the actual 2×2 build still hasn't reached a verdict — it hit a worker
+   OOM/crash mid-build, the same memory-pressure class as the 4×4 finding below, now also seen on
+   GCP. That's the real remaining work on this front, not the dispatch question.
 2. **A real 4×4 fix** — §7 above has the exact diagnosis; forcing a real
    `-j1` into Verilator's own generated build-step `make` invocation (not
    just the environment) would likely get an actual 4×4 pass/fail verdict,
@@ -709,19 +722,27 @@ noted rather than silently deleted, so you can see what actually happened.
    (the gate workload used to be silently hardcoded to `barrier_atomic.c`
    regardless of `--objective` text).
 5. **A real hardware proof of the fail→triage→replan→pass cycle** (§7's
-   "one honest gap") — still open, checked twice now. A run deliberately
-   targeting `producer_consumer.c` (never previously run through the full
-   loop, so the LLM had no prior converged-on answer for it) was tried
-   specifically to provoke this, on the theory that a first guess is more
-   likely to be wrong for a workload the model has no track record on. It
-   passed cleanly on the first try instead (`failures_recovered: 0`) — a
-   real, useful result in its own right (the loop now has real coverage of
-   two gate workloads, not one), but not this one. The `failures` table in
-   `runs/mace_end_to_end.db` is confirmed still completely empty across all
-   five real runs. If you want to close this, the more reliable lever is
-   probably a harder starting point (an unusual cache configuration, or a
-   larger mesh) rather than an unfamiliar workload — see §10's walkthrough
-   for how to kick one off.
+   "one honest gap") — still open, now checked four separate ways across
+   seven real runs, worth reading before trying a fifth. Attempts so far,
+   weakest to strongest: (a) an unfamiliar workload (`producer_consumer.c`,
+   then `scatter_gather.c`) on the theory the LLM has no prior converged-on
+   answer for it — passed cleanly both times; (b) an LLM-chosen "reduced"
+   L1D cache — still passed; (c) a **mandatory, explicit** extreme L1D
+   geometry (128 bytes, direct-mapped) that both the human prompt and the
+   planning agent's own task description explicitly predicted would fail —
+   verified via the real `sims` invocation (not the agent's self-report) to
+   have actually been used — and it passed anyway. The `failures` table in
+   `runs/mace_end_to_end.db` is confirmed completely empty across all seven
+   real runs. Our read: this isn't a broken test design, it's a genuine
+   finding that this RTL's coherence protocol doesn't functionally depend on
+   L1D capacity for these access patterns, at least down to one cache line.
+   If you want to close this gap, going more extreme than a 1-line
+   direct-mapped cache risks testing "is a malformed parameter rejected"
+   rather than genuine coherence robustness — a fundamentally different,
+   less interesting question. A more promising lever untried so far: a mesh
+   shape or NoC parameter, rather than cache geometry. See §10's walkthrough
+   for how to kick one off, and `scripts/ariane_1x1_tiny_l1d_scatter_gather.py`
+   for the exact script that produced finding (c).
 6. ~~The mystery file, `examples/run_barrier_atomic.py`~~ — **done**:
    committed, it's a real, useful manual driver for baseline (a).
 7. **Paper polish** — the architecture figure is done (Figure 1); the author

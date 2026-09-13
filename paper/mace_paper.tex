@@ -39,8 +39,9 @@ simulation, and a failure-analysis agent triages and replans on any failure. We 
 against two baselines -- manual mesh scaling and a single-shot LLM configuration with no tools or
 iteration -- using real hardware runs throughout, with no simulated or mocked results anywhere in
 this paper. We report what worked, what did not, and precisely why: a genuine RTL-level finding
-while extending \sys{} to a third, never-before-simulated core (PicoRV32); a confirmed
-infrastructure gap in a dependency we do not control (CHIA's tailnet-relay task dispatch); and an
+while extending \sys{} to a third, never-before-simulated core (PicoRV32); a real dispatch failure
+against a dependency we do not control (CHIA's tailnet-relay task launching) that we first
+misdiagnosed as a scheduler bug and later corrected once a maintainer's evidence arrived; and an
 honest account of where a naive one-shot LLM configuration already suffices versus where \sys{}'s
 iterate-until-verified loop is actually necessary.
 \end{minipage}
@@ -107,10 +108,11 @@ PicoRV32's own OpenPiton integration -- one that nobody, including OpenPiton's o
 integration, had ever observed, because nobody had ever run it under a simulator before.
 \end{enumerate}
 
-Throughout, we report honestly: builds that succeeded and runs that did not, a real infrastructure
-bug in a dependency outside our control, and a head-to-head comparison against a naive one-shot
-LLM baseline that did not uniformly favor \sys{}. We treat this honesty as itself a demonstration
-of the verification discipline CHIA is meant to encourage.
+Throughout, we report honestly: builds that succeeded and runs that did not, a real dispatch
+failure we first misdiagnosed as someone else's bug and corrected once better evidence arrived, and
+a head-to-head comparison against a naive one-shot LLM baseline that did not uniformly favor
+\sys{}. We treat this honesty as itself a demonstration of the verification discipline CHIA is
+meant to encourage.
 
 \section{Background}
 
@@ -283,10 +285,14 @@ untested mesh shape -- where baseline~(b)'s one-shot design has no mechanism to 
 incorrect first answer at all. By construction, it simply fails.
 
 One honest gap in our own evidence: the detect-failure~$\rightarrow$~diagnose~$\rightarrow$~replan~$\rightarrow$~pass
-cycle is proven at the mechanism level (a stateful stub simulator that fails once, then passes) but has not yet
-fired on real hardware across any of the five real runs above, including run~5, chosen specifically because the
-LLM had no prior converged-on answer for that workload. We report this directly rather than let five passing
-runs imply more than they show.
+cycle is proven at the mechanism level (a stateful stub simulator that fails once, then passes) but has not
+fired on real hardware across seven real runs, despite deliberate attempts to provoke it -- including one where
+we directly instructed a mandatory, extreme first configuration (a 128-byte, direct-mapped L1 data cache,
+verified via the real \code{sims} invocation to have actually been used, not a value the agent silently
+softened) that both we and the planning agent itself explicitly expected to fail. It passed. We read this as a
+genuine, interesting finding about this RTL's coherence-protocol robustness to cache-capacity extremes, not a
+failure of our test design, and report it exactly that way rather than let seven passing runs imply more than
+they show.
 
 Phase~2's own internal fan-out (two real tasks across two real checkouts, integrated and gated
 through the same path baseline~(c) uses) measured 30s parallel versus a 57s serial-equivalent,
@@ -295,19 +301,26 @@ consistent with Phase~1's own parallel-build result above.
 \section{Limitations and Honest Findings}
 \label{sec:limits}
 
-\textbf{A confirmed CHIA-side infrastructure gap.} A task whose resource request can only be
-satisfied by a tailnet-relayed GCP worker never executes, though that same worker's own outbound
-registration and heartbeat to the cluster's GCS work fine throughout. We ruled out the explanations
-we could disprove ourselves: not a worker-startup failure (the node stays \code{Alive} with correct
-resources the entire time); not the outbound gRPC-CONNECT-proxy path (that is specifically for
-outbound traffic, and outbound traffic demonstrably works); not scheduler slowness or resource
-contention (a direct raylet state-dump taken \emph{during} a patient, six-minute-budget retest --
-deliberately designed to rule out ``just needed more time'' -- shows zero pending start requests:
-the worker was never even asked to start a task, not attempted-and-failed). This is a real gap
-somewhere between the scheduler's lease-assignment decision and its delivery to a specific
-raylet under this relay topology; we have drafted it as an upstream issue rather than guessing at
-a fix inside a dependency we do not control. It blocks exactly one acceptance test (2x2 Ariane on
-real GCP hardware) and nothing else in this paper.
+\textbf{A launch-configuration gap we first misdiagnosed as a CHIA scheduler bug -- corrected once
+better evidence arrived.} A task whose resource request could only be satisfied by a tailnet-relayed
+GCP worker never executed, though that worker's own outbound registration and heartbeat to the
+cluster's GCS worked fine throughout. We ruled out several explanations ourselves -- not a
+worker-startup failure (the node stayed \code{Alive} with correct resources throughout); not
+scheduler slowness (a raylet state-dump taken \emph{during} a patient, six-minute retest showed zero
+pending start requests: the worker was never even asked to start a task) -- and initially concluded
+this was a genuine gap in CHIA's own scheduling/relay plumbing, filing it upstream
+(\texttt{ucb-bar/chia\#72}) rather than guessing at a fix. A CHIA maintainer's reply identified the
+real cause: CHIA sets three proxy environment variables on each node during \code{chia up}, inherited
+automatically by a job submitted via \code{chia job submit} but not by a driver launched manually via
+\code{python driver.py} -- what every real run in this paper does -- unless the launching shell sets
+the same variables itself. We verified this directly rather than take it on faith: exporting the
+exact values read off the head's own live raylet process took the identical forced-placement task
+from a six-minute hang to a two-second real execution on the GCP worker. Every fact our own
+diagnostic established was correct; the conclusion we drew from those facts was not, and we correct
+it here rather than let a paper about verification discipline leave an unverified claim standing.
+With dispatch fixed, the 2x2 Ariane acceptance test itself still has not reached a pass/fail verdict
+-- a build-time worker crash, likely the same memory-pressure class of issue as the next paragraph,
+now also observed on GCP -- so this remains open, for a different and better-understood reason.
 
 \textbf{Two RTL-adjacent hangs, read as genuine gaps rather than our bugs.} Both the 2x2 Ariane
 mesh and the 1x1 PicoRV32 run show the identical signature -- generic boot/reset/IOB handshake
