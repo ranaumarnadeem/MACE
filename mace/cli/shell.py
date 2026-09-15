@@ -17,6 +17,7 @@ from __future__ import annotations
 import cmd
 import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from chia.database.sqlite_node import SQLiteNode
+from chia_openpiton.parse import coverage_summary
 from mace.cli.config import (
     BACKEND_ENV_VARS,
     DEFAULT_ENV_PATH,
@@ -198,6 +200,7 @@ def build_spec_from_session(session: Session) -> MaceSpec:
         core=core,
         target_mesh=session.target_mesh or (1, 1),
         budget=Budget(),
+        coverage=session.coverage,
     )
 
 
@@ -239,6 +242,12 @@ def format_report(session: Session, db: SQLiteNode | None = None) -> str:
     if db is not None and getattr(result, "run_id", None):
         for key, value in summary(db, result.run_id).items():
             lines.append(f"  {key}: {value}")
+    if session.last_coverage is not None:
+        cov = session.last_coverage
+        if cov["percent"] is not None:
+            lines.append(f"\ncoverage: {cov['percent']:.2f}% ({cov['hit']}/{cov['total']})")
+        else:
+            lines.append("\ncoverage: requested but report generation failed")
     pm = result.post_mortem
     if pm is not None:
         lines.append(f"\nassessment: {pm.assessment}")
@@ -246,6 +255,48 @@ def format_report(session: Session, db: SQLiteNode | None = None) -> str:
         if pm.next_steps:
             lines.append(f"next_steps: {pm.next_steps}")
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Coverage -- real Verilator line coverage, proven end to end against real
+# hardware in scripts/local_coverage_1x1_build_test.py before any of this
+# was wired into the loop. See chia_openpiton.state_def.COVERAGE_LINE_FLAG's
+# own docstring and that script's module docstring for the full account.
+# ---------------------------------------------------------------------------
+
+
+def find_coverage_dat(iterations) -> str | None:
+    """The most recent real run_dir with a coverage.dat, from a completed
+    loop's full iteration history, or None.
+
+    Walks backward (latest iteration, latest task within it first) since a
+    later coverage-enabled run's data supersedes an earlier one's."""
+    for iteration in reversed(iterations):
+        for r in reversed(iteration):
+            if r.run is not None and r.run.run_dir:
+                candidate = os.path.join(r.run.run_dir, "coverage.dat")
+                if os.path.exists(candidate):
+                    return candidate
+    return None
+
+
+def generate_coverage_report(dat_path: str) -> tuple[dict, str]:
+    """Run verilator_coverage --annotate on *dat_path*; returns (parsed
+    summary dict, raw stdout).
+
+    Calls /usr/bin/verilator_coverage by absolute path deliberately, not
+    whatever verilator_coverage is first on PATH: confirmed directly
+    (scripts/local_coverage_1x1_build_test.py) that this project's own real
+    build environment (conda's own PATH precedence) resolves to a broken
+    install that faults on --version alone, unrelated to any specific
+    coverage.dat -- the stable system install is what actually works.
+    """
+    annotate_dir = os.path.join(os.path.dirname(dat_path), "coverage_annotated")
+    result = subprocess.run(
+        ["/usr/bin/verilator_coverage", "--annotate", annotate_dir, dat_path],
+        capture_output=True, text=True, timeout=120,
+    )
+    return coverage_summary(result.stdout), result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -359,12 +410,26 @@ class MaceShell(cmd.Cmd):
         _print_result(self.console, handle_set_core(self.session, arg))
 
     def do_run(self, arg: str) -> None:
-        """run [-verbose] -- execute against the accumulated session state."""
+        """run [-verbose] [-coverage] -- execute against the accumulated session state."""
         c = self.console
         # "logging should be verbose" is the project owner's own standing
         # instruction, not just an opt-in flag -- -verbose/--verbose are
         # accepted for EDA-tool familiarity but verbose is already the
         # session default (see Session.verbose).
+        #
+        # -coverage is real, unlike -verbose: it sets Session.coverage, which
+        # sticks for future `run`s too (matching set_core's own
+        # accumulates-until-changed convention), and actually changes what
+        # gets built (chia_openpiton.state_def.COVERAGE_LINE_FLAG).
+        tokens = shlex.split(arg) if arg.strip() else []
+        recognized = {"-verbose", "--verbose", "-coverage", "--coverage"}
+        unknown = [t for t in tokens if t not in recognized]
+        if unknown:
+            c.print(f"[bold red]✗ ERROR: unknown run option(s): {' '.join(unknown)}[/bold red]")
+            return
+        if "-coverage" in tokens or "--coverage" in tokens:
+            self.session.coverage = True
+
         if self.session.top_module is not None and self.session.detected_core is None:
             pm = no_adapter_post_mortem(self.session)
             self.session.last_result = type(
@@ -382,16 +447,17 @@ class MaceShell(cmd.Cmd):
         )
 
         def on_iteration(iteration, results):
-            # This is a system-level integration verification loop, not
-            # per-module unit testing: one assembled-chip Verilator
-            # simulation, one pass/fail verdict for the whole run -- there is
-            # no per-module breakdown to show because nothing here builds one.
-            # No coverage data exists either (OpenPiton's own `sims` only
-            # exposes coverage flags for VCS, never Verilator -- confirmed by
-            # reading it directly, not assumed). What this CAN do, and a live
-            # user correctly pointed out it wasn't doing: always name the real
-            # files on disk, and show much more than a fixed tail on failure,
-            # since that's genuinely how someone would debug this by hand.
+            # This is a system-level integration verification loop: one
+            # assembled-chip Verilator simulation, one pass/fail verdict per
+            # task -- there is no per-module unit-test breakdown to show
+            # per-iteration because nothing here builds separate per-module
+            # testbenches. (Real coverage -- how much of the design a passing
+            # run actually exercised, per file -- is a separate, real thing
+            # this shell now does, once, after the whole run finishes; see
+            # below.) What this CAN always do, and a live user correctly
+            # pointed out it wasn't doing: name the real files on disk, and
+            # show much more than a fixed tail on failure, since that's
+            # genuinely how someone would debug this by hand.
             c.rule(f"iteration {iteration}", style="cyan")
             for r in results:
                 if r.task.kind == "config":
@@ -428,6 +494,22 @@ class MaceShell(cmd.Cmd):
         c.print(f"\nrun_id=[bold]{result.run_id}[/bold] status=[bold {status_style}]{result.status}[/bold {status_style}]")
         if result.post_mortem is not None:
             _print_post_mortem(c, result.post_mortem)
+
+        self.session.last_coverage = None
+        if self.session.coverage and result.status == "passed":
+            dat_path = find_coverage_dat(result.iterations)
+            if dat_path is None:
+                c.print("[dim]coverage was requested but no coverage.dat was found (unexpected)[/dim]")
+            else:
+                c.print("[yellow]Generating coverage report...[/yellow]")
+                cov, raw = generate_coverage_report(dat_path)
+                self.session.last_coverage = cov
+                if cov["percent"] is not None:
+                    title = f"coverage: {cov['percent']:.2f}% ({cov['hit']}/{cov['total']})"
+                    c.print(Panel(raw.strip(), title=title, border_style="cyan"))
+                else:
+                    c.print("[bold red]✗ coverage report generation failed[/bold red]")
+                    c.print(Panel(raw[-2000:] or "(no output)", title="verilator_coverage output", border_style="red"))
 
     def do_write_report(self, arg: str) -> None:
         """write_report [> ]<name>.rpt -- write the last run's report to a file."""

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
-from chia_openpiton.state_def import PitonConfig
+from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
 from mace.loop import run_mace_step
 from mace.replay import tag_for
 from mace.spec import MaceSpec, StepResult, Task
@@ -174,7 +174,10 @@ def _run_batch(
 ) -> list[StepResult]:
     """One (node, task) pair per entry; prompt, build, run each fully
     dispatched across the batch before any of that round is resolved."""
-    config = PitonConfig(core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1])
+    config = PitonConfig(
+        core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
+        extra_flags=(COVERAGE_LINE_FLAG,) if spec.coverage else (),
+    )
 
     def _tag(task_id: str, phase: str) -> str | None:
         return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None

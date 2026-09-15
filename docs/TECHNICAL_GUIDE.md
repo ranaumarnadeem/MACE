@@ -854,6 +854,27 @@ summary plus the post-mortem, if one exists — including the static
 no-adapter case) to a file, in the same spirit as a real EDA tool's `.rpt`
 convention.
 
+**`run -coverage`** is real, unlike `-verbose` — it sets `Session.coverage`
+(sticks across future `run`s in the same session, matching `set_core`'s own
+accumulates-until-changed convention) and threads `MaceSpec.coverage` into
+every `PitonConfig` the loop builds (`mace/loop.py`, `mace/integrator.py`),
+appending `chia_openpiton.state_def.COVERAGE_LINE_FLAG` to `extra_flags`.
+Once a run passes, the shell locates the last task's `coverage.dat`
+(`find_coverage_dat`) and runs `verilator_coverage --annotate` on it
+(`generate_coverage_report`) — by the *system* binary's absolute path
+(`/usr/bin/verilator_coverage`), deliberately not whatever's first on PATH:
+this project's own conda-env install is genuinely broken (faults on
+`--version` alone), confirmed directly, unrelated to any specific
+coverage.dat. Needs a real patch to build on top of, too — OpenPiton's own
+hand-written testbench (`piton/tools/verilator/my_top.cpp`) never called
+Verilator's coverage-write API, so `scripts/patch_openpiton.sh` fix 5 adds
+that call, guarded by `VM_COVERAGE` (a no-op for every non-coverage build).
+Real result, not a mock: 36.00% (8787/24311) on a real passing 1x1 Ariane +
+`barrier_atomic.c` run. See `scripts/local_coverage_1x1_build_test.py`'s own
+module docstring for the full account, including why the plan's original
+`--report hier` idea doesn't work on this machine (that flag doesn't exist
+on the *stable* Verilator's `verilator_coverage`, only the broken one's).
+
 ### What's deliberately not built yet
 
 - **`mace cluster up/down/status`** (wrapping `chia up`/`chia down`) —

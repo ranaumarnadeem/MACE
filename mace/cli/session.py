@@ -105,7 +105,9 @@ class Session:
     workloads: tuple[str, ...] = ()
     core_count: int | None = None
     verbose: bool = True  # logging should be verbose -- see shell.py
+    coverage: bool = False  # set by `run -coverage`; sticks until toggled again
     last_result: object = None  # mace.spec.LoopResult, once `run` has happened
+    last_coverage: dict | None = None  # {"hit", "total", "percent"}, once computed
 
     @property
     def detected_core(self) -> PitonCore | None:

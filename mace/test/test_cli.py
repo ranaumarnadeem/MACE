@@ -16,14 +16,16 @@ from mace.cli.session import KNOWN_MESH_OUTCOMES, Session, detect_core, mesh_for
 from mace.cli.spec_file import parse_spec_file
 from mace.cli.shell import (
     build_spec_from_session,
+    find_coverage_dat,
     format_report,
+    generate_coverage_report,
     handle_read_spec,
     handle_read_verilog,
     handle_set_core,
     handle_top_module,
     no_adapter_post_mortem,
 )
-from mace.spec import LoopResult, PostMortem
+from mace.spec import LoopResult, PostMortem, StepResult, Task
 
 
 class TestDetectCore:
@@ -221,6 +223,13 @@ class TestBuildSpecFromSession:
         spec = build_spec_from_session(session)
         assert (spec.core, spec.objective, spec.workloads) == ("pico", "verify it", ("scatter_gather.c",))
 
+    def test_coverage_defaults_off(self):
+        assert build_spec_from_session(Session(piton_root="/x")).coverage is False
+
+    def test_coverage_flows_through_from_session(self):
+        session = Session(piton_root="/x", coverage=True)
+        assert build_spec_from_session(session).coverage is True
+
 
 class TestNoAdapterPostMortem:
     def test_names_the_unmatched_top_module(self):
@@ -246,3 +255,106 @@ class TestFormatReport:
         assert "assessment: inconclusive" in text
         assert "explanation: x" in text
         assert "next_steps: y" in text
+
+    def test_includes_coverage_when_present(self):
+        session = Session(piton_root="/x", top_module="custom")
+        session.last_result = LoopResult(run_id="r1", status="passed", iterations=())
+        session.last_coverage = {"hit": 8749, "total": 24311, "percent": 35.0}
+        text = format_report(session)
+        assert "coverage: 35.00% (8749/24311)" in text
+
+    def test_coverage_failure_is_reported_not_hidden(self):
+        session = Session(piton_root="/x", top_module="custom")
+        session.last_result = LoopResult(run_id="r1", status="passed", iterations=())
+        session.last_coverage = {"hit": None, "total": None, "percent": None}
+        text = format_report(session)
+        assert "coverage: requested but report generation failed" in text
+
+    def test_no_coverage_section_when_never_requested(self):
+        session = Session(piton_root="/x", top_module="custom")
+        session.last_result = LoopResult(run_id="r1", status="passed", iterations=())
+        assert "coverage" not in format_report(session)
+
+
+def _fake_run_result(run_dir: str, verdict: str = "pass"):
+    from chia_openpiton.state_def import PitonRunResult
+
+    return PitonRunResult(
+        success=verdict == "pass", returncode=0, test="x.c", sim_type="vlt",
+        run_dir=run_dir, verdict=verdict,
+    )
+
+
+class TestFindCoverageDat:
+    def test_finds_a_real_coverage_dat_in_the_last_iteration(self, tmp_path):
+        run_dir = tmp_path / "run1"
+        run_dir.mkdir()
+        (run_dir / "coverage.dat").write_text("data")
+        step = StepResult(
+            task=Task(id="t1", kind="workload", spec="x", deps=()),
+            query=None, build=None, run=_fake_run_result(str(run_dir)), passed=True,
+        )
+        assert find_coverage_dat(((step,),)) == str(run_dir / "coverage.dat")
+
+    def test_prefers_the_latest_iteration_with_a_dat_file(self, tmp_path):
+        old_dir, new_dir = tmp_path / "old", tmp_path / "new"
+        old_dir.mkdir(); new_dir.mkdir()
+        (old_dir / "coverage.dat").write_text("stale")
+        (new_dir / "coverage.dat").write_text("fresh")
+        old_step = StepResult(
+            task=Task(id="t1", kind="workload", spec="x", deps=()),
+            query=None, build=None, run=_fake_run_result(str(old_dir)), passed=True,
+        )
+        new_step = StepResult(
+            task=Task(id="t2", kind="workload", spec="x", deps=()),
+            query=None, build=None, run=_fake_run_result(str(new_dir)), passed=True,
+        )
+        assert find_coverage_dat(((old_step,), (new_step,))) == str(new_dir / "coverage.dat")
+
+    def test_none_when_no_run_ever_produced_one(self, tmp_path):
+        run_dir = tmp_path / "run1"
+        run_dir.mkdir()
+        step = StepResult(
+            task=Task(id="t1", kind="workload", spec="x", deps=()),
+            query=None, build=None, run=_fake_run_result(str(run_dir)), passed=True,
+        )
+        assert find_coverage_dat(((step,),)) is None
+
+    def test_none_for_a_config_only_iteration(self):
+        step = StepResult(
+            task=Task(id="t1", kind="config", spec="x", deps=()),
+            query=None, build=None, run=None, passed=True,
+        )
+        assert find_coverage_dat(((step,),)) is None
+
+    def test_none_for_empty_iterations(self):
+        assert find_coverage_dat(()) is None
+
+
+class TestGenerateCoverageReport:
+    def test_calls_the_stable_system_binary_by_absolute_path(self, monkeypatch):
+        """Not whatever verilator_coverage is first on PATH -- confirmed
+        directly that this project's own conda-env PATH precedence resolves
+        to a broken install (faults on --version alone)."""
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            from types import SimpleNamespace
+            return SimpleNamespace(stdout="Total coverage (1/2) 50.00%\n", stderr="")
+
+        monkeypatch.setattr("mace.cli.shell.subprocess.run", fake_run)
+        summary, raw = generate_coverage_report("/some/run/coverage.dat")
+
+        assert calls[0][0] == "/usr/bin/verilator_coverage"
+        assert summary == {"hit": 1, "total": 2, "percent": 50.0}
+        assert "50.00%" in raw
+
+    def test_failure_surfaces_as_none_not_a_wrong_number(self, monkeypatch):
+        def fake_run(cmd, **kw):
+            from types import SimpleNamespace
+            return SimpleNamespace(stdout="", stderr="%Error: Verilator_coverage internal fault, sorry.\n")
+
+        monkeypatch.setattr("mace.cli.shell.subprocess.run", fake_run)
+        summary, _ = generate_coverage_report("/some/run/coverage.dat")
+        assert summary == {"hit": None, "total": None, "percent": None}

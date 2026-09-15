@@ -14,7 +14,7 @@ layered on top of it.
 from __future__ import annotations
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
-from chia_openpiton.state_def import PitonConfig
+from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
@@ -45,7 +45,8 @@ def run_mace_step(
     query = llm.prompt(task.spec, tools=list(tools))
 
     config = PitonConfig(
-        core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1]
+        core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
+        extra_flags=(COVERAGE_LINE_FLAG,) if spec.coverage else (),
     )
     build = OpenPitonWorkspaceNode.build(piton_root, config)
     if not build.success:

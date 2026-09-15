@@ -52,10 +52,13 @@ class MaceSpec:
     core: PitonCore = "ariane"
     target_mesh: tuple[int, int] = (1, 1)
     budget: Budget = field(default_factory=Budget)
+    coverage: bool = False
 
     def __post_init__(self) -> None:
         if self.core not in ("ariane", "sparc", "pico"):
             raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
+        if not isinstance(self.coverage, bool):
+            raise ValueError(f"coverage must be a bool, got {self.coverage!r}")
         if not self.workloads:
             raise ValueError("workloads must be non-empty -- nothing to gate on")
         for w in self.workloads:

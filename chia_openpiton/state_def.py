@@ -49,6 +49,15 @@ SIM_TYPES: frozenset[str] = frozenset(("vlt", "vcs", "ncv", "icv", "msm", "riv")
 # sims enforces this in Perl: "DIE. x_tiles can be at most 256".
 MAX_TILES_PER_AXIS = 256
 
+# Threaded verbatim to -vlt_build_args (see PitonConfig.sims_flags) to enable
+# Verilator line coverage. The canonical, single place this literal lives --
+# both mace/loop.py and mace/integrator.py import it rather than each
+# hardcoding the same sims flag string. Line coverage only (not toggle/user):
+# the smaller, cheaper instrumentation, proven end to end against real
+# hardware (scripts/local_coverage_1x1_build_test.py) before this was wired
+# into the loop at all.
+COVERAGE_LINE_FLAG = "-vlt_build_args=--coverage-line"
+
 # Cache geometry defaults, mirroring piton/tools/src/sims/manycore.config.
 # Keys are the sims flag suffixes: -config_<key>_size / -config_<key>_associativity.
 DEFAULT_CACHES: dict[str, tuple[int, int]] = {
