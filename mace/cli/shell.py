@@ -22,6 +22,9 @@ from pathlib import Path
 
 import ray
 import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from chia.database.sqlite_node import SQLiteNode
 from mace.cli.config import apply_config_to_environment, load_config, save_config
@@ -238,41 +241,118 @@ def format_report(session: Session, db: SQLiteNode | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Rich presentation helpers -- kept separate from the handle_* functions
+# above on purpose: those stay plain-string-in, plain-string/dataclass-out so
+# mace/test/test_cli.py can call them directly with no console attached.
+# Only the shell's own do_* methods (below) render through Rich.
+# ---------------------------------------------------------------------------
+
+_ASSESSMENT_STYLE = {
+    "fixable_config": "yellow",
+    "likely_hardware_limitation": "red",
+    "inconclusive": "cyan",
+}
+
+# (command, one-line description) for the custom `help` table -- pulled from
+# each do_* method's own docstring at call time (see do_help), listed here
+# only for display order. Deliberately excludes cmd.Cmd's own EOF/quit
+# aliases -- exit is the one leave-the-shell command shown.
+_HELP_ORDER = (
+    "read_verilog",
+    "top_module",
+    "read_spec",
+    "set_core",
+    "run",
+    "write_report",
+    "help",
+    "exit",
+)
+
+
+def _print_result(console: Console, msg: str) -> None:
+    """Render a handle_*() result: red for an ERROR:-prefixed message, a
+    green check for everything else."""
+    if msg.startswith("ERROR"):
+        console.print(f"[bold red]✗ {msg}[/bold red]")
+    else:
+        console.print(f"[green]✓[/green] {msg}")
+
+
+def _print_post_mortem(console: Console, pm: PostMortem) -> None:
+    style = _ASSESSMENT_STYLE.get(pm.assessment, "white")
+    body = f"[bold]{pm.assessment}[/bold]\n\n{pm.explanation}"
+    if pm.next_steps:
+        body += f"\n\n[dim]Next steps:[/dim] {pm.next_steps}"
+    console.print(Panel(body, title="Assessment", border_style=style, expand=False))
+
+
+# ---------------------------------------------------------------------------
 # The interactive shell
 # ---------------------------------------------------------------------------
 
 
 class MaceShell(cmd.Cmd):
-    intro = (
-        "MACE interactive shell. read_verilog / top_module / read_spec / "
-        "set_core, then run. Type help or ? for command details, exit to leave.\n"
+    # Left unset (not cmd.Cmd's own `intro` attribute) so cmd.Cmd's own
+    # cmdloop() doesn't ALSO print it -- unstyled, since cmd.Cmd's print path
+    # doesn't know Rich markup -- on top of the styled one __init__ prints
+    # below. Two prints of the same banner, one broken, was a real bug caught
+    # by actually running this.
+    intro = None
+    rich_intro = (
+        "[bold]MACE interactive shell.[/bold] read_verilog / top_module / "
+        "read_spec / set_core, then run. Type [cyan]help[/cyan] for commands, "
+        "[cyan]exit[/cyan] to leave."
     )
-    prompt = "mace> "
+    # Rich can't style cmd.Cmd's plain input() prompt through markup, so this
+    # is a raw ANSI escape (bold cyan) -- simpler and more reliable here than
+    # fighting cmd.Cmd's own I/O assumptions for the one line that needs it.
+    prompt = "\033[1;36mmace> \033[0m"
 
     def __init__(self, session: Session, llm, db: SQLiteNode) -> None:
         super().__init__()
         self.session = session
         self.llm = llm
         self.db = db
+        # width=100: don't rely on terminal-size auto-detection, which is
+        # unreliable when stdin/stdout aren't a real tty (piped input,
+        # captured test output) and produced genuinely corrupted table
+        # rendering under those conditions when this was actually run.
+        self.console = Console(width=100)
+        self.console.print(self.rich_intro)
+
+    def onecmd(self, line: str) -> bool:
+        # A live-tested bug: write_report on a directory that doesn't exist
+        # raised FileNotFoundError straight through cmd.Cmd's own cmdloop(),
+        # killing the whole process and losing every bit of session state
+        # (read_verilog/top_module/set_core/run results) accumulated so far.
+        # One bad command shouldn't be able to do that -- catch anything a
+        # do_* method raises and report it the same way a handle_* ERROR
+        # string already renders, so the shell (and the session) survives.
+        try:
+            return super().onecmd(line)
+        except Exception as e:  # noqa: BLE001
+            self.console.print(f"[bold red]✗ ERROR: {type(e).__name__}: {e}[/bold red]")
+            return False
 
     def do_read_verilog(self, arg: str) -> None:
         """read_verilog <file> [file2 ...] -- register RTL source files for the target core."""
-        print(handle_read_verilog(self.session, arg))
+        _print_result(self.console, handle_read_verilog(self.session, arg))
 
     def do_top_module(self, arg: str) -> None:
         """top_module <name> -- declare the design's top-level module."""
-        print(handle_top_module(self.session, arg))
+        _print_result(self.console, handle_top_module(self.session, arg))
 
     def do_read_spec(self, arg: str) -> None:
         """read_spec <file.txt> -- read the objective (and optionally workloads/core) from a text file."""
-        print(handle_read_spec(self.session, arg))
+        _print_result(self.console, handle_read_spec(self.session, arg))
 
     def do_set_core(self, arg: str) -> None:
         """set_core <N> -- target N total tiles (MACE picks a mesh shape and tells you what's known about it)."""
-        print(handle_set_core(self.session, arg))
+        _print_result(self.console, handle_set_core(self.session, arg))
 
     def do_run(self, arg: str) -> None:
         """run [-verbose] -- execute against the accumulated session state."""
+        c = self.console
         # "logging should be verbose" is the project owner's own standing
         # instruction, not just an opt-in flag -- -verbose/--verbose are
         # accepted for EDA-tool familiarity but verbose is already the
@@ -282,56 +362,79 @@ class MaceShell(cmd.Cmd):
             self.session.last_result = type(
                 "StaticResult", (), {"run_id": None, "status": "no_adapter", "post_mortem": pm}
             )()
-            print(f"ASSESSMENT: {pm.assessment}")
-            print(f"EXPLANATION: {pm.explanation}")
-            print(f"NEXT_STEPS: {pm.next_steps}")
+            _print_post_mortem(c, pm)
             return
 
         spec = build_spec_from_session(self.session)
-        print(f"Objective: {spec.objective}")
-        print(f"Core: {spec.core}, mesh: {spec.target_mesh[0]}x{spec.target_mesh[1]}")
-        print(f"Workloads: {', '.join(spec.workloads)}")
+        c.print(
+            f"[bold]Objective:[/bold] {spec.objective}\n"
+            f"[bold]Core:[/bold] {spec.core}  [bold]Mesh:[/bold] "
+            f"{spec.target_mesh[0]}x{spec.target_mesh[1]}\n"
+            f"[bold]Workloads:[/bold] {', '.join(spec.workloads)}"
+        )
 
         def on_iteration(iteration, results):
-            print(f"\n--- iteration {iteration} ---")
+            c.rule(f"iteration {iteration}", style="cyan")
             for r in results:
                 if r.task.kind == "config":
-                    print(f"  [config] {r.task.spec}")
-                    print(f"    build: {'OK' if r.build.success else 'FAILED'} ({r.build.wall_time_s:.0f}s)")
+                    c.print(f"[yellow]Adding cache/config:[/yellow] {r.task.spec}")
+                    status = "[green]OK[/green]" if r.build.success else "[bold red]FAILED[/bold red]"
+                    c.print(f"  build: {status} ({r.build.wall_time_s:.0f}s)")
                     if not r.build.success:
-                        print(f"    build stderr (tail):\n{r.build.stderr[-1000:]}")
+                        c.print(Panel(r.build.stderr[-1000:], title="build stderr (tail)", border_style="red"))
                 else:
-                    print(f"  [verify] {r.task.spec}")
-                    print(f"    build: {'OK' if r.build.success else 'FAILED'}")
+                    c.print(f"[yellow]Running verification:[/yellow] {r.task.spec}")
+                    status = "[green]OK[/green]" if r.build.success else "[bold red]FAILED[/bold red]"
+                    c.print(f"  build: {status}")
                     if r.run is not None:
-                        print(f"    verdict: {r.run.verdict}")
-                        print("    --- verification log (tail) ---")
-                        print(r.run.sim_log_tail[-1500:] if r.run.sim_log_tail else "(no sim log)")
+                        v_style = "green" if r.run.verdict == "pass" else "red"
+                        c.print(f"  verdict: [bold {v_style}]{r.run.verdict}[/bold {v_style}]")
+                        log = r.run.sim_log_tail[-1500:] if r.run.sim_log_tail else "(no sim log)"
+                        c.print(Panel(log, title="verification log (tail)", border_style="dim"))
                         if r.run.status_log:
-                            print("    --- status.log ---")
-                            print(r.run.status_log)
+                            c.print(Panel(r.run.status_log, title="status.log", border_style="dim"))
 
         result = run_mace_loop(
             (self.session.piton_root,), spec, self.llm, self.db, on_iteration=on_iteration
         )
         self.session.last_result = result
-        print(f"\nrun_id={result.run_id} status={result.status}")
+        status_style = "green" if result.status == "passed" else "red"
+        c.print(f"\nrun_id=[bold]{result.run_id}[/bold] status=[bold {status_style}]{result.status}[/bold {status_style}]")
         if result.post_mortem is not None:
-            pm = result.post_mortem
-            print(f"ASSESSMENT: {pm.assessment}")
-            print(f"EXPLANATION: {pm.explanation}")
-            if pm.next_steps:
-                print(f"NEXT_STEPS: {pm.next_steps}")
+            _print_post_mortem(c, result.post_mortem)
 
     def do_write_report(self, arg: str) -> None:
         """write_report [> ]<name>.rpt -- write the last run's report to a file."""
         target = arg.strip().lstrip(">").strip()
         if not target:
-            print("ERROR: write_report needs a filename, e.g. write_report > result.rpt")
+            self.console.print("[bold red]✗ ERROR: write_report needs a filename, e.g. write_report > result.rpt[/bold red]")
             return
         text = format_report(self.session, self.db)
         Path(target).write_text(text)
-        print(f"wrote {target}")
+        self.console.print(f"[green]✓[/green] wrote {target}")
+
+    def do_help(self, arg: str) -> None:
+        """help [command] -- list commands, or show one command's full docstring."""
+        if arg:
+            doc = (getattr(self, f"do_{arg}", None) or (lambda a: None)).__doc__
+            if doc:
+                self.console.print(doc.strip())
+            else:
+                self.console.print(f"[red]no such command: {arg}[/red]")
+            return
+        table = Table(title="MACE shell commands", header_style="bold cyan", show_lines=False)
+        table.add_column("command", style="bold")
+        table.add_column("description")
+        for name in _HELP_ORDER:
+            method = getattr(self, f"do_{name}", None)
+            doc = (method.__doc__ or "").strip().split("\n")[0]
+            # Each docstring is "name <args> -- description"; show only the
+            # description half here, the table's own column already has the name.
+            desc = doc.split("--", 1)[1].strip() if "--" in doc else doc
+            table.add_row(name, desc)
+        self.console.print(table)
+
+    do_h = do_help
 
     def do_exit(self, arg: str) -> bool:
         """exit -- leave the shell."""
@@ -340,8 +443,17 @@ class MaceShell(cmd.Cmd):
     do_quit = do_exit
 
     def do_EOF(self, arg: str) -> bool:  # Ctrl-D
-        print()
+        self.console.print()
         return True
+
+    def default(self, line: str) -> None:
+        self.console.print(
+            f"[red]unknown command: {line.split()[0] if line.split() else line!r}[/red] "
+            f"(type [cyan]help[/cyan] for the list)"
+        )
+
+    def emptyline(self) -> None:
+        pass  # cmd.Cmd's default re-runs the last command on a blank line -- surprising here
 
 
 # ---------------------------------------------------------------------------
