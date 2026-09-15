@@ -382,14 +382,26 @@ class MaceShell(cmd.Cmd):
         )
 
         def on_iteration(iteration, results):
+            # This is a system-level integration verification loop, not
+            # per-module unit testing: one assembled-chip Verilator
+            # simulation, one pass/fail verdict for the whole run -- there is
+            # no per-module breakdown to show because nothing here builds one.
+            # No coverage data exists either (OpenPiton's own `sims` only
+            # exposes coverage flags for VCS, never Verilator -- confirmed by
+            # reading it directly, not assumed). What this CAN do, and a live
+            # user correctly pointed out it wasn't doing: always name the real
+            # files on disk, and show much more than a fixed tail on failure,
+            # since that's genuinely how someone would debug this by hand.
             c.rule(f"iteration {iteration}", style="cyan")
             for r in results:
                 if r.task.kind == "config":
                     c.print(f"[yellow]Adding cache/config:[/yellow] {r.task.spec}")
                     status = "[green]OK[/green]" if r.build.success else "[bold red]FAILED[/bold red]"
                     c.print(f"  build: {status} ({r.build.wall_time_s:.0f}s)")
+                    c.print(f"  [dim]model_dir: {r.build.model_dir}[/dim]")
                     if not r.build.success:
-                        c.print(Panel(r.build.stderr[-1000:], title="build stderr (tail)", border_style="red"))
+                        c.print(Panel(r.build.stderr[-4000:], title="build stderr (tail)", border_style="red"))
+                        c.print(f"  [dim]full stderr is on the build artifact; model_dir above has sims.log[/dim]")
                 else:
                     c.print(f"[yellow]Running verification:[/yellow] {r.task.spec}")
                     status = "[green]OK[/green]" if r.build.success else "[bold red]FAILED[/bold red]"
@@ -397,10 +409,16 @@ class MaceShell(cmd.Cmd):
                     if r.run is not None:
                         v_style = "green" if r.run.verdict == "pass" else "red"
                         c.print(f"  verdict: [bold {v_style}]{r.run.verdict}[/bold {v_style}]")
-                        log = r.run.sim_log_tail[-1500:] if r.run.sim_log_tail else "(no sim log)"
-                        c.print(Panel(log, title="verification log (tail)", border_style="dim"))
+                        c.print(f"  [dim]run_dir: {r.run.run_dir}[/dim]  (full sim.log, status.log, fake_uart.log all live here)")
+                        passed = r.run.verdict == "pass"
+                        tail_chars = 1500 if passed else 8000
+                        log = r.run.sim_log_tail[-tail_chars:] if r.run.sim_log_tail else "(no sim log)"
+                        title = "verification log (tail)" if passed else "verification log (tail -- see run_dir above for the full file)"
+                        c.print(Panel(log, title=title, border_style="dim" if passed else "red"))
                         if r.run.status_log:
                             c.print(Panel(r.run.status_log, title="status.log", border_style="dim"))
+                    elif not r.build.success:
+                        c.print(f"  [dim]never reached run -- build failed, see stderr above[/dim]")
 
         result = run_mace_loop(
             (self.session.piton_root,), spec, self.llm, self.db, on_iteration=on_iteration
