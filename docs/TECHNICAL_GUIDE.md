@@ -750,94 +750,115 @@ noted rather than silently deleted, so you can see what actually happened.
 8. **`docs/api/openpiton.rst`** — only matters if actually filing a PR to
    upstream CHIA; the checklist for that is in
    [`chia_openpiton/README.md`](../chia_openpiton/README.md)'s last section.
-9. **The CLI proposed in §12** — the biggest single piece of unstarted work
-   left, and probably the best next thing to pick up if you want a
-   substantial, self-contained project of your own within MACE.
+9. **The CLI's own gaps** — §12 has the details: `mace cluster up/down/status`
+   isn't wired in yet (§9's manual `chia up` sequence is still how that
+   happens), there's no non-interactive script-file mode, and `run`/`init`
+   only have tier-0 test coverage so far, not a real end-to-end pass through
+   `MaceShell` itself.
 
-## 12. Proposed future work: a real CLI
+## 12. The `mace` CLI
 
-There is currently no `mace` command. Using any of this means writing or
-copy-pasting Python driver scripts, remembering positional/keyword argument
-shapes, WSL paths, and environment variables by hand — fine for the people
-who wrote it, a real barrier for anyone else, including a hackathon judge
-who wants to try it themselves. This is a genuinely good, self-contained
-piece of work for exactly the "clustering/UX side" — it naturally needs to
-wrap both the local adapter calls and the `chia up`/`chia down` cluster
-lifecycle from §9.
-
-### What it should look like
+A real `mace` command exists now (`mace/cli/`, entry point in
+`pyproject.toml`'s `[project.scripts]`) — `pip install -e .` puts it on
+`PATH`. Deliberately modeled on Yosys/OpenROAD's own interactive-shell
+convention rather than a set of independent subcommands: `read_verilog`,
+`top_module`, `read_spec`, and `set_core` each accumulate state in one
+session, and `run` acts on everything gathered so far.
 
 ```
-mace doctor                                   # environment sanity check
-mace configure --piton-root PATH --core ariane --mesh 1x1
-mace build <config-id>
-mace run <config-id> <workload>
-mace loop --piton-root PATH --objective "..." --workload W --max-iterations N
-mace baseline one-shot --piton-root PATH
-mace cluster up | down | status
-mace results [--run-id ID]
+mace init --backend opencode --api-key <key>   # once: credentials + a real doctor-style env check
+mace shell --piton-root /path/to/openpiton     # starts the interactive session
+
+mace> read_verilog my_core.v my_core_pkg.v
+mace> top_module my_core_top
+mace> read_spec objective.txt
+mace> set_core 4
+mace> run
+mace> write_report > result.rpt
+mace> exit
 ```
 
-`mace doctor` is worth building first: a read-only check that the toolchain,
-checkout, and patches (§7's four fixes) are actually in place, printing a
-clear pass/fail per check. It has no side effects, is trivial to test, and
-would have saved real time earlier in this project — most of the bugs in §7
-were discovered by a build failing partway through, not by a targeted
-check that could have caught them up front.
+`init` combines what a separate `doctor` command would have done with
+credential setup, per the project owner's own instruction — one command,
+not two. It checks for `verilator`, `riscv64-unknown-elf-gcc`, and `git` on
+`PATH`, confirms `ray`/`chia_openpiton` import, saves the API key to
+`~/.mace/config.json` (owner-only permissions — see `mace/cli/config.py`'s
+own docstring on why this is a file, not the OS keychain, and what the
+tradeoff is), and sets the right backend-specific environment variable
+before anything else runs.
 
-### Libraries
+**`read_verilog`/`top_module` and the honest "why not" answer.** This is
+where the CLI directly answers the "can we pass it any core" question from
+earlier in this project: `top_module`'s declared name is matched (case-
+insensitive substring) against the only cores chia_openpiton actually has an
+L15 adapter for — `ariane`, `sparc`, `pico` (see `mace/cli/session.py`'s
+`detect_core`). If it matches, `run` drives the real MACE loop against that
+core. If it doesn't, `run` does **not** attempt a fake integration or spend
+30 minutes of real hardware time to eventually shrug — it immediately
+produces the same structured `PostMortem` §11 item 5 already builds
+(`assessment=likely_hardware_limitation`), explaining precisely why (no
+generic core-to-NoC bridge exists; every core needs hand-written coherence-
+adapter RTL) and what adding real support would actually take (see
+`mace/cli/shell.py`'s `no_adapter_post_mortem`). This is a static, structural
+answer, not an LLM guess — it's already a known fact about the project's own
+real boundary, the same way `mace doctor`-style checks are static facts
+about the environment.
 
-- **[Typer](https://typer.tiangolo.com/)** for the CLI framework. It's built
-  on Click but driven by ordinary Python type hints — and this codebase
-  already leans hard on typed dataclasses (`PitonConfig`, `MaceSpec`, `Task`),
-  so a Typer command built straight from a typed function signature is a
-  natural extension of the existing style, not a bolt-on. It gets you
-  subcommand groups, automatic `--help`, and shell completion for free.
-- **[Rich](https://rich.readthedocs.io/)** — Typer already depends on it for
-  help-text formatting, so it costs nothing extra to use its `Progress`/
-  `Console` for real incremental output during long operations. This
-  directly fixes a real problem: right now `mace_end_to_end.py` prints
-  *nothing* for the full 30-40 minutes a loop run takes — the CLI should
-  show which iteration/task is currently running, not go silent.
-- Expose the command via `pyproject.toml`'s `[project.scripts]` (not present
-  today — check for yourself) so `pip install -e .` puts a real `mace`
-  binary on `PATH`, e.g.:
-  ```toml
-  [project.scripts]
-  mace = "mace.cli:app"
-  ```
+**`set_core <N>`** picks a mesh shape for *N* total tiles (square when *N*
+is a perfect square, matching every mesh this project has ever actually
+built) and immediately reports what's actually known about that shape —
+`KNOWN_MESH_OUTCOMES` in `mace/cli/session.py` encodes the real, hard-won
+findings from §7: 1 tile is validated repeatedly, 4 tiles builds but the run
+hangs (likely a genuine RTL gap in an untested mesh shape), 16 tiles is the
+one multi-tile shape upstream has validated but this project hasn't
+completed end to end. Anything else is accepted but flagged as genuinely
+unvalidated, not silently treated the same as a known-good shape.
 
-### Testing strategy — mirror the project's existing tier convention
+**Logging is verbose by default**, per the project owner's own instruction,
+not an opt-in flag (`-verbose`/`--verbose` are accepted for EDA-tool
+familiarity but change nothing). `run_mace_loop` gained an `on_iteration`
+callback (`mace/orchestrator.py`) specifically so the CLI can print real
+incremental progress instead of nothing until the whole run finishes: each
+config task prints as "adding" the cache/config change with its build
+status, each workload task prints as "running verification" followed by the
+*actual* verification log tail (`sim.log`, `status.log`) — not just a
+pass/fail summary.
 
-The project already has a real, consistent tier-0/1/2 pattern (§6). Extend
-it to the CLI rather than inventing a separate scheme:
+**`write_report > <name>.rpt`** writes the last run's outcome (metrics
+summary plus the post-mortem, if one exists — including the static
+no-adapter case) to a file, in the same spirit as a real EDA tool's `.rpt`
+convention.
 
-- **Tier 0 — CLI-only, no Ray, no hardware.** Use
-  `typer.testing.CliRunner` (in-process, no subprocess, fast) to invoke
-  commands and assert on exit code, stdout, and stderr. Monkeypatch
-  whatever the command calls underneath (`OpenPitonWorkspaceNode`,
-  `run_mace_loop`, etc.) exactly the way `chia_openpiton/test/`'s stub
-  `sims` pattern already does — this tier tests argument parsing,
-  validation, and error messages, never real dispatch. Include a **golden
-  test on `--help` output** for every command — cheap, and it catches a
-  silently renamed or removed flag immediately.
-- **Tier 1 — CLI + real Ray, stub hardware.** Invoke the CLI against a real
-  local Ray instance with the stub `sims` staged (reuse the existing
-  fixtures under `chia_openpiton/test/conftest.py`), to prove the CLI
-  actually reaches `chia_remote` correctly, not just that it parses flags.
-- **Tier 2 — CLI + real hardware.** A small number of true end-to-end
-  invocations, gated behind the same `OPENPITON_TEST_REAL=1` /
-  `OPENPITON_TEST_GCP=1` env vars the rest of the project already uses —
-  e.g. actually shelling out to `mace configure && mace build && mace run`
-  against a real checkout and asserting on the real exit code.
-- **Exit-code contract tests.** Every example script in this repo already
-  follows the convention "0 on success, 1 on failure" — the CLI must too,
-  since anything that scripts around it (CI, a judge's own quick check)
-  will rely on that.
+### What's deliberately not built yet
 
-Put these under `mace/cli/test/`, wired into the same `testpaths` list in
-`pyproject.toml` the existing tiers use, so `pytest` picks them up without
-a separate invocation to remember.
+- **`mace cluster up/down/status`** (wrapping `chia up`/`chia down`) —
+  useful, not yet wired into the CLI; §9's manual `chia up cluster/local.yaml`
+  sequence is still how the cluster gets managed today.
+- **A non-interactive script mode** (Yosys's own `-c script.ys` convention —
+  run a sequence of shell commands from a file, no interactive prompt). The
+  shell's command handlers (`mace/cli/shell.py`'s `handle_*` functions) are
+  already separated from the `cmd.Cmd` I/O loop specifically so this is a
+  small addition later, not a rewrite, if it turns out to be worth having.
+- **`chia job submit`-based dispatch** — the shell currently launches
+  `ray.init(address="local", ...)` directly, the same pattern every other
+  local script in this repo uses; it doesn't yet drive a real `chia up`
+  cluster the way `examples/mace_end_to_end.py` can be pointed at one
+  manually.
+
+### Testing
+
+Tier-0 only so far (`mace/test/test_cli.py`, 47 tests) — every piece of real
+logic (`detect_core`, `mesh_for_core_count`, `parse_spec_file`, each
+`handle_*` command function, `no_adapter_post_mortem`, `format_report`,
+config save/load) is a free function independent of `cmd.Cmd`'s own input
+loop, called directly in tests rather than driven through simulated
+keystrokes — the same split `mace.triage` keeps between `build_prompt`
+(pure) and `triage` (does the LLM call). `run_mace_loop`'s new
+`on_iteration` callback has its own tier-1 coverage in
+`orchestrator_e2e_test.py::TestOnIterationCallback`. Not yet covered: the
+shell's actual `run` command end-to-end (needs a real or stubbed Ray
+dispatch through `MaceShell` itself, not just its handler functions) and the
+`init` command's doctor checks against a real missing-toolchain case.
 
 ### Suggested build order (smallest slice first, same discipline as Phase 1/2)
 

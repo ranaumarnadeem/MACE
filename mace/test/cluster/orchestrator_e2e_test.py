@@ -299,6 +299,32 @@ class TestReplayTagsReachIntegrateParallel:
         assert calls == [(result.run_id, 0)]
 
 
+class TestOnIterationCallback:
+    def test_called_once_per_iteration_with_that_iterations_results(self, ray_local, tmp_path):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[TASK_LINE, "edit t1"])
+        calls = []
+
+        result = run_mace_loop(
+            (checkout,), make_spec(), llm, db, on_iteration=lambda i, r: calls.append((i, r))
+        )
+
+        assert result.status == "passed"
+        assert len(calls) == 1
+        assert calls[0][0] == 0
+        assert calls[0][1] == result.iterations[0]
+
+    def test_not_called_when_omitted(self, ray_local, tmp_path):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[TASK_LINE, "edit t1"])
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)  # no on_iteration
+
+        assert result.status == "passed"  # would have raised if the default broke anything
+
+
 class TestPostMortem:
     """generate_post_mortem itself is tested in isolation in mace/test/
     test_report.py -- these prove run_mace_loop calls it in exactly the

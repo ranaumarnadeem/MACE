@@ -58,10 +58,25 @@ _POST_MORTEM_STATUSES = frozenset(("failed", "budget_exceeded"))
 
 
 def run_mace_loop(
-    piton_roots: tuple[str, ...], spec: MaceSpec, llm, db: SQLiteNode, tools=()
+    piton_roots: tuple[str, ...],
+    spec: MaceSpec,
+    llm,
+    db: SQLiteNode,
+    tools=(),
+    on_iteration=None,
 ) -> LoopResult:
     """Plan, execute, and -- if a task fails its gate -- triage and replan,
     until something passes or the spec's budget runs out.
+
+    ``on_iteration``, if given, is called as ``on_iteration(iteration,
+    results)`` immediately after each iteration's results are recorded --
+    before triage, before the loop decides whether to continue. This is the
+    hook a caller (chiefly ``mace.cli``) uses for real incremental progress
+    output (which task is building, which is verifying, the actual
+    verification log) instead of the caller seeing nothing until the whole
+    run finishes. Optional and side-effect-only: its return value is
+    ignored, and an exception from it propagates (a broken progress printer
+    should not be silently swallowed the way a broken triage response is).
 
     Each iteration: :func:`~mace.planner.plan` produces a task DAG (informed
     by the previous iteration's triage, if any), :func:`~mace.integrator.
@@ -135,6 +150,8 @@ def run_mace_loop(
         iterations.append(results)
         diagnoses.append(None)  # overwritten below if this level gets triaged
         record_iteration(db, run_id, iteration, results, iter_wall_s, usd=iter_usd)
+        if on_iteration is not None:
+            on_iteration(iteration, results)
 
         if results and all(r.passed for r in results):
             status = "passed"

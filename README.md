@@ -64,7 +64,27 @@ bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 4 real
 
 ## Using MACE
 
-Four ways to run this, from lowest-level to highest-level.
+**The `mace` CLI** is the easiest way in — a real interactive shell,
+modeled on Yosys/OpenROAD's own command style:
+
+```bash
+mace init --backend opencode --api-key <key>   # once: credentials + a real env check
+mace shell --piton-root /path/to/openpiton
+
+mace> read_verilog my_core.v
+mace> top_module my_core_top
+mace> read_spec objective.txt
+mace> set_core 4
+mace> run
+mace> write_report > result.rpt
+```
+
+`top_module` is checked against the cores chia_openpiton actually has a
+working adapter for (`ariane`/`sparc`/`pico`) — if it doesn't match one,
+`run` doesn't fake an attempt, it immediately explains why, structurally
+(see `docs/TECHNICAL_GUIDE.md` §12). Below are four more ways to use MACE
+directly, from lowest-level to highest-level, if you want more control than
+the shell gives you.
 
 **1. Drive the adapter directly** — configure, build, and run one RTL design,
 no LLM involved:
