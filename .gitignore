@@ -9,6 +9,9 @@ dist/
 # cluster-config load time, never committed.
 .env
 
+# mace CLI credentials (see `mace init --env-file`), never committed.
+.env.mace
+
 # Loop run artifacts: caches, metrics DBs, logs, collected simulation output.
 runs/
 *.db
