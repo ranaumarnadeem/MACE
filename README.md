@@ -70,6 +70,14 @@ modeled on Yosys/OpenROAD's own command style:
 ```bash
 mace init --backend opencode --api-key <key>   # once: writes ~/.mace/.env + a real env check
 mace shell --piton-root /path/to/openpiton --api ~/.mace/.env
+```
+
+Google Vertex/Gemini works too, and needs no `--api` file at all if
+`gcloud auth application-default login` is already set up (ADC) — confirmed
+with a real, passing end-to-end loop run:
+
+```bash
+mace shell --piton-root /path/to/openpiton --backend vertex --model gemini-2.5-flash
 
 mace> read_verilog my_core.v
 mace> top_module my_core_top

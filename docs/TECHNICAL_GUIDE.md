@@ -791,6 +791,27 @@ in play, and a path you name yourself is one `cat` away from being
 debuggable. `shell` fails fast, before touching Ray or the LLM backend, if
 the file is missing or doesn't set the variable `--backend` expects.
 
+**`--backend vertex` is the one exception to `--api` being mandatory**, and
+it's a real, confirmed-working path, not just plumbing: Google's Vertex
+Gemini backend (`chia.models.vertex.VertexGeminiLLM`) authenticates via
+Application Default Credentials, not a literal key string — `gcloud auth
+application-default login` (already set up on this project's own dev
+machine from the earlier GCP cluster work) is enough, so `--api` can be
+omitted entirely for it. `--model` becomes required instead (Vertex has no
+usable default — `VertexGeminiLLM` raises `TypeError` with none set).
+Confirmed against the real `mace-508004` project: `gemini-2.0-flash-001`
+404s (not available on this project/region), `gemini-2.5-flash` works. A
+full real loop run (`mace shell --backend vertex --model gemini-2.5-flash`,
+1x1 Ariane, `barrier_atomic.c`) completed end to end and passed —
+`chia_openpiton`'s own MCP tool-calling loop working correctly against
+Gemini, not just OpenCode. Worth noting since it was a live point of
+confusion: this project has used GCP heavily throughout, but always as
+*compute* (the cluster workers actually building/running RTL) — the LLM
+backend that plans/diagnoses has been OpenCode by default the whole time
+(see `mace/llm.py`'s own docstring); Vertex-as-LLM-backend and
+GCP-as-compute are two independent things that happen to share a cloud
+provider.
+
 **`read_verilog`/`top_module` and the honest "why not" answer.** This is
 where the CLI directly answers the "can we pass it any core" question from
 earlier in this project: `top_module`'s declared name is matched (case-

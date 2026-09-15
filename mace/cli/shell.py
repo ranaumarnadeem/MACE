@@ -487,35 +487,61 @@ class MaceShell(cmd.Cmd):
 # ---------------------------------------------------------------------------
 
 
+_ADC_BACKENDS = frozenset({"vertex"})  # authenticate via Google ADC, not a literal key string
+
+
 @app.command()
 def shell(
     piton_root: str = typer.Option(..., "--piton-root", help="OpenPiton checkout to work against"),
     api: str = typer.Option(
-        ..., "--api", help="Path to a .env file with the backend's API key (see `mace init`)"
+        None,
+        "--api",
+        help="Path to a .env file with the backend's API key. Required for opencode/claude/"
+        "antigravity; omit for vertex if `gcloud auth application-default login` is already set up.",
     ),
     backend: str = typer.Option("opencode", "--backend", help="LLM backend: opencode, claude, antigravity, vertex"),
+    model: str = typer.Option(
+        None, "--model", help="Model name (sets MACE_LLM_MODEL). Required for vertex."
+    ),
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
 ) -> None:
     """Start the interactive shell (read_verilog, top_module, read_spec, set_core, run, write_report)."""
-    # --api is mandatory, not auto-loaded from a saved file: a live user hit
-    # a stale key silently pulled in from disk with no visibility into what
-    # was actually being used. Naming the file explicitly on every launch
-    # means `cat` on that exact path always tells you what's in play.
-    try:
-        env = load_env_file(api)
-    except FileNotFoundError:
-        typer.echo(f"No .env file at {api!r} -- run `mace init` first, or check the path.")
-        raise typer.Exit(code=1)
-    apply_env_to_environment(env)
-    os.environ.setdefault("MACE_LLM", backend)
-
-    expected_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
-    if expected_var not in env:
+    # --api is mandatory for a literal-API-key backend, not auto-loaded from a
+    # saved file: a live user hit a stale key silently pulled in from disk
+    # with no visibility into what was actually being used. Naming the file
+    # explicitly on every launch means `cat` on that exact path always tells
+    # you what's in play. vertex is the one exception: Google ADC
+    # (gcloud auth application-default login) authenticates with no key
+    # string anywhere, so requiring --api there would demand a file that has
+    # nothing real to put in it.
+    if api is not None:
+        try:
+            env = load_env_file(api)
+        except FileNotFoundError:
+            typer.echo(f"No .env file at {api!r} -- run `mace init` first, or check the path.")
+            raise typer.Exit(code=1)
+        apply_env_to_environment(env)
+        expected_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
+        if expected_var not in env:
+            typer.echo(
+                f"{api} doesn't set {expected_var}, which the {backend!r} backend needs -- "
+                f"check the file or your --backend value."
+            )
+            raise typer.Exit(code=1)
+    elif backend not in _ADC_BACKENDS:
         typer.echo(
-            f"{api} doesn't set {expected_var}, which the {backend!r} backend needs -- "
-            f"check the file or your --backend value."
+            f"--api is required for backend={backend!r} -- it needs a real API key. "
+            f"Only vertex can omit it, and only once `gcloud auth application-default "
+            f"login` has been run."
         )
         raise typer.Exit(code=1)
+
+    if model:
+        os.environ["MACE_LLM_MODEL"] = model
+    elif backend == "vertex" and "MACE_LLM_MODEL" not in os.environ:
+        typer.echo("--model is required for backend='vertex' (e.g. --model gemini-2.0-flash-001).")
+        raise typer.Exit(code=1)
+    os.environ.setdefault("MACE_LLM", backend)
 
     ray.init(address="local", resources={"openpiton": 1, f"{backend}_creds": 1})
     llm = make_llm(backend)
