@@ -447,10 +447,26 @@ class MaceShell(cmd.Cmd):
         return True
 
     def default(self, line: str) -> None:
-        self.console.print(
-            f"[red]unknown command: {line.split()[0] if line.split() else line!r}[/red] "
-            f"(type [cyan]help[/cyan] for the list)"
-        )
+        # Two real mistakes a live user made back to back: typing `init` (a
+        # top-level `mace` command that sets up credentials *before* the
+        # shell starts, not a shell command) and typing `mace init ...`
+        # out of habit while still inside the shell. A generic "unknown
+        # command" left them guessing both times -- name the actual fix.
+        word = line.split()[0] if line.split() else ""
+        if word == "init":
+            self.console.print(
+                "[yellow]'init' sets up credentials before the shell starts -- it isn't a "
+                "shell command.[/yellow] Exit first ([cyan]exit[/cyan]), then from your regular "
+                "terminal run:\n  [bold]mace init --backend opencode --api-key <key>[/bold]"
+            )
+            return
+        if word == "mace":
+            self.console.print(
+                "[yellow]You're already inside the mace shell -- drop the `mace` prefix.[/yellow] "
+                "e.g. type [bold]run[/bold], not [dim]mace run[/dim]."
+            )
+            return
+        self.console.print(f"[red]unknown command: {word or line!r}[/red] (type [cyan]help[/cyan] for the list)")
 
     def emptyline(self) -> None:
         pass  # cmd.Cmd's default re-runs the last command on a blank line -- surprising here
