@@ -11,7 +11,16 @@ around the match, not the match itself.
 
 from __future__ import annotations
 
-from mace.agents import KNOWN_DIAGNOSES, parse_diagnosis, parse_fix, parse_tasks
+from mace.agents import (
+    KNOWN_ASSESSMENTS,
+    KNOWN_DIAGNOSES,
+    parse_assessment,
+    parse_diagnosis,
+    parse_explanation,
+    parse_fix,
+    parse_next_steps,
+    parse_tasks,
+)
 from mace.spec import Task
 
 PLANNER_TRANSCRIPT = """\
@@ -37,6 +46,23 @@ under-provisioned run.
 
 DIAGNOSIS: config_error
 FIX: rerun with -rtl_timeout=10000000, matching CI's convention for this mesh size
+"""
+
+POST_MORTEM_TRANSCRIPT_RECONSIDERED = """\
+Every attempt reached the same point: generic boot completes, then the core
+never reaches its own trap address. At first this looked like it might be
+fixable with a longer rtl_timeout.
+
+ASSESSMENT: fixable_config
+
+Checked the logs again -- raising rtl_timeout to 10000000 changed nothing
+except how long it took to hit the cap, which rules out "just needs more
+cycles". The compiled binary's symbol table and entry point are both
+verified correct.
+
+ASSESSMENT: likely_hardware_limitation
+EXPLANATION: the core never reaches its own trap address despite a verified-correct binary and generic boot completing identically to a known-good run
+NEXT_STEPS: would need waveform-level tracing of the reset/boot sequence to go further
 """
 
 
@@ -125,3 +151,47 @@ class TestParseFix:
 
     def test_fix_text_is_not_lowercased(self):
         assert parse_fix("FIX: Rerun with -Verbose") == "Rerun with -Verbose"
+
+
+class TestParseAssessment:
+    def test_last_assessment_wins_over_a_reconsidered_first_guess(self):
+        assert parse_assessment(POST_MORTEM_TRANSCRIPT_RECONSIDERED) == "likely_hardware_limitation"
+
+    def test_value_is_lowercased(self):
+        assert parse_assessment("ASSESSMENT: Fixable_Config") == "fixable_config"
+
+    def test_no_assessment_returns_none(self):
+        assert parse_assessment("Still investigating, no conclusion yet.") is None
+
+    def test_known_assessments_are_not_enforced_by_the_parser(self):
+        assert parse_assessment("ASSESSMENT: mystery_verdict") == "mystery_verdict"
+        assert "mystery_verdict" not in KNOWN_ASSESSMENTS
+
+    def test_every_documented_taxonomy_value_is_in_known_assessments(self):
+        for value in ("fixable_config", "likely_hardware_limitation", "inconclusive"):
+            assert value in KNOWN_ASSESSMENTS
+
+
+class TestParseExplanation:
+    def test_last_explanation_wins(self):
+        assert parse_explanation(POST_MORTEM_TRANSCRIPT_RECONSIDERED) == (
+            "the core never reaches its own trap address despite a "
+            "verified-correct binary and generic boot completing "
+            "identically to a known-good run"
+        )
+
+    def test_no_explanation_returns_none(self):
+        assert parse_explanation("ASSESSMENT: inconclusive\n") is None
+
+
+class TestParseNextSteps:
+    def test_last_next_steps_wins(self):
+        assert parse_next_steps(POST_MORTEM_TRANSCRIPT_RECONSIDERED) == (
+            "would need waveform-level tracing of the reset/boot sequence to go further"
+        )
+
+    def test_no_next_steps_returns_none(self):
+        assert parse_next_steps("ASSESSMENT: inconclusive\n") is None
+
+    def test_next_steps_text_is_not_lowercased(self):
+        assert parse_next_steps("NEXT_STEPS: Try a Larger Mesh") == "Try a Larger Mesh"

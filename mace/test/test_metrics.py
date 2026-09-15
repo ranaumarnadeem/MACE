@@ -13,7 +13,7 @@ from __future__ import annotations
 from chia.base.llm_call import QueryResult
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import metrics
-from mace.spec import MaceSpec, StepResult, Task
+from mace.spec import MaceSpec, PostMortem, StepResult, Task
 
 
 def make_spec(**override):
@@ -116,6 +116,42 @@ class TestFailures:
 
         rows = {r["task_id"]: r["recovered"] for r in db.query("SELECT task_id, recovered FROM failures")}
         assert rows == {"a": 1, "b": 1, "c": 0}  # other_run_id's failure is untouched
+
+
+class TestPostMortem:
+    def test_record_and_get_round_trip(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        pm = PostMortem(
+            assessment="likely_hardware_limitation",
+            explanation="core never reaches its own trap address",
+            next_steps="waveform tracing",
+        )
+
+        metrics.record_post_mortem(db, run_id, pm)
+
+        assert metrics.get_post_mortem(db, run_id) == pm
+
+    def test_no_post_mortem_recorded_returns_none(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        assert metrics.get_post_mortem(db, run_id) is None
+
+    def test_recording_twice_replaces_not_duplicates(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_post_mortem(
+            db, run_id, PostMortem(assessment="inconclusive", explanation="first pass")
+        )
+        metrics.record_post_mortem(
+            db, run_id, PostMortem(assessment="fixable_config", explanation="second pass")
+        )
+
+        assert metrics.get_post_mortem(db, run_id).assessment == "fixable_config"
+        count = db.query_value(
+            "SELECT COUNT(*) FROM post_mortems WHERE run_id = ?", (run_id,)
+        )
+        assert count == 1
 
 
 class TestSummary:

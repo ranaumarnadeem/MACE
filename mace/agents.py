@@ -32,6 +32,11 @@ KNOWN_DIAGNOSES: frozenset[str] = frozenset(
     ("test_bug", "config_error", "timeout", "maxcycles", "rtl_suspect")
 )
 
+# Same non-enforcement convention as KNOWN_DIAGNOSES -- see parse_assessment.
+KNOWN_ASSESSMENTS: frozenset[str] = frozenset(
+    ("fixable_config", "likely_hardware_limitation", "inconclusive")
+)
+
 
 def _footer_lines(text: str, tag: str) -> list[str]:
     """Every ``<tag>: ...`` line body in ``text``, in file order."""
@@ -86,4 +91,27 @@ def parse_diagnosis(text: str) -> str | None:
 def parse_fix(text: str) -> str | None:
     """The last ``FIX: ...`` value, verbatim; ``None`` if absent."""
     lines = _footer_lines(text, "FIX")
+    return lines[-1].strip() if lines else None
+
+
+def parse_assessment(text: str) -> str | None:
+    """The last ``ASSESSMENT: ...`` value, lowercased; ``None`` if absent.
+
+    Not validated against :data:`KNOWN_ASSESSMENTS` here, for the same reason
+    :func:`parse_diagnosis` doesn't validate against :data:`KNOWN_DIAGNOSES`
+    -- see that docstring.
+    """
+    lines = _footer_lines(text, "ASSESSMENT")
+    return lines[-1].strip().lower() if lines else None
+
+
+def parse_explanation(text: str) -> str | None:
+    """The last ``EXPLANATION: ...`` value, verbatim; ``None`` if absent."""
+    lines = _footer_lines(text, "EXPLANATION")
+    return lines[-1].strip() if lines else None
+
+
+def parse_next_steps(text: str) -> str | None:
+    """The last ``NEXT_STEPS: ...`` value, verbatim; ``None`` if absent."""
+    lines = _footer_lines(text, "NEXT_STEPS")
     return lines[-1].strip() if lines else None

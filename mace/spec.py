@@ -130,6 +130,26 @@ class Triage:
             raise ValueError(f"diagnosis must be a non-empty string, got {self.diagnosis!r}")
 
 
+@dataclass(frozen=True)
+class PostMortem:
+    """A whole run's final diagnosis, from mace.report.generate_post_mortem()
+    -- produced only when a run ends without ever reaching "passed" (see
+    mace.orchestrator.run_mace_loop for exactly which statuses trigger this).
+
+    Distinct from Triage: a Triage diagnoses one failed task to inform the
+    next replan; a PostMortem synthesizes an entire exhausted run into a
+    single verdict on whether the objective looks achievable at all.
+    """
+
+    assessment: str
+    explanation: str = ""
+    next_steps: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.assessment, str) or not self.assessment.strip():
+            raise ValueError(f"assessment must be a non-empty string, got {self.assessment!r}")
+
+
 @dataclass
 class LoopResult:
     """Outcome of one full mace.orchestrator.run_mace_loop call: every
@@ -139,3 +159,4 @@ class LoopResult:
     status: str  # "passed" | "failed" | "planning_failed" | "budget_exceeded"
     #             | "checksum_mismatch"
     iterations: tuple[tuple[StepResult, ...], ...]
+    post_mortem: PostMortem | None = None

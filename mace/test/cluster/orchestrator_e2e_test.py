@@ -170,6 +170,7 @@ class TestNeverPasses:
             responses=[
                 TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
                 TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                "ASSESSMENT: inconclusive\n",  # post-mortem, once budget is exhausted
             ]
         )
 
@@ -189,6 +190,7 @@ class TestNeverPasses:
             responses=[
                 TASK_LINE,
                 "I'm not sure what happened.",  # no DIAGNOSIS: line -> TriageError
+                "ASSESSMENT: inconclusive\n",  # post-mortem, once budget is exhausted
             ]
         )
 
@@ -245,6 +247,7 @@ class TestCostBudget:
             responses=[
                 TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
                 TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                "ASSESSMENT: inconclusive\n",  # post-mortem, once budget is exhausted
             ]
         )
         monkeypatch.setattr("mace.orchestrator.extract_cost_usd", lambda query: 0.6)
@@ -294,6 +297,84 @@ class TestReplayTagsReachIntegrateParallel:
         result = run_mace_loop((checkout,), make_spec(), llm, db)
 
         assert calls == [(result.run_id, 0)]
+
+
+class TestPostMortem:
+    """generate_post_mortem itself is tested in isolation in mace/test/
+    test_report.py -- these prove run_mace_loop calls it in exactly the
+    right circumstances: when the run genuinely tried and never passed, and
+    never when it passed, hit a checksum mismatch, or never got a task DAG
+    at all (see run_mace_loop's own docstring for why those are excluded)."""
+
+    def test_generated_when_the_run_exhausts_its_budget(self, ray_local, tmp_path, monkeypatch):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="fail")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        budget = Budget(max_iterations=1)
+        llm = FakeLLM(
+            responses=[
+                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                "ASSESSMENT: likely_hardware_limitation\nEXPLANATION: x\nNEXT_STEPS: y\n",
+            ]
+        )
+
+        result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db)
+
+        assert result.status == "budget_exceeded"
+        assert result.post_mortem is not None
+        assert result.post_mortem.assessment == "likely_hardware_limitation"
+        from mace.metrics import get_post_mortem
+        assert get_post_mortem(db, result.run_id) == result.post_mortem
+
+    def test_not_generated_when_the_run_passes(self, ray_local, tmp_path):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[TASK_LINE, "edit t1"])  # no ASSESSMENT: response queued
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)
+
+        assert result.status == "passed"
+        assert result.post_mortem is None
+
+    def test_not_generated_on_checksum_mismatch(self, ray_local, tmp_path, monkeypatch):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[])  # must never be called -- no ASSESSMENT: response queued
+
+        def _tampered(*a, **kw):
+            raise ValueError("checksum mismatch")
+
+        monkeypatch.setattr("mace.orchestrator.verify_checksums", _tampered)
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)
+
+        assert result.status == "checksum_mismatch"
+        assert result.post_mortem is None
+
+    def test_not_generated_when_planning_fails_outright(self, ray_local, tmp_path):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=["I don't have enough information to plan yet."])
+
+        result = run_mace_loop((checkout,), make_spec(), llm, db)
+
+        assert result.status == "planning_failed"
+        assert result.post_mortem is None
+
+    def test_unparseable_post_mortem_is_dropped_not_raised(self, ray_local, tmp_path):
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="fail")
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        budget = Budget(max_iterations=1)
+        llm = FakeLLM(
+            responses=[
+                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                "I don't have a clear conclusion.",  # no ASSESSMENT: line -> ReportError
+            ]
+        )
+
+        result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db)
+
+        assert result.status == "budget_exceeded"
+        assert result.post_mortem is None
 
 
 class TestChecksumMismatch:

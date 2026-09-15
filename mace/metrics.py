@@ -21,7 +21,7 @@ import uuid
 
 from chia.database.sqlite_node import SQLiteNode
 
-from mace.spec import MaceSpec, StepResult
+from mace.spec import MaceSpec, PostMortem, StepResult
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -66,6 +66,13 @@ CREATE TABLE IF NOT EXISTS failures (
     fix TEXT,
     recovered INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, iteration, task_id)
+);
+
+CREATE TABLE IF NOT EXISTS post_mortems (
+    run_id TEXT PRIMARY KEY,
+    assessment TEXT NOT NULL,
+    explanation TEXT,
+    next_steps TEXT
 );
 """
 
@@ -180,6 +187,35 @@ def mark_recovered(db: SQLiteNode, run_id: str, iteration: int, task_id: str) ->
     db.execute(
         "UPDATE failures SET recovered = 1 WHERE run_id = ? AND iteration = ? AND task_id = ?",
         (run_id, iteration, task_id),
+    )
+
+
+def record_post_mortem(db: SQLiteNode, run_id: str, post_mortem: PostMortem) -> None:
+    """The final synthesis for a run that never reached "passed" -- see
+    mace.report.generate_post_mortem. One row per run, same INSERT OR
+    REPLACE idempotency convention as every other table here."""
+    db.execute(
+        "INSERT OR REPLACE INTO post_mortems (run_id, assessment, explanation, next_steps) "
+        "VALUES (?, ?, ?, ?)",
+        (run_id, post_mortem.assessment, post_mortem.explanation, post_mortem.next_steps),
+    )
+
+
+def get_post_mortem(db: SQLiteNode, run_id: str) -> PostMortem | None:
+    """The recorded post-mortem for *run_id*, or ``None`` if it never got one
+    (the run passed, hit a checksum mismatch, or failed planning outright --
+    see run_mace_loop's docstring for which statuses produce a post-mortem
+    at all)."""
+    row = db.query_one(
+        "SELECT assessment, explanation, next_steps FROM post_mortems WHERE run_id = ?",
+        (run_id,),
+    )
+    if row is None:
+        return None
+    return PostMortem(
+        assessment=row["assessment"],
+        explanation=row["explanation"] or "",
+        next_steps=row["next_steps"] or "",
     )
 
 

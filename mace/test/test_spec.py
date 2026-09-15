@@ -11,7 +11,7 @@ import dataclasses
 import pytest
 
 from chia_openpiton.state_def import MAX_TILES_PER_AXIS
-from mace.spec import Budget, LoopResult, MaceSpec, Task, Triage
+from mace.spec import Budget, LoopResult, MaceSpec, PostMortem, Task, Triage
 
 
 def make_spec(**override):
@@ -148,6 +148,30 @@ def test_triage_is_immutable():
         Triage(diagnosis="timeout", fix="").fix = "other"
 
 
+class TestPostMortemValidation:
+    def test_minimal_post_mortem_is_valid(self):
+        pm = PostMortem(assessment="inconclusive")
+        assert (pm.explanation, pm.next_steps) == ("", "")
+
+    @pytest.mark.parametrize("bad", ["", "   "])
+    def test_assessment_must_be_non_empty(self, bad):
+        with pytest.raises(ValueError, match="assessment"):
+            PostMortem(assessment=bad)
+
+
+def test_post_mortem_is_immutable():
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        PostMortem(assessment="inconclusive").assessment = "other"
+
+
 def test_loop_result_holds_its_fields():
     result = LoopResult(run_id="r1", status="passed", iterations=())
-    assert (result.run_id, result.status, result.iterations) == ("r1", "passed", ())
+    assert (result.run_id, result.status, result.iterations, result.post_mortem) == (
+        "r1", "passed", (), None,
+    )
+
+
+def test_loop_result_post_mortem_defaults_to_none_but_is_settable():
+    pm = PostMortem(assessment="likely_hardware_limitation")
+    result = LoopResult(run_id="r1", status="budget_exceeded", iterations=(), post_mortem=pm)
+    assert result.post_mortem is pm

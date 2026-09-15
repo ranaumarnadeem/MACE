@@ -40,12 +40,21 @@ from mace.metrics import (
     mark_all_recovered,
     record_failure,
     record_iteration,
+    record_post_mortem,
     start_run,
 )
 from mace.planner import PlanningError, plan
+from mace.report import ReportError, generate_post_mortem
 from mace.spec import LoopResult, MaceSpec, Triage
 from mace.triage import TriageError, triage
 from mace.workloads import verify_checksums
+
+# Statuses a post-mortem is worth generating for: the loop genuinely tried
+# and ran real tasks but never reached "passed". Excluded on purpose:
+# "passed" (nothing to explain), "checksum_mismatch" (an integrity problem,
+# not a hardware-capability question), and "planning_failed" (no task
+# history exists yet for a post-mortem to synthesize anything from).
+_POST_MORTEM_STATUSES = frozenset(("failed", "budget_exceeded"))
 
 
 def run_mace_loop(
@@ -67,6 +76,19 @@ def run_mace_loop(
     why this is coarser than per-task tracking, and why that's the right
     tradeoff here).
 
+    If the run instead ends with status ``"failed"`` or ``"budget_exceeded"``
+    *and at least one iteration actually ran* (excludes, e.g., the wall-time
+    budget already being exceeded before the first iteration even starts --
+    nothing happened yet for a post-mortem to synthesize) -- one more LLM
+    call synthesizes the whole run into a final verdict (see
+    :func:`~mace.report.generate_post_mortem`): does the evidence look like a
+    fixable configuration problem, or a genuine hardware/RTL limitation no
+    amount of reconfiguration will fix. This is deliberately *not* generated
+    for ``"checksum_mismatch"`` (an integrity problem, not a capability
+    question) or ``"planning_failed"`` (no task history exists to
+    synthesize). A post-mortem that fails to parse is dropped, not raised --
+    the run's own status/iterations are the load-bearing result either way.
+
     Before any of that: the gate workloads' own integrity is checked first
     (:func:`~mace.workloads.verify_checksums`). They are the loop's pass/
     fail oracle, so a task that edited them (accidentally or otherwise)
@@ -84,6 +106,7 @@ def run_mace_loop(
     started = time.monotonic()
     feedback = ""
     iterations: list[tuple] = []
+    diagnoses: list[Triage | None] = []
     had_a_failure = False
     total_usd = 0.0
     status = "budget_exceeded"
@@ -110,6 +133,7 @@ def run_mace_loop(
         iter_usd = sum(extract_cost_usd(r.query) for r in results)
         total_usd += iter_usd
         iterations.append(results)
+        diagnoses.append(None)  # overwritten below if this level gets triaged
         record_iteration(db, run_id, iteration, results, iter_wall_s, usd=iter_usd)
 
         if results and all(r.passed for r in results):
@@ -128,13 +152,26 @@ def run_mace_loop(
             diagnosis = triage(failed, llm, tools=tools)
         except TriageError:
             diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
+        diagnoses[-1] = diagnosis
         record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
         feedback = (
             f"Task {failed.task.id} ({failed.task.spec}) failed: "
             f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
         )
 
+    post_mortem = None
+    if status in _POST_MORTEM_STATUSES and iterations:
+        try:
+            post_mortem = generate_post_mortem(
+                spec, tuple(iterations), tuple(diagnoses), status, llm, tools=tools
+            )
+            record_post_mortem(db, run_id, post_mortem)
+        except ReportError:
+            pass  # fail-open, matching triage's own posture
+
     if status == "passed" and had_a_failure:
         mark_all_recovered(db, run_id)
     finish_run(db, run_id, status)
-    return LoopResult(run_id=run_id, status=status, iterations=tuple(iterations))
+    return LoopResult(
+        run_id=run_id, status=status, iterations=tuple(iterations), post_mortem=post_mortem
+    )

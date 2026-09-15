@@ -93,6 +93,13 @@ def main() -> int:
     for key, value in summary(db, result.run_id).items():
         print(f"  {key}: {value}")
 
+    if result.post_mortem is not None:
+        pm = result.post_mortem
+        print(f"\n--- post-mortem: {pm.assessment} ---")
+        print(f"  {pm.explanation}")
+        if pm.next_steps:
+            print(f"  next steps: {pm.next_steps}")
+
     return 0 if result.status == "passed" else 1
 
 
