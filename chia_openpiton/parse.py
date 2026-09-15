@@ -176,6 +176,39 @@ def regress_summary(text: str) -> dict[str, object]:
     }
 
 
+# --- verilator_coverage --annotate ------------------------------------------
+#
+# Not --report: confirmed directly (scripts/local_coverage_1x1_build_test.py)
+# that the verilator_coverage build actually resolves on this project's own
+# machines (conda-env PATH precedence, "5.049 devel") has a broken
+# verilator_coverage binary -- it faults on --version alone, unrelated to any
+# particular coverage.dat's content. The stable system install (apt, 5.020)
+# works, but predates --report entirely; --annotate is the real, working
+# mechanism on that version, and is what real coverage.dat files here are
+# processed with. Its own top-level summary line is the only aggregate number
+# it prints; per-file detail lives in the annotated source files themselves
+# (each uncovered point marked "%00"), which this module does not parse --
+# that's real, separate work, not yet needed by any caller.
+_COVERAGE_TOTAL_RE = re.compile(r"Total coverage\s*\((\d+)/(\d+)\)\s*([\d.]+)%")
+
+
+def coverage_summary(text: str) -> dict[str, object]:
+    """Parse ``verilator_coverage --annotate``'s own stdout summary line.
+
+    Returns ``{"hit": int|None, "total": int|None, "percent": float|None}``.
+    All three are None when the text carries no recognizable summary line
+    (e.g. verilator_coverage itself failed before printing one).
+    """
+    m = _COVERAGE_TOTAL_RE.search(text or "")
+    if not m:
+        return {"hit": None, "total": None, "percent": None}
+    return {
+        "hit": int(m.group(1)),
+        "total": int(m.group(2)),
+        "percent": float(m.group(3)),
+    }
+
+
 # --- sims itself ------------------------------------------------------------
 
 _DIE_RE = re.compile(r"DIE\.\s*(.+?)(?:\s+at\s+\S+\s+line\s+\d+\.?)?\s*$", re.MULTILINE)

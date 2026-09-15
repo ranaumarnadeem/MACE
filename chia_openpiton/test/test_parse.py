@@ -159,6 +159,29 @@ class TestRegressSummary:
         assert parse.regress_summary("partial output")["passed"] is None
 
 
+class TestCoverageSummary:
+    def test_real_annotate_capture(self, fixtures):
+        got = parse.coverage_summary(fixtures("coverage_annotate_stdout.log"))
+        assert got == {"hit": 8749, "total": 24311, "percent": 35.00}
+
+    def test_zero_percent(self):
+        got = parse.coverage_summary("Total coverage (0/100) 0.00%\n")
+        assert got == {"hit": 0, "total": 100, "percent": 0.00}
+
+    def test_hundred_percent(self):
+        got = parse.coverage_summary("Total coverage (500/500) 100.00%\n")
+        assert got == {"hit": 500, "total": 500, "percent": 100.00}
+
+    def test_no_summary_line_is_none_not_zero(self):
+        """verilator_coverage failing before printing a summary must not
+        silently read as 0% coverage."""
+        got = parse.coverage_summary("%Error: Verilator_coverage internal fault, sorry.\n")
+        assert got == {"hit": None, "total": None, "percent": None}
+
+    def test_empty_text_is_none(self):
+        assert parse.coverage_summary("") == {"hit": None, "total": None, "percent": None}
+
+
 class TestSimsOutput:
     def test_die_message_strips_perl_file_and_line(self, fixtures):
         text = fixtures("build_fail_bad_option.log")
