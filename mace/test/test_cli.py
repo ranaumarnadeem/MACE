@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from mace.cli.config import apply_config_to_environment, load_config, save_config
+from mace.cli.config import apply_env_to_environment, load_env_file, write_env_file
 from mace.cli.session import KNOWN_MESH_OUTCOMES, Session, detect_core, mesh_for_core_count
 from mace.cli.spec_file import parse_spec_file
 from mace.cli.shell import (
@@ -107,32 +107,34 @@ class TestParseSpecFile:
 
 
 class TestConfig:
-    def test_save_and_load_round_trip(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("mace.cli.config.CONFIG_DIR", tmp_path / ".mace")
-        monkeypatch.setattr("mace.cli.config.CONFIG_PATH", tmp_path / ".mace" / "config.json")
+    def test_write_and_load_round_trip(self, tmp_path):
+        path = write_env_file("opencode", "sk-test-123", tmp_path / ".env")
+        assert load_env_file(path) == {"OPENCODE_API_KEY": "sk-test-123"}
 
-        save_config("opencode", "sk-test-123")
-        loaded = load_config()
+    def test_load_raises_when_file_does_not_exist(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_env_file(tmp_path / "nope.env")
 
-        assert loaded == {"backend": "opencode", "api_key": "sk-test-123"}
+    def test_load_skips_blank_and_comment_lines(self, tmp_path):
+        f = tmp_path / ".env"
+        f.write_text("# a comment\n\nOPENCODE_API_KEY=sk-x\n")
+        assert load_env_file(f) == {"OPENCODE_API_KEY": "sk-x"}
 
-    def test_load_returns_none_when_never_saved(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("mace.cli.config.CONFIG_DIR", tmp_path / ".mace")
-        monkeypatch.setattr("mace.cli.config.CONFIG_PATH", tmp_path / ".mace" / "config.json")
+    def test_load_strips_matching_quotes(self, tmp_path):
+        f = tmp_path / ".env"
+        f.write_text('OPENCODE_API_KEY="sk-x"\n')
+        assert load_env_file(f) == {"OPENCODE_API_KEY": "sk-x"}
 
-        assert load_config() is None
+    def test_write_falls_back_to_generic_var_for_an_unknown_backend(self, tmp_path):
+        path = write_env_file("some_future_backend", "sk-x", tmp_path / ".env")
+        assert load_env_file(path) == {"MACE_LLM_API_KEY": "sk-x"}
 
-    def test_apply_sets_the_backend_specific_env_var(self, monkeypatch):
+    def test_apply_sets_environment_variables(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        env_var = apply_config_to_environment({"backend": "claude", "api_key": "sk-x"})
-        assert env_var == "ANTHROPIC_API_KEY"
+        apply_env_to_environment({"ANTHROPIC_API_KEY": "sk-x"})
         import os
 
         assert os.environ["ANTHROPIC_API_KEY"] == "sk-x"
-
-    def test_apply_falls_back_to_generic_var_for_an_unknown_backend(self, monkeypatch):
-        env_var = apply_config_to_environment({"backend": "some_future_backend", "api_key": "sk-x"})
-        assert env_var == "MACE_LLM_API_KEY"
 
 
 class TestHandleReadVerilog:

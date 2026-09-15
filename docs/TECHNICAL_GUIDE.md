@@ -766,8 +766,8 @@ convention rather than a set of independent subcommands: `read_verilog`,
 session, and `run` acts on everything gathered so far.
 
 ```
-mace init --backend opencode --api-key <key>   # once: credentials + a real doctor-style env check
-mace shell --piton-root /path/to/openpiton     # starts the interactive session
+mace init --backend opencode --api-key <key>              # once: writes ~/.mace/.env + a doctor-style env check
+mace shell --piton-root /path/to/openpiton --api ~/.mace/.env   # starts the interactive session
 
 mace> read_verilog my_core.v my_core_pkg.v
 mace> top_module my_core_top
@@ -781,11 +781,15 @@ mace> exit
 `init` combines what a separate `doctor` command would have done with
 credential setup, per the project owner's own instruction — one command,
 not two. It checks for `verilator`, `riscv64-unknown-elf-gcc`, and `git` on
-`PATH`, confirms `ray`/`chia_openpiton` import, saves the API key to
-`~/.mace/config.json` (owner-only permissions — see `mace/cli/config.py`'s
-own docstring on why this is a file, not the OS keychain, and what the
-tradeoff is), and sets the right backend-specific environment variable
-before anything else runs.
+`PATH`, confirms `ray`/`chia_openpiton` import, and writes the right
+backend-specific environment variable to a plain `.env` file (default
+`~/.mace/.env`, owner-only permissions — see `mace/cli/config.py`'s own
+docstring). `shell` requires `--api <path>` pointing at that file on every
+launch — deliberately not auto-loaded from a fixed, invisible location: a
+live user hit a stale saved key with no easy way to see what was actually
+in play, and a path you name yourself is one `cat` away from being
+debuggable. `shell` fails fast, before touching Ray or the LLM backend, if
+the file is missing or doesn't set the variable `--backend` expects.
 
 **`read_verilog`/`top_module` and the honest "why not" answer.** This is
 where the CLI directly answers the "can we pass it any core" question from

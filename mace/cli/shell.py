@@ -27,7 +27,13 @@ from rich.panel import Panel
 from rich.table import Table
 
 from chia.database.sqlite_node import SQLiteNode
-from mace.cli.config import apply_config_to_environment, load_config, save_config
+from mace.cli.config import (
+    BACKEND_ENV_VARS,
+    DEFAULT_ENV_PATH,
+    apply_env_to_environment,
+    load_env_file,
+    write_env_file,
+)
 from mace.cli.session import KNOWN_MESH_OUTCOMES, Session
 from mace.cli.spec_file import parse_spec_file
 from mace.llm import make_llm
@@ -80,12 +86,14 @@ def init(
     api_key: str = typer.Option(
         None, prompt=True, hide_input=True, help="API key/credential for the chosen backend"
     ),
+    env_file: str = typer.Option(
+        None, "--env-file", help="Where to write the .env file (default: ~/.mace/.env)"
+    ),
 ) -> None:
     """Set up credentials and check the environment -- run this first."""
-    path = save_config(backend, api_key)
-    typer.echo(f"Saved credentials to {path} (owner-only permissions).")
-    env_var = apply_config_to_environment({"backend": backend, "api_key": api_key})
-    typer.echo(f"Set {env_var} for this session (and every session after `init`).")
+    path = write_env_file(backend, api_key, Path(env_file) if env_file else DEFAULT_ENV_PATH)
+    env_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
+    typer.echo(f"Wrote {env_var} to {path} (owner-only permissions).")
 
     typer.echo("\nEnvironment checks:")
     all_ok = True
@@ -95,8 +103,8 @@ def init(
         all_ok = all_ok and ok
     if all_ok:
         typer.echo(
-            "\nEverything looks ready. Run `mace shell --piton-root /path/to/openpiton` "
-            "to start the shell."
+            f"\nEverything looks ready. Run:\n"
+            f"  mace shell --piton-root /path/to/openpiton --api {path} --backend {backend}"
         )
     else:
         typer.echo(
@@ -457,7 +465,9 @@ class MaceShell(cmd.Cmd):
             self.console.print(
                 "[yellow]'init' sets up credentials before the shell starts -- it isn't a "
                 "shell command.[/yellow] Exit first ([cyan]exit[/cyan]), then from your regular "
-                "terminal run:\n  [bold]mace init --backend opencode --api-key <key>[/bold]"
+                "terminal run:\n  [bold]mace init --backend opencode --api-key <key>[/bold]\n"
+                "then relaunch pointing at the .env file it writes:\n"
+                "  [bold]mace shell --piton-root ... --api ~/.mace/.env[/bold]"
             )
             return
         if word == "mace":
@@ -480,17 +490,35 @@ class MaceShell(cmd.Cmd):
 @app.command()
 def shell(
     piton_root: str = typer.Option(..., "--piton-root", help="OpenPiton checkout to work against"),
+    api: str = typer.Option(
+        ..., "--api", help="Path to a .env file with the backend's API key (see `mace init`)"
+    ),
+    backend: str = typer.Option("opencode", "--backend", help="LLM backend: opencode, claude, antigravity, vertex"),
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
 ) -> None:
     """Start the interactive shell (read_verilog, top_module, read_spec, set_core, run, write_report)."""
-    config = load_config()
-    if config is None:
-        typer.echo("No credentials saved yet -- run `mace init` first.")
+    # --api is mandatory, not auto-loaded from a saved file: a live user hit
+    # a stale key silently pulled in from disk with no visibility into what
+    # was actually being used. Naming the file explicitly on every launch
+    # means `cat` on that exact path always tells you what's in play.
+    try:
+        env = load_env_file(api)
+    except FileNotFoundError:
+        typer.echo(f"No .env file at {api!r} -- run `mace init` first, or check the path.")
         raise typer.Exit(code=1)
-    apply_config_to_environment(config)
+    apply_env_to_environment(env)
+    os.environ.setdefault("MACE_LLM", backend)
 
-    ray.init(address="local", resources={"openpiton": 1, f"{config['backend']}_creds": 1})
-    llm = make_llm(config["backend"])
+    expected_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
+    if expected_var not in env:
+        typer.echo(
+            f"{api} doesn't set {expected_var}, which the {backend!r} backend needs -- "
+            f"check the file or your --backend value."
+        )
+        raise typer.Exit(code=1)
+
+    ray.init(address="local", resources={"openpiton": 1, f"{backend}_creds": 1})
+    llm = make_llm(backend)
     db = open_db(os.path.abspath(db_path), ray_placement=False)
     session = Session(piton_root=piton_root)
 

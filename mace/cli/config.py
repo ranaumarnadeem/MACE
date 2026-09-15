@@ -1,30 +1,28 @@
-"""mace.cli.config -- where `init` puts the API key so later commands (and
-later shell sessions) don't have to ask again.
+"""mace.cli.config -- credentials as a plain, inspectable .env file, not an
+opaque saved blob.
 
-Stored as plain JSON under ``~/.mace/config.json``, permissioned owner-only
-(chmod 0600) immediately after writing -- not OS-keychain-backed. That's a
-real, deliberate tradeoff for a hackathon timeline, not an oversight: the
-``keyring`` package would be the stronger answer if this ever needs to be
-more than a local dev tool. Documented here so it isn't a silent gap.
+`init` writes one (default ``~/.mace/.env``); `shell` requires ``--api``
+pointing at one, every launch. Mandatory, not auto-loaded, on purpose: a
+live user hit a stale/wrong saved key and had no easy way to see what was
+actually being used -- a plain-text file at a path you chose and can `cat`
+is easier to debug than a JSON blob `shell` silently reads on your behalf.
 
 The exact environment variable a given backend's underlying CHIA LLM class
 reads for its own credential was not independently verified against every
 backend's source for this feature -- ``BACKEND_ENV_VARS`` below is a
-best-effort mapping, applied by setting the env var before any LLM call, and
-`init` prints exactly which variable it set so a user whose backend expects
-something different can see that immediately rather than have it fail
-silently three commands later.
+best-effort mapping. `init` prints exactly which variable it wrote so a
+user whose backend expects something different can see that immediately
+rather than have it fail silently three commands later.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import stat
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".mace"
-CONFIG_PATH = CONFIG_DIR / "config.json"
+DEFAULT_ENV_PATH = CONFIG_DIR / ".env"
 
 # Best-effort per-backend env var name -- see module docstring.
 BACKEND_ENV_VARS: dict[str, str] = {
@@ -35,30 +33,39 @@ BACKEND_ENV_VARS: dict[str, str] = {
 }
 
 
-def save_config(backend: str, api_key: str) -> Path:
-    """Write ``{backend, api_key}`` to :data:`CONFIG_PATH`, owner-only
+def write_env_file(backend: str, api_key: str, path: Path = DEFAULT_ENV_PATH) -> Path:
+    """Write ``<VAR>=<api_key>`` for *backend*'s env var to *path*, owner-only
     permissions. Returns the path written."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps({"backend": backend, "api_key": api_key}))
-    os.chmod(CONFIG_PATH, stat.S_IRUSR | stat.S_IWUSR)
-    return CONFIG_PATH
-
-
-def load_config() -> dict | None:
-    """The saved ``{backend, api_key}``, or ``None`` if `init` has never run."""
-    if not CONFIG_PATH.exists():
-        return None
-    return json.loads(CONFIG_PATH.read_text())
-
-
-def apply_config_to_environment(config: dict) -> str:
-    """Set the right env var for *config*'s backend from its api_key.
-
-    Returns the env var name that was set, so the caller can tell the user
-    exactly what happened (see module docstring on why this matters).
-    """
-    backend = config["backend"]
     env_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
-    os.environ[env_var] = config["api_key"]
-    os.environ.setdefault("MACE_LLM", backend)
-    return env_var
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{env_var}={api_key}\n")
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    return path
+
+
+def load_env_file(path: str | Path) -> dict[str, str]:
+    """Parse a plain ``KEY=VALUE``-per-line file. Blank lines and lines
+    starting with ``#`` are skipped; a value may be wrapped in matching
+    quotes. Raises FileNotFoundError (with the path in the message) if
+    *path* doesn't exist -- the caller reports that, this stays pure."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"no .env file at {p}")
+    env: dict[str, str] = {}
+    for line in p.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key:
+            env[key] = value
+    return env
+
+
+def apply_env_to_environment(env: dict[str, str]) -> None:
+    """Set every key in *env* into ``os.environ``, verbatim."""
+    os.environ.update(env)

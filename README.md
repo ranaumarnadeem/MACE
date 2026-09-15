@@ -68,8 +68,8 @@ bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 4 real
 modeled on Yosys/OpenROAD's own command style:
 
 ```bash
-mace init --backend opencode --api-key <key>   # once: credentials + a real env check
-mace shell --piton-root /path/to/openpiton
+mace init --backend opencode --api-key <key>   # once: writes ~/.mace/.env + a real env check
+mace shell --piton-root /path/to/openpiton --api ~/.mace/.env
 
 mace> read_verilog my_core.v
 mace> top_module my_core_top
