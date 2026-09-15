@@ -15,6 +15,7 @@ LLM call).
 from __future__ import annotations
 
 import cmd
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -362,7 +363,7 @@ def shell(
 
     ray.init(address="local", resources={"openpiton": 1, f"{config['backend']}_creds": 1})
     llm = make_llm(config["backend"])
-    db = open_db(db_path, ray_placement=False)
+    db = open_db(os.path.abspath(db_path), ray_placement=False)
     session = Session(piton_root=piton_root)
 
     try:
