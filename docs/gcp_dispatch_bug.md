@@ -136,17 +136,64 @@ deliberate undertakings than fits inside what's been spent today.
 Cluster torn down immediately after this result (`chia down --yes`),
 confirmed zero instances remain (`gcloud compute instances list`).
 
-## Next step, concretely
+## Confirmed decisively (2026-09-16, later the same night): the strace result
 
-Two real options, not yet decided:
-1. Read Ray's own C++ core (`src/ray/rpc/` in the `ray` source, not
-   `chia`) for how raylet-to-raylet lease-request channels get
-   constructed, specifically whether it goes through `grpc_proxy`-aware
-   channel creation the same way Python-level calls do.
-2. A real cluster session with `strace -f -e trace=network` (or
-   `tcpdump`) on both the head's raylet process and the GCP worker during
-   a forced dispatch -- would show definitively whether the head's raylet
-   even attempts a `connect()` syscall toward the worker's advertise IP
-   at all, which the relay-log approach couldn't distinguish (a `connect`
-   that never even tries to use the proxy vs. one that tries and is
-   silently swallowed somewhere below the relay).
+Ran `strace -f -tt -e trace=network` on both raylets during a fresh forced
+dispatch, bracketing the exact window the task sat pending in. Head-side
+trace run by the user directly (`sudo timeout 105 strace ... | grep -i
+connect` -- ptrace on an already-running process needs root, and this
+driver's own sudo has no cached credential to reuse non-interactively, so
+that half had to be run by hand rather than automated).
+
+**Zero `connect()` syscalls on either raylet, the entire window.** Not
+"attempted and failed" -- never attempted at all, on the head, on the
+worker, or on either relay. Confirmed three independent ways now (relay
+logs, worker strace, head strace), all agreeing.
+
+The worker's raylet strace *does* show real, continuous activity on several
+already-established file descriptors during the same window -- HTTP/2
+PING/PING-ACK keepalive frames and other traffic, consistent with the
+ordinary heartbeat/registration channel already known to work. One honest
+caveat worth stating plainly: HTTP/2 multiplexes multiple logical RPC
+streams over a single TCP connection, so a lease-assignment message
+riding an *already-established* connection would not show up as a new
+`connect()` -- raw syscall-level tracing can't distinguish "never sent"
+from "sent over an existing stream" without decoding the actual HTTP/2
+frame contents, which needs a different, heavier tool (a real protocol
+dissector, e.g. Wireshark's gRPC/HTTP2 decode over a `tcpdump` capture) to
+settle definitively. Given the totality of the evidence -- zero new
+connections anywhere, the raylet's own WorkerPool never even asked to
+start anything -- the more likely read is a genuine gap in whether Ray's
+scheduler attempts placement communication at all here, not a hidden
+multiplexed message, but that specific residual uncertainty is real and
+worth stating rather than glossing over.
+
+Cluster torn down immediately after this result.
+
+## Where this actually stands
+
+Every `chia`-side explanation has been checked and ruled out precisely,
+by reading the real code, not by guessing from commit history or
+docs. The remaining question is squarely inside Ray's own scheduling/
+placement internals under a proxied network topology -- genuinely deeper
+than config, and genuinely outside what reading `chia`'s repo alone can
+resolve further.
+
+**Two real paths from here, not yet decided:**
+1. **File this upstream**, either with `chia` (whose maintainers already
+   helped resolve the earlier tailnet env-var finding this project hit)
+   or with Ray directly. This is now an extremely well-characterized,
+   reproducible report -- exact symptom, exact ruled-out list, exact
+   syscall-level evidence -- the kind of report a maintainer can actually
+   act on quickly, rather than a vague "doesn't work on GCP."
+2. **Read Ray's own C++ core** (`src/ray/rpc/` in the separately-installed
+   `ray` package, not `chia`) for how placement/lease communication is
+   actually implemented, and whether `grpc_proxy` support was ever wired
+   up for that specific code path. A real, deeper undertaking -- likely
+   hours, not minutes, and may end at "this is a genuine Ray limitation"
+   rather than something fixable from this project's side at all.
+
+Given the hackathon deadline, (1) is very likely the better use of
+remaining time -- it hands the deepest part of the problem to people who
+actually know this code, the same pattern that already worked once this
+project.
