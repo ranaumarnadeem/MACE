@@ -21,3 +21,7 @@ paper/*.aux
 paper/*.log
 paper/*.out
 paper/*.toc
+
+# Created by flake.nix's own shellHook on first `nix develop` -- a local,
+# machine-specific virtualenv, never committed.
+.venv/

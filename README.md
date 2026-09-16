@@ -62,6 +62,23 @@ bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 4 real
                                                        # toolchain/checkout bugs
 ```
 
+**Or skip the toolchain setup above entirely with Nix.** `flake.nix`
+reproducibly pins the whole non-Python side of this — Verilator (a real
+tagged release, not a "devel" snapshot; this project has hit a real,
+broken devel build before), the RISC-V toolchain, and every system
+package `chia_openpiton`'s own patches/build assume:
+
+```bash
+nix develop   # first run creates .venv and tells you the two pip installs above
+```
+
+`chia` still installs the normal way inside that shell (`pip install -e
+/path/to/chia`) — it's intentionally not part of the Nix closure, since
+it isn't on PyPI at the revision this project builds against (see
+`pyproject.toml`'s own comment). Verified end to end: a real `nix
+develop` builds cleanly and the resulting `riscv64-unknown-elf-gcc`
+actually compiles and links RV64 code.
+
 ## Using MACE
 
 **The `mace` CLI** is the easiest way in — a real interactive shell,
