@@ -154,36 +154,55 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
         # duplicate insertion stacked on the first.
         sed -i 's/\r$//' "$MY_TOP_CPP"
 
-        if grep -q '^#if VM_COVERAGE$' "$MY_TOP_CPP"; then
+        # A full patch inserts the guard at TWO sites (the include block and
+        # the exit path). A bare `grep -q` (at least one match) can't tell a
+        # fully-patched file from one where execution was interrupted between
+        # the two sites' sed calls (a real risk: this whole thing runs inside
+        # GCP setup_commands, where OOM-kill / Ray-heartbeat-miss / spot-
+        # preemption are documented, previously-hit failure modes) -- a retry
+        # would see the one completed site, report "already patched", and
+        # never add the missing one. Counting to exactly 2 catches that.
+        vm_coverage_count=$(grep -c '^#if VM_COVERAGE$' "$MY_TOP_CPP" || true)
+        vm_coverage_old_count=$(grep -c '^#ifdef VM_COVERAGE$' "$MY_TOP_CPP" || true)
+        if [ "$vm_coverage_count" -eq 2 ]; then
             echo "already patched: $MY_TOP_CPP"
-        elif grep -q '^#ifdef VM_COVERAGE$' "$MY_TOP_CPP"; then
+        elif [ "$vm_coverage_old_count" -eq 2 ]; then
             sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$MY_TOP_CPP"
             echo "patched: my_top.cpp's #ifdef VM_COVERAGE -> #if VM_COVERAGE (was always true, see fix 5 comment)"
-        else
-        inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$MY_TOP_CPP")
-        exit_count=$(grep -c '^delete top;$' "$MY_TOP_CPP")
-        if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
-            echo "my_top.cpp: expected exactly one match for each coverage-patch anchor, found inc=$inc_count exit=$exit_count -- not patching" >&2
+        elif [ "$vm_coverage_count" -gt 0 ] || [ "$vm_coverage_old_count" -gt 0 ]; then
+            # Neither 0 (untouched) nor 2 (fully patched, either form) --
+            # looks like a prior run was interrupted mid-patch. Blindly
+            # re-running the fresh-install branch below would insert a
+            # second guard at whichever site already has one. Fail loud
+            # instead of guessing; this state needs a human to look at it
+            # (or restore my_top.cpp from a clean checkout and re-run).
+            echo "my_top.cpp: found a partial VM_COVERAGE guard (if-count=$vm_coverage_count ifdef-count=$vm_coverage_old_count, expected 0 or 2 of one form) -- looks like an interrupted previous patch attempt, not auto-repairing" >&2
             exit 1
-        fi
-        inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$MY_TOP_CPP" | cut -d: -f1)
-        exit_line=$(grep -n '^delete top;$' "$MY_TOP_CPP" | cut -d: -f1)
+        else
+            inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$MY_TOP_CPP")
+            exit_count=$(grep -c '^delete top;$' "$MY_TOP_CPP")
+            if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
+                echo "my_top.cpp: expected exactly one match for each coverage-patch anchor, found inc=$inc_count exit=$exit_count -- not patching" >&2
+                exit 1
+            fi
+            inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$MY_TOP_CPP" | cut -d: -f1)
+            exit_line=$(grep -n '^delete top;$' "$MY_TOP_CPP" | cut -d: -f1)
 
-        # exit-path block first (higher line number) so its own insertion
-        # doesn't shift the include-block's already-computed line number.
-        # Each sed targets the same original line, inserted in reverse
-        # desired order, so repeated single-line inserts (no fragile
-        # multi-line sed escaping) stack into the right final order.
-        sed -i "${exit_line}i #endif" "$MY_TOP_CPP"
-        sed -i "${exit_line}i VerilatedCov::write(\"coverage.dat\");" "$MY_TOP_CPP"
-        sed -i "${exit_line}i #if VM_COVERAGE" "$MY_TOP_CPP"
+            # exit-path block first (higher line number) so its own insertion
+            # doesn't shift the include-block's already-computed line number.
+            # Each sed targets the same original line, inserted in reverse
+            # desired order, so repeated single-line inserts (no fragile
+            # multi-line sed escaping) stack into the right final order.
+            sed -i "${exit_line}i #endif" "$MY_TOP_CPP"
+            sed -i "${exit_line}i VerilatedCov::write(\"coverage.dat\");" "$MY_TOP_CPP"
+            sed -i "${exit_line}i #if VM_COVERAGE" "$MY_TOP_CPP"
 
-        inc_endif_line=$((inc_line + 1))
-        sed -i "${inc_endif_line}a #endif" "$MY_TOP_CPP"
-        sed -i "${inc_endif_line}a #include \"verilated_cov.h\"" "$MY_TOP_CPP"
-        sed -i "${inc_endif_line}a #if VM_COVERAGE" "$MY_TOP_CPP"
+            inc_endif_line=$((inc_line + 1))
+            sed -i "${inc_endif_line}a #endif" "$MY_TOP_CPP"
+            sed -i "${inc_endif_line}a #include \"verilated_cov.h\"" "$MY_TOP_CPP"
+            sed -i "${inc_endif_line}a #if VM_COVERAGE" "$MY_TOP_CPP"
 
-        echo "patched: my_top.cpp writes coverage.dat when VM_COVERAGE is nonzero"
+            echo "patched: my_top.cpp writes coverage.dat when VM_COVERAGE is nonzero"
         fi
     fi
 )
