@@ -5,8 +5,17 @@
 # Deliberately does NOT COPY an OpenPiton checkout in — the agent edits RTL
 # source, so that state should be synced per-run (CHIA's `file_mounts` in
 # cluster.yaml, or a bind mount), not baked into the image. It DOES copy in
-# scripts/patch_openpiton.sh, since that must run against whatever checkout
-# gets mounted (see cluster/local.yaml's run_setup_commands).
+# scripts/patch_openpiton.sh, intended to run against whatever checkout
+# gets mounted.
+#
+# Currently unused: this image isn't part of the active provisioning path
+# (see docs/TECHNICAL_GUIDE.md, "Docker was built, then dropped" -- the
+# project's real GCP worker uses cluster/local.yaml's bare-VM
+# `setup_commands` instead, which hand-duplicates patch_openpiton.sh's
+# logic inline rather than calling this copied script, since worker setup
+# there runs before this repo's own code -- the script included -- is
+# synced onto the machine). Kept in case a container is wanted again later;
+# nothing else in this repo depends on it existing.
 #
 # Toolchain: a prebuilt riscv64-elf GCC (github.com/riscv-collab, matching
 # this image's Ubuntu version) rather than building riscv-gnu-toolchain from
