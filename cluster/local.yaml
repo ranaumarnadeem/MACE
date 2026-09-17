@@ -213,13 +213,23 @@ gcp_nodes:
                     fi
                     inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$F" | cut -d: -f1)
                     exit_line=$(grep -n '^delete top;$' "$F" | cut -d: -f1)
-                    sed -i "${exit_line}i #endif" "$F"
-                    sed -i "${exit_line}i VerilatedCov::write(\"coverage.dat\");" "$F"
-                    sed -i "${exit_line}i #if VM_COVERAGE" "$F"
+                    # Adjacent-quote form ($var'text'), not brace form: this
+                    # YAML passes through chia's own config loader, which does
+                    # an unscoped, whole-file "curly-brace variable" -> env-var
+                    # substitution before any of this ever reaches a worker.
+                    # sed's own line-address syntax needs the variable's end
+                    # disambiguated from the following letter -- adjacent-quote
+                    # concatenation does that identically to curly braces,
+                    # without ever writing the brace form chia's own
+                    # substitution pass looks for (a very unlikely, but
+                    # non-zero, collision risk).
+                    sed -i "$exit_line"'i #endif' "$F"
+                    sed -i "$exit_line"'i VerilatedCov::write("coverage.dat");' "$F"
+                    sed -i "$exit_line"'i #if VM_COVERAGE' "$F"
                     inc_endif_line=$((inc_line + 1))
-                    sed -i "${inc_endif_line}a #endif" "$F"
-                    sed -i "${inc_endif_line}a #include \"verilated_cov.h\"" "$F"
-                    sed -i "${inc_endif_line}a #if VM_COVERAGE" "$F"
+                    sed -i "$inc_endif_line"'a #endif' "$F"
+                    sed -i "$inc_endif_line"'a #include "verilated_cov.h"' "$F"
+                    sed -i "$inc_endif_line"'a #if VM_COVERAGE' "$F"
                   fi
                 fi
 
