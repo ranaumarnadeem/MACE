@@ -145,6 +145,36 @@ gcp_nodes:
                 sed -i 's/-march=rv64imac /-march=rv64imac_zicsr_zifencei /' "$F";
                 grep -q -- -std=gnu17 "$F" ||
                 sed -i 's/^\(CFLAGS = .*\)$/\1 -std=gnu17/' "$F"
+            # VM_COVERAGE guard fix (scripts/patch_openpiton.sh fix 5) --
+            # inlined for the same reason as the patch above: worker setup
+            # runs before mace's own code (the script itself included) is
+            # synced onto the machine. Verilator's generated Makefile
+            # always defines VM_COVERAGE to 0 or 1, never leaves it
+            # undefined, so an #ifdef guard is always true -- without this,
+            # every non-coverage build on this worker would fail to link
+            # ("undefined reference to VerilatedCov::..."), the exact bug
+            # scripts/patch_openpiton.sh fix 5 exists to prevent. A block
+            # scalar (not the plain-folded style used above) because the
+            # patch has to write literal '#if'/'#endif' lines, and a plain
+            # YAML scalar would read " #" as a comment marker.
+            - |
+                F=~/openpiton/piton/tools/verilator/my_top.cpp
+                if grep -q '^#if VM_COVERAGE$' "$F"; then
+                  echo "my_top.cpp already patched"
+                elif grep -q '^#ifdef VM_COVERAGE$' "$F"; then
+                  sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$F"
+                else
+                  sed -i 's/\r$//' "$F"
+                  inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$F" | cut -d: -f1)
+                  exit_line=$(grep -n '^delete top;$' "$F" | cut -d: -f1)
+                  sed -i "${exit_line}i #endif" "$F"
+                  sed -i "${exit_line}i VerilatedCov::write(\"coverage.dat\");" "$F"
+                  sed -i "${exit_line}i #if VM_COVERAGE" "$F"
+                  inc_endif_line=$((inc_line + 1))
+                  sed -i "${inc_endif_line}a #endif" "$F"
+                  sed -i "${inc_endif_line}a #include \"verilated_cov.h\"" "$F"
+                  sed -i "${inc_endif_line}a #if VM_COVERAGE" "$F"
+                fi
 
 tailnet:
     manage_all: true        # WSL sits behind NAT; tailnet avoids needing
