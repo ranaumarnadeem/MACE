@@ -117,13 +117,37 @@ gcp_nodes:
         setup_commands:
             # System deps (matches what dockerfiles/openpiton-chia.Dockerfile
             # installs; kept in sync by hand since apt has no lockfile here).
+            #
+            # verilator is deliberately NOT installed from apt here -- Ubuntu
+            # 24.04's package is 5.020, older than even the 5.028 this
+            # project already found broken (verilator/verilator#5820, an
+            # internal V3EmitCFunc.cpp crash on this project's own RTL,
+            # fixed upstream only in 5.036 -- see flake.nix's own comment for
+            # the full finding). Built from source at the pinned tag instead,
+            # a few setup_commands below. autoconf + perl added here because
+            # they're verilator's own build deps and weren't otherwise needed
+            # on this image; everything else it needs (gawk, bison, flex,
+            # zlib1g-dev, g++/make via build-essential) was already here.
             - sudo apt-get update -qq && sudo apt-get install -y -qq
-                gawk build-essential bison flex texinfo
+                gawk build-essential bison flex texinfo autoconf perl
                 python3-pexpect libusb-1.0-0-dev default-jdk zlib1g-dev
                 valgrind csh device-tree-compiler
                 libbit-vector-perl libelf-dev
-                verilator dos2unix openssh-client rsync
+                dos2unix openssh-client rsync
                 curl ca-certificates xz-utils git
+            # Verilator 5.052, built from source at the same tag flake.nix
+            # pins via nixpkgs-verilator (see that file's own comment for why
+            # this exact version: a real tagged release, and past 5.036 for
+            # the #5820 fix above). `make install`'s default PREFIX=/usr/local
+            # puts verilator/verilator_coverage on PATH ahead of nothing else
+            # (apt's own package was never installed), so no PATH/
+            # VERILATOR_ROOT juggling is needed here the way openpiton_local's
+            # worker_env_commands needs it against a pre-existing system install.
+            - git clone --depth 1 --branch v5.052
+                https://github.com/verilator/verilator.git ~/verilator-src
+            - cd ~/verilator-src && autoconf && ./configure && make -j$(nproc) &&
+                sudo make install
+            - verilator --version
             # Prebuilt RISC-V toolchain -> /opt/riscv (same asset validated
             # on this project's WSL host and in the Docker image).
             - sudo mkdir -p /opt/riscv && curl -fL
