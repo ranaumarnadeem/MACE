@@ -157,14 +157,22 @@ gcp_nodes:
             # scalar (not the plain-folded style used above) because the
             # patch has to write literal '#if'/'#endif' lines, and a plain
             # YAML scalar would read " #" as a comment marker.
+            #
+            # The CRLF strip runs first, before either anchored check, not
+            # only in the fresh-install branch: an already-patched file
+            # (either form) whose line endings get reintroduced to CRLF has
+            # a trailing \r sitting before each check's $ end-anchor, so
+            # neither matches it, and it was falling through to
+            # fresh-install and getting a second, duplicate insertion
+            # stacked on the first.
             - |
                 F=~/openpiton/piton/tools/verilator/my_top.cpp
+                sed -i 's/\r$//' "$F"
                 if grep -q '^#if VM_COVERAGE$' "$F"; then
                   echo "my_top.cpp already patched"
                 elif grep -q '^#ifdef VM_COVERAGE$' "$F"; then
                   sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$F"
                 else
-                  sed -i 's/\r$//' "$F"
                   inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$F" || true)
                   exit_count=$(grep -c '^delete top;$' "$F" || true)
                   if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
