@@ -42,11 +42,28 @@ available_node_types:
     # Runs directly on the WSL head — no container, uses the OpenPiton +
     # Verilator toolchain already validated on this machine (PITON_ROOT etc.
     # set up in ~/.bashrc or via worker_setup_commands below).
+    #
+    # Verilator specifically is layered in from flake.nix's own
+    # `packages.verilator` output (the same nixpkgs-verilator pin the Nix
+    # devShell uses, see flake.nix's own comments for why a plain tagged
+    # release isn't enough on its own) rather than left on whatever this
+    # machine's system install happens to be -- that system install is a
+    # "devel" snapshot whose own verilator_coverage faults on --version
+    # alone, a real, previously-hit bug in this project (see flake.nix).
+    # `mace` is resolved via Python instead of a hardcoded checkout path,
+    # since it's already pip-installed editable into chia_env on any
+    # machine this runs on -- no new env var, no per-machine path to keep
+    # in sync.
     openpiton_local:
         resources: {"openpiton": 2}
         num_workers: 1
         compatible_ips: ["${HEAD_IP}"]
-        worker_env_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env"]
+        worker_env_commands:
+            - source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env &&
+                MACE_ROOT=$(python3 -c "import mace, os; print(os.path.dirname(os.path.dirname(mace.__file__)))") &&
+                VERILATOR_STORE=$(nix build --no-link --print-out-paths "$MACE_ROOT#verilator") &&
+                export VERILATOR_ROOT="$VERILATOR_STORE/share/verilator" &&
+                export PATH="$VERILATOR_STORE/bin:$PATH"
 
     # Cloud burst capacity, now that GCP_PROJECT is set (hackathon credits landed).
     # 1 worker is enough for the 2x2 acceptance test itself (proving a 2x2
