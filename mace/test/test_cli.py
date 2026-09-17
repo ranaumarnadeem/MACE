@@ -24,6 +24,7 @@ from mace.cli.shell import (
     handle_set_core,
     handle_top_module,
     no_adapter_post_mortem,
+    resolve_verilator_coverage,
 )
 from mace.spec import LoopResult, PostMortem, StepResult, Task
 
@@ -331,11 +332,75 @@ class TestFindCoverageDat:
         assert find_coverage_dat(()) is None
 
 
+class TestResolveVerilatorCoverage:
+    """resolve_verilator_coverage() runs in the user's own interactive CLI
+    process, never inside a Ray worker, so it never inherits
+    cluster/local.yaml's worker_env_commands PATH/VERILATOR_ROOT fix -- it
+    has to make its own call about what's actually safe to run."""
+
+    def test_nothing_on_path_falls_back_to_stable_binary(self, monkeypatch):
+        monkeypatch.setattr("mace.cli.shell.shutil.which", lambda name: None)
+        assert resolve_verilator_coverage() == "/usr/bin/verilator_coverage"
+
+    def test_path_binary_that_faults_on_version_falls_back(self, monkeypatch):
+        """The exact real-world case this exists for: a broken devel-
+        snapshot verilator_coverage that's first on PATH faults on
+        --version alone (confirmed directly, see
+        scripts/local_coverage_1x1_build_test.py)."""
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "mace.cli.shell.shutil.which", lambda name: "/usr/local/bin/verilator_coverage"
+        )
+
+        def fake_run(cmd, **kw):
+            assert cmd == ["/usr/local/bin/verilator_coverage", "--version"]
+            return SimpleNamespace(returncode=1, stdout="", stderr="internal fault, sorry")
+
+        monkeypatch.setattr("mace.cli.shell.subprocess.run", fake_run)
+        assert resolve_verilator_coverage() == "/usr/bin/verilator_coverage"
+
+    def test_path_binary_that_crashes_outright_falls_back(self, monkeypatch):
+        """--version can also fail by raising, not just returning nonzero --
+        e.g. the binary segfaults instead of exiting cleanly."""
+        monkeypatch.setattr(
+            "mace.cli.shell.shutil.which", lambda name: "/usr/local/bin/verilator_coverage"
+        )
+
+        def fake_run(cmd, **kw):
+            raise OSError("segfault")
+
+        monkeypatch.setattr("mace.cli.shell.subprocess.run", fake_run)
+        assert resolve_verilator_coverage() == "/usr/bin/verilator_coverage"
+
+    def test_working_path_binary_is_preferred_over_the_stable_fallback(self, monkeypatch):
+        """The whole point of this resolver: when PATH actually resolves to
+        a healthy binary (e.g. a Nix devShell or a correctly-configured
+        worker env), use it -- it's the one self-consistent with whatever
+        built the model, not an unrelated fixed version."""
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "mace.cli.shell.shutil.which",
+            lambda name: "/nix/store/xyz-verilator-5.052/bin/verilator_coverage",
+        )
+
+        def fake_run(cmd, **kw):
+            assert cmd == ["/nix/store/xyz-verilator-5.052/bin/verilator_coverage", "--version"]
+            return SimpleNamespace(returncode=0, stdout="Verilator 5.052\n", stderr="")
+
+        monkeypatch.setattr("mace.cli.shell.subprocess.run", fake_run)
+        assert (
+            resolve_verilator_coverage()
+            == "/nix/store/xyz-verilator-5.052/bin/verilator_coverage"
+        )
+
+
 class TestGenerateCoverageReport:
-    def test_calls_the_stable_system_binary_by_absolute_path(self, monkeypatch):
-        """Not whatever verilator_coverage is first on PATH -- confirmed
-        directly that this project's own conda-env PATH precedence resolves
-        to a broken install (faults on --version alone)."""
+    def test_uses_whatever_resolve_verilator_coverage_picks(self, monkeypatch):
+        """generate_coverage_report itself doesn't duplicate the PATH-vs-
+        fallback decision -- it just defers to resolve_verilator_coverage()
+        and runs --annotate against whatever that returns."""
         calls = []
 
         def fake_run(cmd, **kw):
@@ -343,10 +408,14 @@ class TestGenerateCoverageReport:
             from types import SimpleNamespace
             return SimpleNamespace(stdout="Total coverage (1/2) 50.00%\n", stderr="")
 
+        monkeypatch.setattr(
+            "mace.cli.shell.resolve_verilator_coverage", lambda: "/some/resolved/verilator_coverage"
+        )
         monkeypatch.setattr("mace.cli.shell.subprocess.run", fake_run)
         summary, raw = generate_coverage_report("/some/run/coverage.dat")
 
-        assert calls[0][0] == "/usr/bin/verilator_coverage"
+        assert calls[0][0] == "/some/resolved/verilator_coverage"
+        assert calls[0][1] == "--annotate"
         assert summary == {"hit": 1, "total": 2, "percent": 50.0}
         assert "50.00%" in raw
 
@@ -355,6 +424,9 @@ class TestGenerateCoverageReport:
             from types import SimpleNamespace
             return SimpleNamespace(stdout="", stderr="%Error: Verilator_coverage internal fault, sorry.\n")
 
+        monkeypatch.setattr(
+            "mace.cli.shell.resolve_verilator_coverage", lambda: "/usr/bin/verilator_coverage"
+        )
         monkeypatch.setattr("mace.cli.shell.subprocess.run", fake_run)
         summary, _ = generate_coverage_report("/some/run/coverage.dat")
         assert summary == {"hit": None, "total": None, "percent": None}

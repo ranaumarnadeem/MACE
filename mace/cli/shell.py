@@ -17,6 +17,7 @@ from __future__ import annotations
 import cmd
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -280,20 +281,52 @@ def find_coverage_dat(iterations) -> str | None:
     return None
 
 
+def resolve_verilator_coverage() -> str:
+    """Pick which verilator_coverage binary to run for annotation.
+
+    Prefers whatever's first on PATH: this project now has multiple real
+    provisioning paths (the Nix devShell, GCP's source build, a locally
+    fixed worker env) that each pin a real, version-matched
+    verilator_coverage, and using it keeps annotation self-consistent with
+    whatever actually built the model -- coverage.dat's format is a
+    Verilator-internal detail tied to the version that wrote it, not
+    guaranteed stable across major versions, so a fixed binary can silently
+    misread a coverage.dat some other version produced.
+
+    Falls back to /usr/bin/verilator_coverage (a known-stable, if older,
+    install -- see scripts/local_coverage_1x1_build_test.py's own account)
+    when nothing resolves on PATH or the resolved binary faults on
+    --version: confirmed directly that a bare conda-activated shell's own
+    PATH still puts a broken system devel install ahead of the stable one,
+    and this function runs in the user's own interactive CLI process, not
+    inside a Ray worker -- it never inherits worker_env_commands' own
+    PATH/VERILATOR_ROOT fix (cluster/local.yaml), only whatever the user's
+    own shell happens to have.
+    """
+    candidate = shutil.which("verilator_coverage")
+    if candidate:
+        try:
+            probe = subprocess.run(
+                [candidate, "--version"], capture_output=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            probe = None
+        if probe is not None and probe.returncode == 0:
+            return candidate
+    return "/usr/bin/verilator_coverage"
+
+
 def generate_coverage_report(dat_path: str) -> tuple[dict, str]:
     """Run verilator_coverage --annotate on *dat_path*; returns (parsed
     summary dict, raw stdout).
 
-    Calls /usr/bin/verilator_coverage by absolute path deliberately, not
-    whatever verilator_coverage is first on PATH: confirmed directly
-    (scripts/local_coverage_1x1_build_test.py) that this project's own real
-    build environment (conda's own PATH precedence) resolves to a broken
-    install that faults on --version alone, unrelated to any specific
-    coverage.dat -- the stable system install is what actually works.
+    See resolve_verilator_coverage()'s own docstring for which binary runs
+    and why.
     """
     annotate_dir = os.path.join(os.path.dirname(dat_path), "coverage_annotated")
+    verilator_coverage = resolve_verilator_coverage()
     result = subprocess.run(
-        ["/usr/bin/verilator_coverage", "--annotate", annotate_dir, dat_path],
+        [verilator_coverage, "--annotate", annotate_dir, dat_path],
         capture_output=True, text=True, timeout=120,
     )
     return coverage_summary(result.stdout), result.stdout
