@@ -287,7 +287,7 @@ and tested. Acceptance status:
 | 4 | `chia viz` renders the example's task graph | proven |
 | 5 | Tier-0 suite green on fixtures | proven, currently green |
 
-Four real, non-obvious bugs were found only by running the actual toolchain,
+Five real, non-obvious bugs were found only by running the actual toolchain,
 and are now permanently fixed in `scripts/patch_openpiton.sh` (idempotent —
 safe to re-run on any checkout):
 
@@ -308,6 +308,15 @@ safe to re-run on any checkout):
 4. **CRLF-terminated shebangs**, 66 files, mostly inside the Ariane submodule.
    `#!/usr/bin/env python3\r` makes `env` look for a program literally named
    `python3\r`. Swept fixed checkout-wide.
+5. **`my_top.cpp` never called Verilator's coverage-write API**, so even a
+   run that completed cleanly produced no `coverage.dat`. Fixed by adding
+   the call, guarded by `#if VM_COVERAGE` — note `#if`, not `#ifdef`:
+   Verilator's generated Makefile always defines that macro to 0 or 1,
+   never leaves it undefined, so an `#ifdef` guard (an earlier version of
+   this fix used one) is always true regardless of value. That bug broke
+   every plain, non-coverage build's link step
+   ("undefined reference to `VerilatedCov::...`"), unrelated to whether
+   coverage was ever requested for that build.
 
 Docker was built, then dropped — Docker Desktop itself proved unstable on the
 development machine (a real WSL integration crash), and turned out to be
@@ -861,15 +870,23 @@ every `PitonConfig` the loop builds (`mace/loop.py`, `mace/integrator.py`),
 appending `chia_openpiton.state_def.COVERAGE_LINE_FLAG` to `extra_flags`.
 Once a run passes, the shell locates the last task's `coverage.dat`
 (`find_coverage_dat`) and runs `verilator_coverage --annotate` on it
-(`generate_coverage_report`) — by the *system* binary's absolute path
-(`/usr/bin/verilator_coverage`), deliberately not whatever's first on PATH:
-this project's own conda-env install is genuinely broken (faults on
-`--version` alone), confirmed directly, unrelated to any specific
-coverage.dat. Needs a real patch to build on top of, too — OpenPiton's own
-hand-written testbench (`piton/tools/verilator/my_top.cpp`) never called
-Verilator's coverage-write API, so `scripts/patch_openpiton.sh` fix 5 adds
-that call, guarded by `VM_COVERAGE` (a no-op for every non-coverage build).
-Real result, not a mock: 36.00% (8787/24311) on a real passing 1x1 Ariane +
+(`generate_coverage_report`) — via `resolve_verilator_coverage()`, which
+prefers whatever's first on PATH (keeping annotation self-consistent with
+whatever actually built the model, since coverage.dat's format is tied to
+the Verilator version that wrote it) and falls back to the *system*
+binary's absolute path (`/usr/bin/verilator_coverage`) when nothing on
+PATH resolves or what's there faults on `--version`: a bare conda-env
+shell's own install can be genuinely broken this way, confirmed directly,
+unrelated to any specific coverage.dat. Needs a real patch to build on top
+of, too — OpenPiton's own hand-written testbench
+(`piton/tools/verilator/my_top.cpp`) never called Verilator's
+coverage-write API, so `scripts/patch_openpiton.sh` fix 5 adds that call,
+guarded by `#if VM_COVERAGE` (Verilator's generated Makefile always
+defines this macro to 0 or 1, never leaves it undefined — an earlier
+`#ifdef` form of this guard was always true regardless of value, a real
+bug this project hit and fixed: every plain, non-coverage build failed to
+link with "undefined reference to VerilatedCov::..."). Real result, not a
+mock: 36.00% (8787/24311) on a real passing 1x1 Ariane +
 `barrier_atomic.c` run. See `scripts/local_coverage_1x1_build_test.py`'s own
 module docstring for the full account, including why the plan's original
 `--report hier` idea doesn't work on this machine (that flag doesn't exist

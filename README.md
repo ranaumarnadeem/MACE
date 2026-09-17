@@ -58,15 +58,18 @@ requirements, then:
 ```bash
 git clone https://github.com/PrincetonUniversity/openpiton.git
 git -C openpiton submodule update --init --recursive piton/design/chip/tile/ariane
-bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 4 real
+bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 5 real
                                                        # toolchain/checkout bugs
 ```
 
 **Or skip the toolchain setup above entirely with Nix.** `flake.nix`
-reproducibly pins the whole non-Python side of this — Verilator (a real
-tagged release, not a "devel" snapshot; this project has hit a real,
-broken devel build before), the RISC-V toolchain, and every system
-package `chia_openpiton`'s own patches/build assume:
+reproducibly pins the whole non-Python side of this — the RISC-V
+toolchain, every system package `chia_openpiton`'s own patches/build
+assume, and Verilator (from its own separate pin: a real tagged release,
+not a "devel" snapshot, *and* recent enough to clear a real internal
+Verilator crash this project hit on its own RTL — a plain "tagged
+release" isn't sufficient on its own; see `flake.nix`'s own
+`nixpkgs-verilator` input comment for the full account):
 
 ```bash
 nix develop   # first run creates .venv and tells you the two pip installs above
@@ -78,6 +81,10 @@ it isn't on PyPI at the revision this project builds against (see
 `pyproject.toml`'s own comment). Verified end to end: a real `nix
 develop` builds cleanly and the resulting `riscv64-unknown-elf-gcc`
 actually compiles and links RV64 code.
+
+Nix only replaces the *toolchain* setup above — the OpenPiton
+`git clone` + `bash scripts/patch_openpiton.sh` step is still required
+either way (the shell reminds you if `PITON_ROOT` is set and unpatched).
 
 ## Using MACE
 
