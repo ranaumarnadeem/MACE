@@ -118,16 +118,31 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
 #    run that completes cleanly (reaches Verilated::gotFinish()) produces no
 #    coverage.dat, because nothing here ever asks for one. Guarded by
 #    VM_COVERAGE (Verilator's own auto-define when --coverage was used at
-#    Verilate time), so this is a no-op for every non-coverage build --
-#    mirrors the file's own existing VERILATOR_VCD guard convention right
-#    next to each insertion point.
+#    Verilate time), so this is meant to be a no-op for every non-coverage
+#    build -- mirrors the file's own existing VERILATOR_VCD guard convention
+#    right next to each insertion point.
+#
+#    Must be "#if VM_COVERAGE", not "#ifdef VM_COVERAGE": Verilator's
+#    generated Makefile always defines VM_COVERAGE to 0 or 1
+#    (-DVM_COVERAGE=0/1) -- it never leaves it undefined. #ifdef only tests
+#    definedness, so the guard was true on every build regardless of value:
+#    every plain, non-coverage build linked my_top.o against
+#    VerilatedCov::write()/threadCovp() while Verilator's own generated
+#    Makefile correctly left verilated_cov.o out of the link (no coverage
+#    requested), producing "undefined reference to VerilatedCov::..." on
+#    exactly the builds this guard was supposed to no-op on. Found by
+#    bisecting a link failure that turned out to have nothing to do with
+#    the Verilator version installed.
 (
     cd "$ROOT"
     MY_TOP_CPP="piton/tools/verilator/my_top.cpp"
     if [ ! -f "$MY_TOP_CPP" ]; then
         echo "not found, skipping fix 5: $MY_TOP_CPP"
-    elif grep -q "VM_COVERAGE" "$MY_TOP_CPP"; then
+    elif grep -q '^#if VM_COVERAGE$' "$MY_TOP_CPP"; then
         echo "already patched: $MY_TOP_CPP"
+    elif grep -q '^#ifdef VM_COVERAGE$' "$MY_TOP_CPP"; then
+        sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$MY_TOP_CPP"
+        echo "patched: my_top.cpp's #ifdef VM_COVERAGE -> #if VM_COVERAGE (was always true, see fix 5 comment)"
     else
         # Same Windows-checkout CRLF root cause as fix 4, a symptom fix 4
         # never caught since its own sweep only looks at *.py/*.sh shebang
@@ -152,13 +167,13 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
         # multi-line sed escaping) stack into the right final order.
         sed -i "${exit_line}i #endif" "$MY_TOP_CPP"
         sed -i "${exit_line}i VerilatedCov::write(\"coverage.dat\");" "$MY_TOP_CPP"
-        sed -i "${exit_line}i #ifdef VM_COVERAGE" "$MY_TOP_CPP"
+        sed -i "${exit_line}i #if VM_COVERAGE" "$MY_TOP_CPP"
 
         inc_endif_line=$((inc_line + 1))
         sed -i "${inc_endif_line}a #endif" "$MY_TOP_CPP"
         sed -i "${inc_endif_line}a #include \"verilated_cov.h\"" "$MY_TOP_CPP"
-        sed -i "${inc_endif_line}a #ifdef VM_COVERAGE" "$MY_TOP_CPP"
+        sed -i "${inc_endif_line}a #if VM_COVERAGE" "$MY_TOP_CPP"
 
-        echo "patched: my_top.cpp writes coverage.dat when VM_COVERAGE is defined"
+        echo "patched: my_top.cpp writes coverage.dat when VM_COVERAGE is nonzero"
     fi
 )
