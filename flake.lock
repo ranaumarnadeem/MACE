@@ -32,14 +32,14 @@
     },
     "nixpkgs-verilator": {
       "locked": {
-        "lastModified": 1789370336,
-        "narHash": "sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4=",
+        "lastModified": 1788655900,
+        "narHash": "sha256-1oAAG/jIfQ6JttZ1aS9nPGw/vDdXHaqwk+C8K/Gou4o=",
         "type": "tarball",
-        "url": "https://github.com/NixOS/nixpkgs/archive/c7def046b9a883d46974757852106483d741586f.tar.gz"
+        "url": "https://github.com/NixOS/nixpkgs/archive/bf22633f5b224fc8891d946c6a4d3b794823b678.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/NixOS/nixpkgs/archive/c7def046b9a883d46974757852106483d741586f.tar.gz"
+        "url": "https://github.com/NixOS/nixpkgs/archive/bf22633f5b224fc8891d946c6a4d3b794823b678.tar.gz"
       }
     },
     "root": {

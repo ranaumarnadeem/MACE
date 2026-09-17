@@ -34,14 +34,41 @@
     #     built via fake_iob_out_data[159:128] = get_cpx_word(0)), fixed
     #     upstream only in 5.036 (2025-04-27). The main pin's nixpkgs
     #     revision predates that fix.
-    # 5.052 (this commit) clears both: real tagged release, and well past
-    # 5.036. Confirmed directly -- a full build+run+coverage-annotate
-    # cycle against real Ariane RTL (scripts/local_coverage_1x1_build_test.py)
-    # passes end to end with this exact pin's verilator and verilator_coverage
-    # used consistently together (self-consistent versions, rather than the
-    # old workaround of reading one version's coverage.dat with a
-    # different, unrelated verilator_coverage binary).
-    nixpkgs-verilator.url = "https://github.com/NixOS/nixpkgs/archive/c7def046b9a883d46974757852106483d741586f.tar.gz";
+    #
+    # Pinned to nixpkgs commit bf22633f5b224fc8891d946c6a4d3b794823b678 --
+    # not an arbitrary day's snapshot, but the SPECIFIC, discrete commit
+    # whose own message is "verilator: 5.050 -> 5.052"
+    # (github.com/NixOS/nixpkgs/commits/bf22633f5b22, found via nixpkgs' own
+    # commit history for pkgs/by-name/ve/verilator/package.nix) -- i.e. the
+    # exact, re-derivable point where this version was introduced, not a
+    # random point downstream of it. Confirmed directly: `nix build` on this
+    # commit's verilator pulls the package and its entire closure straight
+    # from cache.nixos.org (substitution, not a source rebuild).
+    #
+    # Deliberately NOT a release-channel commit, after actually trying that
+    # first and finding it doesn't clear both bugs above at once:
+    #   - nixos-25.05 and its release-25.05 point-release branch: verilator
+    #     5.034, still below the 5.036 floor -- hits #5820.
+    #   - nixos-25.11 (verilator 5.040) and nixos-26.05 (verilator 5.048):
+    #     both clear #5820, but both introduce a DIFFERENT, real regression
+    #     found by actually building this project's RTL with them -- their
+    #     own shipped verilated.mk sets CFG_CXXFLAGS_PCH = "-x c++-header"
+    #     (missing "-c"). Since this project's own CXXFLAGS includes
+    #     "-lstdc++", g++ treats the missing "-c" as a request to link, not
+    #     just compile, the precompiled header, and fails at that step
+    #     ("undefined reference to main") on every single build -- confirmed
+    #     directly, not a flake. verilator 5.052 (this pin) ships
+    #     CFG_CXXFLAGS_PCH = "-c -x c++-header" (confirmed by grepping the
+    #     built package's own verilated.mk), so it doesn't hit this.
+    # So: a real tagged release, past the 5.036 floor, past whatever
+    # upstream change re-added -c after 5.048, and its own binary-cache
+    # coverage confirmed directly -- channel-blessing turned out to be a
+    # weaker signal here than actually building this project's RTL with the
+    # candidate. Re-validate against real Ariane RTL if this is ever
+    # re-pinned again (scripts/local_coverage_1x1_build_test.py is the
+    # existing end-to-end check: build + run + coverage-annotate,
+    # self-consistent verilator/verilator_coverage versions).
+    nixpkgs-verilator.url = "https://github.com/NixOS/nixpkgs/archive/bf22633f5b224fc8891d946c6a4d3b794823b678.tar.gz";
 
     flake-utils.url = "github:numtide/flake-utils";
   };
