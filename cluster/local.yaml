@@ -165,6 +165,12 @@ gcp_nodes:
                   sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$F"
                 else
                   sed -i 's/\r$//' "$F"
+                  inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$F" || true)
+                  exit_count=$(grep -c '^delete top;$' "$F" || true)
+                  if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
+                    echo "my_top.cpp: expected exactly one match for each coverage-patch anchor, found inc=$inc_count exit=$exit_count -- not patching" >&2
+                    exit 1
+                  fi
                   inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$F" | cut -d: -f1)
                   exit_line=$(grep -n '^delete top;$' "$F" | cut -d: -f1)
                   sed -i "${exit_line}i #endif" "$F"
