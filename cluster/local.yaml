@@ -83,6 +83,12 @@ available_node_types:
         # -- that comes from how the worker's own Ray process was started, so
         # it has to be set here, in the environment that process inherits.
         worker_env_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env && export MAKEFLAGS=-j1"]
+        # Runs after file_mounts has synced scripts/ to ~/mace_scripts/ (see
+        # that top-level key's own comment) and after gcp_nodes.openpiton_gcp.
+        # setup_commands has cloned ~/openpiton -- the one place in this file
+        # that calls the real script instead of re-deriving its logic.
+        worker_setup_commands:
+            - bash ~/mace_scripts/patch_openpiton.sh ~/openpiton
 
 head_env_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env"]
 head_setup_commands: ["source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env"]
@@ -96,6 +102,22 @@ worker_start_ray_commands:
     - "source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env && ray stop"
     - "source $HOME/miniconda3/etc/profile.d/conda.sh && conda activate chia_env && \
         ray start --address=$RAY_HEAD_IP:6379 --dashboard-agent-listen-port=0"
+
+# Rsync'd to every node (head and worker alike, before any commands run --
+# see chia's own cluster_config_reference.rst execution-order diagram) so
+# scripts/patch_openpiton.sh is a real, synced file on a worker by the time
+# openpiton_gcp's own worker_setup_commands (below) needs to call it,
+# instead of hand-duplicating its logic inline the way gcp_nodes.
+# openpiton_gcp.setup_commands still has to (that phase runs BEFORE this
+# rsync, against a bare-provisioned VM with none of this repo on it yet --
+# see that section's own comment). Runs against openpiton_local (the head)
+# too, since file_mounts has no per-node-type scoping in chia's config
+# schema -- a harmless, redundant self-copy there, not a problem (it
+# already has the whole repo checked out and doesn't read this copy).
+# Trailing "/" on the local side: copies scripts/'s contents into
+# ~/mace_scripts/, not scripts/ nested a level deeper inside it.
+file_mounts:
+    "~/mace_scripts/": "./scripts/"
 
 # --- Cloud nodes ---
 gcp_nodes:
@@ -177,78 +199,14 @@ gcp_nodes:
                 git clone https://github.com/PrincetonUniversity/openpiton.git ~/openpiton
             - cd ~/openpiton && git checkout 1c6bfd2 &&
                 git submodule update --init --recursive --force piton/design/chip/tile/ariane
-            # zicsr/zifencei + C23 patches -- see scripts/patch_openpiton.sh
-            # for why these two exist; inlined here (rather than relying on
-            # that script) since worker setup runs before mace's own code is
-            # synced onto the machine.
-            - F=~/openpiton/piton/design/chipset/rv64_platform/bootrom/linux/Makefile;
-                grep -q zicsr_zifencei "$F" ||
-                sed -i 's/-march=rv64imac /-march=rv64imac_zicsr_zifencei /' "$F";
-                grep -q -- -std=gnu17 "$F" ||
-                sed -i 's/^\(CFLAGS = .*\)$/\1 -std=gnu17/' "$F"
-            # VM_COVERAGE guard fix (scripts/patch_openpiton.sh fix 5) --
-            # inlined for the same reason as the patch above: worker setup
-            # runs before mace's own code (the script itself included) is
-            # synced onto the machine. Verilator's generated Makefile
-            # always defines VM_COVERAGE to 0 or 1, never leaves it
-            # undefined, so an #ifdef guard is always true -- without this,
-            # every non-coverage build on this worker would fail to link
-            # ("undefined reference to VerilatedCov::..."), the exact bug
-            # scripts/patch_openpiton.sh fix 5 exists to prevent. A block
-            # scalar (not the plain-folded style used above) because the
-            # patch has to write literal '#if'/'#endif' lines, and a plain
-            # YAML scalar would read " #" as a comment marker.
-            #
-            # The CRLF strip runs first, before either anchored check, not
-            # only in the fresh-install branch: an already-patched file
-            # (either form) whose line endings get reintroduced to CRLF has
-            # a trailing \r sitting before each check's $ end-anchor, so
-            # neither matches it, and it was falling through to
-            # fresh-install and getting a second, duplicate insertion
-            # stacked on the first.
-            - |
-                F=~/openpiton/piton/tools/verilator/my_top.cpp
-                if [ ! -f "$F" ]; then
-                  echo "not found, skipping VM_COVERAGE patch: $F"
-                else
-                  sed -i 's/\r$//' "$F"
-                  vm_coverage_count=$(grep -c '^#if VM_COVERAGE$' "$F" || true)
-                  vm_coverage_old_count=$(grep -c '^#ifdef VM_COVERAGE$' "$F" || true)
-                  if [ "$vm_coverage_count" -eq 2 ]; then
-                    echo "my_top.cpp already patched"
-                  elif [ "$vm_coverage_old_count" -eq 2 ]; then
-                    sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$F"
-                  elif [ "$vm_coverage_count" -gt 0 ] || [ "$vm_coverage_old_count" -gt 0 ]; then
-                    echo "my_top.cpp: found a partial VM_COVERAGE guard (if-count=$vm_coverage_count ifdef-count=$vm_coverage_old_count, expected 0 or 2 of one form) -- looks like an interrupted previous patch attempt, not auto-repairing" >&2
-                    exit 1
-                  else
-                    inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$F" || true)
-                    exit_count=$(grep -c '^delete top;$' "$F" || true)
-                    if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
-                      echo "my_top.cpp: expected exactly one match for each coverage-patch anchor, found inc=$inc_count exit=$exit_count -- not patching" >&2
-                      exit 1
-                    fi
-                    inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$F" | cut -d: -f1)
-                    exit_line=$(grep -n '^delete top;$' "$F" | cut -d: -f1)
-                    # Adjacent-quote form ($var'text'), not brace form: this
-                    # YAML passes through chia's own config loader, which does
-                    # an unscoped, whole-file "curly-brace variable" -> env-var
-                    # substitution before any of this ever reaches a worker.
-                    # sed's own line-address syntax needs the variable's end
-                    # disambiguated from the following letter -- adjacent-quote
-                    # concatenation does that identically to curly braces,
-                    # without ever writing the brace form chia's own
-                    # substitution pass looks for (a very unlikely, but
-                    # non-zero, collision risk).
-                    sed -i "$exit_line"'i #endif' "$F"
-                    sed -i "$exit_line"'i VerilatedCov::write("coverage.dat");' "$F"
-                    sed -i "$exit_line"'i #if VM_COVERAGE' "$F"
-                    inc_endif_line=$((inc_line + 1))
-                    sed -i "$inc_endif_line"'a #endif' "$F"
-                    sed -i "$inc_endif_line"'a #include "verilated_cov.h"' "$F"
-                    sed -i "$inc_endif_line"'a #if VM_COVERAGE' "$F"
-                  fi
-                fi
+            # zicsr/zifencei + C23 + VM_COVERAGE patches: applied later, in
+            # available_node_types.openpiton_gcp.worker_setup_commands, by
+            # calling the real scripts/patch_openpiton.sh -- not here, since
+            # this phase (gcp_nodes.setup_commands, bare-VM provisioning) runs
+            # before file_mounts has synced this repo's scripts/ onto the
+            # machine (see the top-level file_mounts key's own comment for
+            # the full account of why, and of the drift this used to cause
+            # when these were hand-duplicated inline here instead).
 
 tailnet:
     manage_all: true        # WSL sits behind NAT; tailnet avoids needing
