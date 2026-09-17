@@ -105,6 +105,16 @@
         };
       in
       {
+        # Exposed standalone (not just as a devShell buildInput) so a plain
+        # conda/system setup -- cluster/local.yaml's openpiton_local worker,
+        # which doesn't use this devShell at all -- can still resolve just
+        # this one, already-fixed package via `nix build --print-out-paths
+        # <this-flake>#verilator`, layering it onto PATH/VERILATOR_ROOT
+        # without adopting the whole Nix toolchain. Single source of truth:
+        # this is the exact same pkgs-verilator.verilator the devShell uses
+        # below, not a third, separately-tracked copy.
+        packages.verilator = pkgs-verilator.verilator;
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # Python + the two real PyPI deps mace declares (typer, rich) --
