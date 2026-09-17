@@ -18,18 +18,39 @@
     # dropped python310 entirely (pyproject.toml's own requires-python is
     # ">=3.10,<3.11", and this project has only ever run against 3.10.19 --
     # not something to casually widen as a side effect of packaging). This
-    # revision has python310 (3.10.16, close to what's validated) and a
-    # real tagged verilator release (5.028, not a "devel" snapshot -- see
-    # the comment on the verilator package below for why that distinction
-    # is a real, previously-hit bug in this project, not a hypothetical).
+    # revision has python310 (3.10.16, close to what's validated).
     nixpkgs.url = "https://github.com/NixOS/nixpkgs/archive/50ab793786d9de88ee30ec4e4c24fb4236fc2674.tar.gz";
+
+    # Verilator specifically comes from a separate, newer pin -- not the
+    # python310 nixpkgs above. This project hit two real, independent
+    # Verilator bugs, and no single version dodges both:
+    #   - a "devel" snapshot build's own verilator_coverage is flatly
+    #     broken (faults on --version alone) -- any tagged release fixes
+    #     this, including the main pin's own 5.028.
+    #   - 5.028 itself hits verilator/verilator#5820 (an internal
+    #     "Wide Op w/ no temp" crash in V3EmitCFunc.cpp on a real,
+    #     in-range-looking bit-slice assignment this project's RTL
+    #     actually contains -- piton/tools/verif/env/manycore/ciop_iob.tmp.v
+    #     built via fake_iob_out_data[159:128] = get_cpx_word(0)), fixed
+    #     upstream only in 5.036 (2025-04-27). The main pin's nixpkgs
+    #     revision predates that fix.
+    # 5.052 (this commit) clears both: real tagged release, and well past
+    # 5.036. Confirmed directly -- a full build+run+coverage-annotate
+    # cycle against real Ariane RTL (scripts/local_coverage_1x1_build_test.py)
+    # passes end to end with this exact pin's verilator and verilator_coverage
+    # used consistently together (self-consistent versions, rather than the
+    # old workaround of reading one version's coverage.dat with a
+    # different, unrelated verilator_coverage binary).
+    nixpkgs-verilator.url = "https://github.com/NixOS/nixpkgs/archive/c7def046b9a883d46974757852106483d741586f.tar.gz";
+
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-verilator, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        pkgs-verilator = import nixpkgs-verilator { inherit system; };
 
         # The exact prebuilt RISC-V toolchain this project already validated
         # against real hardware (cluster/local.yaml's own GCP worker
@@ -99,13 +120,7 @@
             # OpenPiton/Verilator toolchain -- the exact apt package list
             # cluster/local.yaml's own GCP worker setup_commands installs,
             # mapped to nixpkgs equivalents.
-            verilator       # a tagged release here, not a "devel" snapshot --
-                            # a real finding this project hit: a devel
-                            # Verilator build's own verilator_coverage was
-                            # flatly broken (faulted on --version alone).
-                            # Pinning a real release through Nix is exactly
-                            # the kind of toolchain drift this is meant to
-                            # prevent, not a hypothetical concern.
+            pkgs-verilator.verilator  # see nixpkgs-verilator input comment above
             gawk
             gnumake
             bison
