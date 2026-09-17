@@ -179,8 +179,16 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
             echo "my_top.cpp: found a partial VM_COVERAGE guard (if-count=$vm_coverage_count ifdef-count=$vm_coverage_old_count, expected 0 or 2 of one form) -- looks like an interrupted previous patch attempt, not auto-repairing" >&2
             exit 1
         else
-            inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$MY_TOP_CPP")
-            exit_count=$(grep -c '^delete top;$' "$MY_TOP_CPP")
+            # `|| true` on both: grep -c exits 1 on a 0-match count (still
+            # printing "0"), which under this script's own set -euo pipefail
+            # would abort HERE, before the -ne 1 check two lines down ever
+            # runs -- so the diagnostic it prints was only ever reachable for
+            # the 2-plus-matches case, never the 0-matches case it was
+            # equally written for. Found by bisecting a link failure that
+            # turned out to have nothing to do with the Verilator version
+            # installed (same investigation as fix 5 itself).
+            inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$MY_TOP_CPP" || true)
+            exit_count=$(grep -c '^delete top;$' "$MY_TOP_CPP" || true)
             if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
                 echo "my_top.cpp: expected exactly one match for each coverage-patch anchor, found inc=$inc_count exit=$exit_count -- not patching" >&2
                 exit 1
