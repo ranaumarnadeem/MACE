@@ -191,32 +191,36 @@ gcp_nodes:
             # stacked on the first.
             - |
                 F=~/openpiton/piton/tools/verilator/my_top.cpp
-                sed -i 's/\r$//' "$F"
-                vm_coverage_count=$(grep -c '^#if VM_COVERAGE$' "$F" || true)
-                vm_coverage_old_count=$(grep -c '^#ifdef VM_COVERAGE$' "$F" || true)
-                if [ "$vm_coverage_count" -eq 2 ]; then
-                  echo "my_top.cpp already patched"
-                elif [ "$vm_coverage_old_count" -eq 2 ]; then
-                  sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$F"
-                elif [ "$vm_coverage_count" -gt 0 ] || [ "$vm_coverage_old_count" -gt 0 ]; then
-                  echo "my_top.cpp: found a partial VM_COVERAGE guard (if-count=$vm_coverage_count ifdef-count=$vm_coverage_old_count, expected 0 or 2 of one form) -- looks like an interrupted previous patch attempt, not auto-repairing" >&2
-                  exit 1
+                if [ ! -f "$F" ]; then
+                  echo "not found, skipping VM_COVERAGE patch: $F"
                 else
-                  inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$F" || true)
-                  exit_count=$(grep -c '^delete top;$' "$F" || true)
-                  if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
-                    echo "my_top.cpp: expected exactly one match for each coverage-patch anchor, found inc=$inc_count exit=$exit_count -- not patching" >&2
+                  sed -i 's/\r$//' "$F"
+                  vm_coverage_count=$(grep -c '^#if VM_COVERAGE$' "$F" || true)
+                  vm_coverage_old_count=$(grep -c '^#ifdef VM_COVERAGE$' "$F" || true)
+                  if [ "$vm_coverage_count" -eq 2 ]; then
+                    echo "my_top.cpp already patched"
+                  elif [ "$vm_coverage_old_count" -eq 2 ]; then
+                    sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$F"
+                  elif [ "$vm_coverage_count" -gt 0 ] || [ "$vm_coverage_old_count" -gt 0 ]; then
+                    echo "my_top.cpp: found a partial VM_COVERAGE guard (if-count=$vm_coverage_count ifdef-count=$vm_coverage_old_count, expected 0 or 2 of one form) -- looks like an interrupted previous patch attempt, not auto-repairing" >&2
                     exit 1
+                  else
+                    inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$F" || true)
+                    exit_count=$(grep -c '^delete top;$' "$F" || true)
+                    if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
+                      echo "my_top.cpp: expected exactly one match for each coverage-patch anchor, found inc=$inc_count exit=$exit_count -- not patching" >&2
+                      exit 1
+                    fi
+                    inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$F" | cut -d: -f1)
+                    exit_line=$(grep -n '^delete top;$' "$F" | cut -d: -f1)
+                    sed -i "${exit_line}i #endif" "$F"
+                    sed -i "${exit_line}i VerilatedCov::write(\"coverage.dat\");" "$F"
+                    sed -i "${exit_line}i #if VM_COVERAGE" "$F"
+                    inc_endif_line=$((inc_line + 1))
+                    sed -i "${inc_endif_line}a #endif" "$F"
+                    sed -i "${inc_endif_line}a #include \"verilated_cov.h\"" "$F"
+                    sed -i "${inc_endif_line}a #if VM_COVERAGE" "$F"
                   fi
-                  inc_line=$(grep -n '^#include "verilated_vcd_c.h"$' "$F" | cut -d: -f1)
-                  exit_line=$(grep -n '^delete top;$' "$F" | cut -d: -f1)
-                  sed -i "${exit_line}i #endif" "$F"
-                  sed -i "${exit_line}i VerilatedCov::write(\"coverage.dat\");" "$F"
-                  sed -i "${exit_line}i #if VM_COVERAGE" "$F"
-                  inc_endif_line=$((inc_line + 1))
-                  sed -i "${inc_endif_line}a #endif" "$F"
-                  sed -i "${inc_endif_line}a #include \"verilated_cov.h\"" "$F"
-                  sed -i "${inc_endif_line}a #if VM_COVERAGE" "$F"
                 fi
 
 tailnet:
