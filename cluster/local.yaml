@@ -168,10 +168,15 @@ gcp_nodes:
             - |
                 F=~/openpiton/piton/tools/verilator/my_top.cpp
                 sed -i 's/\r$//' "$F"
-                if grep -q '^#if VM_COVERAGE$' "$F"; then
+                vm_coverage_count=$(grep -c '^#if VM_COVERAGE$' "$F" || true)
+                vm_coverage_old_count=$(grep -c '^#ifdef VM_COVERAGE$' "$F" || true)
+                if [ "$vm_coverage_count" -eq 2 ]; then
                   echo "my_top.cpp already patched"
-                elif grep -q '^#ifdef VM_COVERAGE$' "$F"; then
+                elif [ "$vm_coverage_old_count" -eq 2 ]; then
                   sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$F"
+                elif [ "$vm_coverage_count" -gt 0 ] || [ "$vm_coverage_old_count" -gt 0 ]; then
+                  echo "my_top.cpp: found a partial VM_COVERAGE guard (if-count=$vm_coverage_count ifdef-count=$vm_coverage_old_count, expected 0 or 2 of one form) -- looks like an interrupted previous patch attempt, not auto-repairing" >&2
+                  exit 1
                 else
                   inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$F" || true)
                   exit_count=$(grep -c '^delete top;$' "$F" || true)
