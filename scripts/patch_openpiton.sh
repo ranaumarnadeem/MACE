@@ -138,19 +138,28 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
     MY_TOP_CPP="piton/tools/verilator/my_top.cpp"
     if [ ! -f "$MY_TOP_CPP" ]; then
         echo "not found, skipping fix 5: $MY_TOP_CPP"
-    elif grep -q '^#if VM_COVERAGE$' "$MY_TOP_CPP"; then
-        echo "already patched: $MY_TOP_CPP"
-    elif grep -q '^#ifdef VM_COVERAGE$' "$MY_TOP_CPP"; then
-        sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$MY_TOP_CPP"
-        echo "patched: my_top.cpp's #ifdef VM_COVERAGE -> #if VM_COVERAGE (was always true, see fix 5 comment)"
     else
         # Same Windows-checkout CRLF root cause as fix 4, a symptom fix 4
         # never caught since its own sweep only looks at *.py/*.sh shebang
         # lines -- my_top.cpp is a plain .cpp file with no shebang, so this
         # went uncaught until a line-anchored patch (below) needed exact
         # end-of-line matches. Harmless no-op on an already-LF file.
+        #
+        # Must run before the two anchored checks below, not only inside
+        # the fresh-install branch: an already-patched file (either #if or
+        # the old buggy #ifdef form) whose line endings get reintroduced to
+        # CRLF -- e.g. a Windows-side tool re-saving it -- has a trailing
+        # \r sitting before the $ end-anchor, so neither grep matches it,
+        # and it was falling through to fresh-install and getting a second,
+        # duplicate insertion stacked on the first.
         sed -i 's/\r$//' "$MY_TOP_CPP"
 
+        if grep -q '^#if VM_COVERAGE$' "$MY_TOP_CPP"; then
+            echo "already patched: $MY_TOP_CPP"
+        elif grep -q '^#ifdef VM_COVERAGE$' "$MY_TOP_CPP"; then
+            sed -i 's/^#ifdef VM_COVERAGE$/#if VM_COVERAGE/' "$MY_TOP_CPP"
+            echo "patched: my_top.cpp's #ifdef VM_COVERAGE -> #if VM_COVERAGE (was always true, see fix 5 comment)"
+        else
         inc_count=$(grep -c '^#include "verilated_vcd_c.h"$' "$MY_TOP_CPP")
         exit_count=$(grep -c '^delete top;$' "$MY_TOP_CPP")
         if [ "$inc_count" -ne 1 ] || [ "$exit_count" -ne 1 ]; then
@@ -175,5 +184,6 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
         sed -i "${inc_endif_line}a #if VM_COVERAGE" "$MY_TOP_CPP"
 
         echo "patched: my_top.cpp writes coverage.dat when VM_COVERAGE is nonzero"
+        fi
     fi
 )
