@@ -143,42 +143,67 @@
         packages.verilator = pkgs-verilator.verilator;
 
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
+          # Every entry explicitly qualified (pkgs.X / pkgs-verilator.X), not
+          # `with pkgs; [...]`: two different nixpkgs revisions are in play
+          # here (see the nixpkgs-verilator input comment above for why), and
+          # `with pkgs;` would put the MAIN pin's own pkgs.verilator (the
+          # unfixed one this whole input exists to avoid) silently in scope
+          # under the bare name `verilator` too. A future edit that adds a
+          # bare `verilator` line by habit would then silently resolve to
+          # the wrong one instead of erroring -- fully qualifying every
+          # reference turns that mistake into a hard "undefined variable"
+          # eval error instead.
+          buildInputs = [
             # Python + the two real PyPI deps mace declares (typer, rich) --
             # chia and mace itself install editable via pip inside the venv
             # below, same as every non-Nix install this project has ever
             # used (chia is intentionally not a Nix/PyPI package -- see
             # pyproject.toml's own comment on why: not on PyPI at the pinned
             # revision this project builds against).
-            python310
-            python310Packages.pip
-            python310Packages.virtualenv
+            pkgs.python310
+            pkgs.python310Packages.pip
+            pkgs.python310Packages.virtualenv
 
             # OpenPiton/Verilator toolchain -- the exact apt package list
             # cluster/local.yaml's own GCP worker setup_commands installs,
             # mapped to nixpkgs equivalents.
+            #
+            # pkgs-verilator.verilator's own closure (built against its own,
+            # newer nixpkgs generation) sits in the same shell as everything
+            # else here (the main, older pkgs generation) -- including the
+            # compiler this shell puts on PATH (pkgs.stdenv.cc), which is
+            # what actually compiles Verilator's generated C++ runtime code
+            # against pkgs-verilator's own headers at build time. A real,
+            # known-risky Nix pattern (mixing nixpkgs generations in one
+            # shell) in the abstract -- but not hypothetical here: a real
+            # OpenPiton/Ariane build was run end to end through this exact
+            # devShell mechanism (not just --version in isolation) and its
+            # generated object files, dependency files, and final linked
+            # binary were all inspected directly and found correct, with no
+            # ABI/header-version symptom. Re-verify the same way (a real
+            # build, not just a version check) if either pin ever moves.
             pkgs-verilator.verilator  # see nixpkgs-verilator input comment above
-            gawk
-            gnumake
-            bison
-            flex
-            texinfo
-            python310Packages.pexpect
-            libusb1
-            jdk
-            zlib
-            valgrind
-            tcsh            # csh-compatible; OpenPiton's own scripts assume csh
-            dtc             # device-tree-compiler
-            perl
-            perlPackages.BitVector
-            libelf
-            dos2unix
-            openssh
-            rsync
-            git
-            cacert
-            xz
+            pkgs.gawk
+            pkgs.gnumake
+            pkgs.bison
+            pkgs.flex
+            pkgs.texinfo
+            pkgs.python310Packages.pexpect
+            pkgs.libusb1
+            pkgs.jdk
+            pkgs.zlib
+            pkgs.valgrind
+            pkgs.tcsh            # csh-compatible; OpenPiton's own scripts assume csh
+            pkgs.dtc             # device-tree-compiler
+            pkgs.perl
+            pkgs.perlPackages.BitVector
+            pkgs.libelf
+            pkgs.dos2unix
+            pkgs.openssh
+            pkgs.rsync
+            pkgs.git
+            pkgs.cacert
+            pkgs.xz
 
             riscvToolchain
           ];
