@@ -203,6 +203,30 @@
             echo "MACE dev shell ready."
             echo "  Verilator: $(verilator --version 2>&1 | head -1)"
             echo "  RISCV:     $RISCV"
+
+            # A correctly-pinned toolchain alone doesn't build anything --
+            # without scripts/patch_openpiton.sh's VM_COVERAGE guard fix
+            # applied to the actual OpenPiton checkout, every plain
+            # (non-coverage) build still fails at link time with
+            # "undefined reference to VerilatedCov::...". A developer who
+            # only ever sees this devShell succeed at setup has no reason
+            # to suspect that; the other two provisioning paths (GCP
+            # setup_commands, the manual apt/system path) both apply the
+            # patch as part of getting the toolchain ready, so this is the
+            # one place it was silently missing.
+            if [ -n "''${PITON_ROOT:-}" ] && [ -f "$PITON_ROOT/piton/tools/verilator/my_top.cpp" ]; then
+              if grep -q '^#if VM_COVERAGE$' "$PITON_ROOT/piton/tools/verilator/my_top.cpp" 2>/dev/null; then
+                echo "  OpenPiton patch: already applied ($PITON_ROOT)"
+              else
+                echo "  OpenPiton patch: NOT applied yet -- run this before building:"
+                echo "    bash scripts/patch_openpiton.sh \"$PITON_ROOT\""
+              fi
+            elif [ -n "''${PITON_ROOT:-}" ]; then
+              echo "  PITON_ROOT is set ($PITON_ROOT) but no piton/tools/verilator/my_top.cpp found there"
+            else
+              echo "  Once you have an OpenPiton checkout, patch it before building:"
+              echo "    bash scripts/patch_openpiton.sh /path/to/openpiton"
+            fi
           '';
         };
       });
