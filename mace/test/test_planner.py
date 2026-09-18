@@ -39,6 +39,11 @@ class TestBuildPrompt:
         assert "hello_world.c, accu_test.c" in prompt
         assert "ariane" in prompt
 
+    def test_documents_the_caches_line_format(self):
+        prompt = build_prompt(make_spec())
+        assert "CACHES:" in prompt
+        assert "l1d" in prompt
+
 
 class TestPlan:
     def test_returns_the_parsed_task_dag(self):
