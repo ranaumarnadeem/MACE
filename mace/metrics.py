@@ -16,6 +16,7 @@ read time (see summary()), not stored as their own thing.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     build_success INTEGER NOT NULL,
     run_verdict TEXT,
     wall_s REAL NOT NULL DEFAULT 0,
+    caches TEXT,
     PRIMARY KEY (run_id, iteration, task_id)
 );
 
@@ -95,6 +97,16 @@ def open_db(db_path: str, *, ray_placement: bool = True) -> SQLiteNode:
     else:
         node = SQLiteNode(db_path, require_colocated=False)
     node.init_schema(SCHEMA)
+    # CREATE TABLE IF NOT EXISTS does not add columns to a tasks table that
+    # already exists from before `caches` was added -- this project's own
+    # real runs/*.db files predate it. Add the column the first time an
+    # older db is reopened; a fresh db already has it from SCHEMA above, so
+    # this is expected to no-op there.
+    try:
+        node.execute("ALTER TABLE tasks ADD COLUMN caches TEXT")
+    except Exception as e:
+        if "duplicate column" not in str(e).lower():
+            raise
     return node
 
 
@@ -145,11 +157,18 @@ def record_iteration(
 
 
 def _record_task(db: SQLiteNode, run_id: str, iteration: int, result: StepResult) -> None:
+    """One task row, recording the cache geometry the build *actually* used
+    (``result.build.config.caches``), not what the task's own spec text
+    asked for -- the two can disagree (a Planner-requested override that
+    never reached the build is exactly the failure mode this column exists
+    to make visible), and only the build's own resolved PitonConfig is
+    ground truth for what really got tested.
+    """
     wall_s = result.build.wall_time_s + (result.run.wall_time_s if result.run else 0.0)
     db.execute(
         "INSERT OR REPLACE INTO tasks "
-        "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             iteration,
@@ -160,6 +179,7 @@ def _record_task(db: SQLiteNode, run_id: str, iteration: int, result: StepResult
             int(result.build.success),
             result.run.verdict if result.run else None,
             wall_s,
+            json.dumps(result.build.config.caches, sort_keys=True),
         ),
     )
 

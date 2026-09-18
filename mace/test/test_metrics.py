@@ -10,6 +10,9 @@ chia/database/test/test_sqlite_node_live.py's local-roundtrip test.
 
 from __future__ import annotations
 
+import json
+import sqlite3
+
 from chia.base.llm_call import QueryResult
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import metrics
@@ -41,6 +44,38 @@ def open_test_db(tmp_path):
     return metrics.open_db(str(tmp_path / "metrics.db"), ray_placement=False)
 
 
+class TestCachesColumnMigration:
+    def test_opening_a_pre_existing_db_without_the_caches_column_adds_it(self, tmp_path):
+        """This project's own real runs/*.db files were created before the
+        caches column existed -- CREATE TABLE IF NOT EXISTS is a no-op
+        against a tasks table that already exists, so open_db must add the
+        column itself, or every one of those real databases would start
+        raising "no column named caches" the next time a run used them."""
+        db_path = tmp_path / "old.db"
+        con = sqlite3.connect(str(db_path))
+        con.execute(
+            "CREATE TABLE tasks ("
+            "run_id TEXT NOT NULL, iteration INTEGER NOT NULL, task_id TEXT NOT NULL, "
+            "kind TEXT NOT NULL, spec TEXT NOT NULL, passed INTEGER NOT NULL, "
+            "build_success INTEGER NOT NULL, run_verdict TEXT, wall_s REAL NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (run_id, iteration, task_id))"
+        )
+        con.commit()
+        con.close()
+
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_iteration(db, run_id, 0, (make_result("a", True),), wall_s=1.0)
+
+        row = db.query_one("SELECT caches FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
+        assert row["caches"] is not None
+
+    def test_opening_a_fresh_db_twice_does_not_raise(self, tmp_path):
+        db_path = tmp_path / "fresh.db"
+        metrics.open_db(str(db_path), ray_placement=False)
+        metrics.open_db(str(db_path), ray_placement=False)  # column already added -- must no-op
+
+
 class TestRunLifecycle:
     def test_start_run_generates_an_id(self, tmp_path):
         db = open_test_db(tmp_path)
@@ -62,6 +97,33 @@ class TestRunLifecycle:
 
 
 class TestRecordIteration:
+    def test_records_the_build_s_actual_caches_not_the_task_s_requested_ones(self, tmp_path):
+        """Ground truth is what the build actually used (result.build.config
+        .caches), not what the task's spec text asked for -- a task claiming
+        a cache override that never reached the build (the exact silent gap
+        a real run hit, see mace.loop's test for the fix) must show up here
+        as the *default* geometry, not the requested one, or this column
+        would just repeat the same misleading claim in a new place."""
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        cfg = PitonConfig(caches={"l1d": (128, 1)})
+        build = PitonBuildArtifact(
+            success=True, returncode=0, config=cfg, sim_type="vlt",
+            model_dir="/x", binary_path="/x/Vcmp_top", wall_time_s=1.0,
+        )
+        run = PitonRunResult(
+            success=True, returncode=0, test="hello_world.c", sim_type="vlt",
+            run_dir="/x/runs/1", verdict="pass",
+        )
+        query = QueryResult(result="edit", returncode=0, stderr="", stream_result="edit", success=True)
+        task = Task(id="a", deps=(), kind="config", spec="build with a tiny L1D")
+        result = StepResult(task=task, query=query, build=build, run=run, passed=True)
+
+        metrics.record_iteration(db, run_id, 0, (result,), wall_s=1.0)
+
+        row = db.query_one("SELECT caches FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
+        assert json.loads(row["caches"]) == {"l1d": [128, 1]}
+
     def test_records_iteration_and_task_rows(self, tmp_path):
         db = open_test_db(tmp_path)
         run_id = metrics.start_run(db, make_spec())
