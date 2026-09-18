@@ -167,8 +167,16 @@ gcp_nodes:
             # they're verilator's own build deps and weren't otherwise needed
             # on this image; everything else it needs (gawk, bison, flex,
             # zlib1g-dev, g++/make via build-essential) was already here.
+            # help2man specifically: `make`'s own default target also builds
+            # verilator_gantt.1 (a man page) via help2man -- without it,
+            # `make` fails on a real fresh Ubuntu 24.04 GCP image before
+            # `sudo make install` ever runs, so verilator never actually gets
+            # installed (confirmed via a real chia up attempt: exit 127 on
+            # `Makefile:206: verilator_gantt.1`, then `verilator: command not
+            # found`). Never surfaced locally because this project's own WSL
+            # host already had help2man from some other package.
             - sudo apt-get update -qq && sudo apt-get install -y -qq
-                gawk build-essential bison flex texinfo autoconf perl
+                gawk build-essential bison flex texinfo autoconf perl help2man
                 python3-pexpect libusb-1.0-0-dev default-jdk zlib1g-dev
                 valgrind csh device-tree-compiler
                 libbit-vector-perl libelf-dev
