@@ -15,6 +15,7 @@ from mace.agents import (
     KNOWN_ASSESSMENTS,
     KNOWN_DIAGNOSES,
     parse_assessment,
+    parse_cache_overrides,
     parse_diagnosis,
     parse_explanation,
     parse_fix,
@@ -116,6 +117,68 @@ class TestParseTasks:
     def test_blank_id_is_skipped(self):
         text = "TASK:  | deps= | kind=config | x_tiles=1\n"
         assert parse_tasks(text) == ()
+
+    def test_task_named_in_a_caches_line_gets_the_override(self):
+        text = (
+            "TASK: t1 | deps= | kind=config | build with a tiny L1D\n"
+            "CACHES: t1 | l1d=128,1\n"
+        )
+        tasks = parse_tasks(text)
+        assert tasks[0].caches == (("l1d", (128, 1)),)
+
+    def test_task_not_named_in_any_caches_line_keeps_none(self):
+        text = (
+            "TASK: t1 | deps= | kind=config | build with a tiny L1D\n"
+            "CACHES: t2 | l1d=128,1\n"
+        )
+        tasks = parse_tasks(text)
+        assert tasks[0].caches is None
+
+
+class TestParseCacheOverrides:
+    def test_single_cache_for_one_task(self):
+        overrides = parse_cache_overrides("CACHES: t1 | l1d=128,1\n")
+        assert overrides == {"t1": (("l1d", (128, 1)),)}
+
+    def test_multiple_caches_on_one_line(self):
+        overrides = parse_cache_overrides("CACHES: t1 | l1d=128,1 l1i=16384,4\n")
+        assert overrides == {"t1": (("l1d", (128, 1)), ("l1i", (16384, 4)))}
+
+    def test_different_tasks_get_independent_overrides(self):
+        text = "CACHES: t1 | l1d=128,1\nCACHES: t4 | l1d=8192,4\n"
+        overrides = parse_cache_overrides(text)
+        assert overrides == {"t1": (("l1d", (128, 1)),), "t4": (("l1d", (8192, 4)),)}
+
+    def test_later_line_for_the_same_task_merges_in(self):
+        text = "CACHES: t1 | l1d=128,1\nCACHES: t1 | l1i=16384,4\n"
+        overrides = parse_cache_overrides(text)
+        assert overrides == {"t1": (("l1d", (128, 1)), ("l1i", (16384, 4)))}
+
+    def test_later_line_for_the_same_task_and_cache_wins(self):
+        text = "CACHES: t1 | l1d=128,1\nCACHES: t1 | l1d=256,2\n"
+        overrides = parse_cache_overrides(text)
+        assert overrides == {"t1": (("l1d", (256, 2)),)}
+
+    def test_unknown_cache_name_is_dropped_not_the_whole_line(self):
+        overrides = parse_cache_overrides("CACHES: t1 | l3=128,1 l1d=8192,4\n")
+        assert overrides == {"t1": (("l1d", (8192, 4)),)}
+
+    def test_non_integer_geometry_is_dropped(self):
+        overrides = parse_cache_overrides("CACHES: t1 | l1d=big,1\n")
+        assert overrides == {}
+
+    def test_non_positive_geometry_is_dropped(self):
+        overrides = parse_cache_overrides("CACHES: t1 | l1d=0,1\n")
+        assert overrides == {}
+
+    def test_missing_pipe_is_dropped(self):
+        assert parse_cache_overrides("CACHES: t1 l1d=128,1\n") == {}
+
+    def test_blank_task_id_is_dropped(self):
+        assert parse_cache_overrides("CACHES:  | l1d=128,1\n") == {}
+
+    def test_no_caches_lines_returns_empty(self):
+        assert parse_cache_overrides("TASK: t1 | deps= | kind=config | x\n") == {}
 
 
 class TestParseDiagnosis:
