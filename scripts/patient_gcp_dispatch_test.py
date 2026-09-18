@@ -32,10 +32,30 @@ import time
 
 import ray
 
+print(
+    "driver process env: "
+    f"grpc_proxy={os.environ.get('grpc_proxy')!r} "
+    f"RAY_grpc_enable_http_proxy={os.environ.get('RAY_grpc_enable_http_proxy')!r} "
+    f"no_grpc_proxy={os.environ.get('no_grpc_proxy')!r}",
+    flush=True,
+)
+
 ray.init(address="auto", log_to_driver=False)
 
-nodes = ray.nodes()
-gcp = next(n for n in nodes if n.get("Alive") and n.get("Resources", {}).get("openpiton", 0) > 2)
+# A freshly-connected client (as under `chia job submit`, where this process
+# itself is the new connection rather than a long-lived head-side shell) can
+# see a momentarily incomplete ray.nodes() before full GCS state has synced
+# to it -- retry briefly rather than let that race look like the bug itself.
+gcp = None
+for attempt in range(10):
+    nodes = ray.nodes()
+    gcp = next((n for n in nodes if n.get("Alive") and n.get("Resources", {}).get("openpiton", 0) > 2), None)
+    if gcp is not None:
+        break
+    print(f"(attempt {attempt}) GCP node not yet visible in ray.nodes() ({len(nodes)} nodes seen) -- retrying", flush=True)
+    time.sleep(1)
+if gcp is None:
+    raise SystemExit(f"GCP node never became visible in ray.nodes() after 10 retries -- nodes seen: {nodes}")
 print(f"GCP node_id={gcp['NodeID']} address={gcp.get('NodeManagerAddress')}", flush=True)
 
 HEAD_RELAY_LOG = f"/tmp/chia_tailnet_relay_{getpass.getuser()}.log"
