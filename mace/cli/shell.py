@@ -161,6 +161,8 @@ def handle_read_spec(session: Session, arg: str) -> str:
         session.objective = overrides["objective"]
     if "workloads" in overrides:
         session.workloads = overrides["workloads"]
+    if "core" in overrides:
+        session.top_module = overrides["core"]
     if not overrides:
         return f"read {path} but found no usable content (empty file?)"
     return f"read spec from {path}: " + ", ".join(f"{k}={v!r}" for k, v in overrides.items())

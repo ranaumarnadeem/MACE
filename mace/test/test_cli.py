@@ -190,6 +190,16 @@ class TestHandleReadSpec:
         msg = handle_read_spec(session, str(tmp_path / "nope.txt"))
         assert msg.startswith("ERROR")
 
+    def test_core_key_sets_top_module_and_is_detected(self, tmp_path):
+        f = tmp_path / "spec.txt"
+        f.write_text("objective: verify barrier_atomic passes\nworkloads: a.c, b.c\ncore: pico\n")
+        session = Session(piton_root="/x")
+
+        handle_read_spec(session, str(f))
+
+        assert session.top_module == "pico"
+        assert session.detected_core == "pico"
+
 
 class TestHandleSetCore:
     def test_sets_a_known_mesh_and_reports_its_outcome(self):
