@@ -15,7 +15,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from chia.base.llm_call import QueryResult
-from chia_openpiton.state_def import MAX_TILES_PER_AXIS, PitonBuildArtifact, PitonCore, PitonRunResult
+from chia_openpiton.state_def import (
+    DEFAULT_CACHES,
+    MAX_TILES_PER_AXIS,
+    PitonBuildArtifact,
+    PitonCore,
+    PitonRunResult,
+)
 
 
 @dataclass(frozen=True)
@@ -94,6 +100,12 @@ class Task:
     deps: tuple[str, ...]
     kind: str
     spec: str
+    # A sorted tuple of (cache_name, (size, associativity)) pairs -- not a
+    # dict, so Task stays hashable like every other frozen dataclass here.
+    # None means "no override": the task builds with the mesh's default
+    # cache geometry. See mace.agents.parse_cache_overrides for how this
+    # gets populated from a Planner-produced CACHES: line.
+    caches: tuple[tuple[str, tuple[int, int]], ...] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -103,6 +115,19 @@ class Task:
         for d in self.deps:
             if not isinstance(d, str) or not d.strip():
                 raise ValueError(f"dep ids must be non-empty strings, got {d!r}")
+        if self.caches is not None:
+            for name, geom in self.caches:
+                if name not in DEFAULT_CACHES:
+                    raise ValueError(f"unknown cache {name!r}; valid: {sorted(DEFAULT_CACHES)}")
+                size, assoc = geom
+                if size <= 0 or assoc <= 0:
+                    raise ValueError(f"cache {name} size/associativity must be positive, got {geom}")
+
+    @property
+    def caches_dict(self) -> dict[str, tuple[int, int]] | None:
+        """``caches`` as a plain dict, ready for ``PitonConfig(caches=...)``
+        -- ``None`` when this task set no override."""
+        return dict(self.caches) if self.caches is not None else None
 
 
 @dataclass

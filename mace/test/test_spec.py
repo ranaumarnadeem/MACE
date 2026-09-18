@@ -126,6 +126,25 @@ class TestTaskValidation:
         t = Task(id="t3", deps=("t1", "t2"), kind="workload", spec="hello_world.c")
         assert t.deps == ("t1", "t2")
 
+    def test_caches_defaults_to_none(self):
+        t = Task(id="t1", deps=(), kind="config", spec="s")
+        assert t.caches is None
+        assert t.caches_dict is None
+
+    def test_valid_caches_is_kept_and_exposed_as_a_dict(self):
+        t = Task(id="t1", deps=(), kind="config", spec="s", caches=(("l1d", (128, 1)),))
+        assert t.caches == (("l1d", (128, 1)),)
+        assert t.caches_dict == {"l1d": (128, 1)}
+
+    def test_unknown_cache_name_rejected(self):
+        with pytest.raises(ValueError, match="unknown cache"):
+            Task(id="t1", deps=(), kind="config", spec="s", caches=(("l3", (128, 1)),))
+
+    @pytest.mark.parametrize("bad_geom", [(0, 1), (128, 0), (-8, 4)])
+    def test_non_positive_cache_geometry_rejected(self, bad_geom):
+        with pytest.raises(ValueError, match="positive"):
+            Task(id="t1", deps=(), kind="config", spec="s", caches=(("l1d", bad_geom),))
+
 
 def test_task_is_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):
