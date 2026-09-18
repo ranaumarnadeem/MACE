@@ -23,8 +23,7 @@ from __future__ import annotations
 
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
-from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
-from mace.loop import run_mace_step
+from mace.loop import _config_for_task, run_mace_step
 from mace.replay import tag_for
 from mace.spec import MaceSpec, StepResult, Task
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
@@ -173,11 +172,16 @@ def _run_batch(
     iteration: int,
 ) -> list[StepResult]:
     """One (node, task) pair per entry; prompt, build, run each fully
-    dispatched across the batch before any of that round is resolved."""
-    config = PitonConfig(
-        core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
-        extra_flags=(COVERAGE_LINE_FLAG,) if spec.coverage else (),
-    )
+    dispatched across the batch before any of that round is resolved.
+
+    Each task gets its own PitonConfig (mace.loop._config_for_task) rather
+    than one shared for the whole batch, since a task's own CACHES: line
+    (mace.agents.parse_cache_overrides) can give it a different cache
+    geometry than its batch-mates -- e.g. one task deliberately building an
+    undersized L1D to probe a gate workload, another building the mesh's
+    normal default in the same level.
+    """
+    configs = [_config_for_task(spec, task) for task in batch]
 
     def _tag(task_id: str, phase: str) -> str | None:
         return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None
@@ -190,13 +194,13 @@ def _run_batch(
 
     build_refs = [
         node.build.chia_remote(config, _chia_tag=_tag(task.id, "build"))
-        for node, task in zip(nodes, batch)
+        for node, config, task in zip(nodes, configs, batch)
     ]
     builds = [get(ref) for ref in build_refs]
 
     run_refs = {
         i: nodes[i].run.chia_remote(
-            config,
+            configs[i],
             spec.workloads[0],
             asm_diag_root=asm_diag_root,
             rtl_timeout=RECOMMENDED_RTL_TIMEOUT,

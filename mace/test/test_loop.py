@@ -146,3 +146,34 @@ class TestConfigFromSpec:
 
         run_argv = sims_argv.lines()[1]
         assert "-asm_diag_root=/somewhere/else" in run_argv
+
+    def test_task_cache_override_reaches_the_real_build(self, stub_piton_root, monkeypatch, sims_argv):
+        """The exact gap a real run (runs/mace_end_to_end.db, run 4cf5f6027d78)
+        hit in production: a task whose spec text asked for an undersized L1D
+        built and ran against the *default* cache the whole time, because
+        nothing threaded the override from the task into the build's
+        PitonConfig. This proves that override now actually reaches sims."""
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+        task_with_override = Task(
+            id="t1", deps=(), kind="config", spec="build with a tiny L1D",
+            caches=(("l1d", (128, 1)),),
+        )
+
+        run_mace_step(str(stub_piton_root), make_spec(), task_with_override, llm)
+
+        build_argv = sims_argv.lines()[0]
+        assert "-config_l1d_size=128" in build_argv
+        assert "-config_l1d_associativity=1" in build_argv
+
+    def test_task_with_no_cache_override_keeps_the_mesh_default(
+        self, stub_piton_root, monkeypatch, sims_argv
+    ):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+
+        run_mace_step(str(stub_piton_root), make_spec(), TASK, llm)
+
+        build_argv = sims_argv.lines()[0]
+        assert "-config_l1d_size=8192" in build_argv
+        assert "-config_l1d_associativity=4" in build_argv

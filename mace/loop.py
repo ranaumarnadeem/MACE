@@ -44,10 +44,7 @@ def run_mace_step(
     """
     query = llm.prompt(task.spec, tools=list(tools))
 
-    config = PitonConfig(
-        core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
-        extra_flags=(COVERAGE_LINE_FLAG,) if spec.coverage else (),
-    )
+    config = _config_for_task(spec, task)
     build = OpenPitonWorkspaceNode.build(piton_root, config)
     if not build.success:
         return StepResult(task=task, query=query, build=build, run=None, passed=False)
@@ -60,3 +57,18 @@ def run_mace_step(
         rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
     )
     return StepResult(task=task, query=query, build=build, run=run, passed=run.success)
+
+
+def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
+    """A PitonConfig for *task*: spec's core/mesh/coverage, plus the task's
+    own cache override if it set one via a Planner CACHES: line (see
+    mace.agents.parse_cache_overrides) -- a task with no override keeps the
+    mesh's default cache geometry, same as before per-task overrides existed.
+    """
+    kwargs: dict = dict(
+        core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
+        extra_flags=(COVERAGE_LINE_FLAG,) if spec.coverage else (),
+    )
+    if task.caches is not None:
+        kwargs["caches"] = task.caches_dict
+    return PitonConfig(**kwargs)
