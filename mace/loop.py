@@ -13,10 +13,17 @@ layered on top of it.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
-from mace.unit_test_scaffold import read_dut_ports, scaffold_env, unit_test_env_name
+from mace.unit_test_scaffold import (
+    ModuleNotFoundError_,
+    read_dut_ports,
+    scaffold_env,
+    unit_test_env_name,
+)
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 
@@ -42,7 +49,13 @@ def run_mace_step(
     ``sims`` searches it as an *extra* directory alongside the checkout's
     own diags, so an OpenPiton-native test name (e.g. ``hello_world.c``)
     still resolves fine with the default in place.
+
+    A ``unit_test``-kind task takes a different path entirely -- see
+    :func:`_run_unit_test_step`.
     """
+    if task.kind == "unit_test":
+        return _run_unit_test_step(piton_root, task, llm, tools)
+
     query = llm.prompt(task.spec, tools=list(tools))
 
     config = _config_for_task(spec, task)
@@ -58,6 +71,53 @@ def run_mace_step(
         rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
     )
     return StepResult(task=task, query=query, build=build, run=run, passed=run.success)
+
+
+def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
+    """Scaffold-then-adapt-then-build path for a ``unit_test``-kind task.
+
+    ``task.spec`` names the target module's RTL path, relative to
+    ``piton_root`` (e.g. ``piton/design/chip/tile/pico/rtl/picorv32.v``).
+    Scaffolding a fresh environment is mechanical (create_env.py, already
+    idempotent); reconciling the scaffolded testbench's dummy DUT
+    connections against the module's real ports is the "small edit" -- this
+    function hands the agent that reconciliation as a prompt (the real port
+    list, the file to edit), it does not do the edit itself. Whether that
+    edit actually happens depends on ``tools`` carrying real file-editing
+    capability, same as every other kind here.
+
+    Gated on build success only, never a run verdict: every environment
+    built this way shares piton/verif/env/test_infrstrct/test_infrstrct.v
+    with this project's own pico_reset_ut (see scripts/patch_openpiton.sh),
+    which has a real, documented, deliberately deferred Verilator
+    incompatibility on the RUN side. Reporting a run verdict here would
+    misattribute that known, pre-existing gap to this task.
+    """
+    module_path = task.spec.strip()
+    env_name = unit_test_env_name(module_path)
+    scaffold_env(piton_root, env_name)
+
+    module_name = Path(module_path).stem.split(".")[0]
+    rtl_path = str(Path(piton_root) / module_path)
+    try:
+        ports = read_dut_ports(rtl_path, module_name)
+        ports_desc = ", ".join(ports)
+    except (OSError, ModuleNotFoundError_) as e:
+        ports_desc = f"(could not read real ports: {e})"
+
+    prompt = (
+        f"Scaffolded a new unit-test environment '{env_name}' for module "
+        f"'{module_name}' at {rtl_path}.\n"
+        f"The real module's ports, in declaration order: {ports_desc}\n"
+        f"Edit piton/verif/env/{env_name}/{env_name}_top.v so its DUT "
+        f"instantiation's port connections (currently generic placeholders "
+        f"like .input0(...)) match these real port names/widths exactly. "
+        f"Keep the rest of the scaffolded testbench structure as-is."
+    )
+    query = llm.prompt(prompt, tools=list(tools))
+
+    build = OpenPitonWorkspaceNode.build(piton_root, PitonConfig(sys=env_name))
+    return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
 
 
 def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
