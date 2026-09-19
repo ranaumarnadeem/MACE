@@ -1,0 +1,11 @@
+%Warning-PINMISSING: /mnt/c/Users/Potato/Desktop/openpiton/piton/design/chip/tile/pico/rtl/picorv32.v:2987:4: Cell has missing pin: 'mem_amo_op'
+ 2987 |  ) picorv32_core (
+      |    ^~~~~~~~~~~~~
+%Warning-PINMISSING: /mnt/c/Users/Potato/Desktop/openpiton/piton/design/chip/tile/pico/rtl/picorv32.v:2987:4: Cell has missing pin: 'pico_int'
+ 2987 |  ) picorv32_core (
+      |    ^~~~~~~~~~~~~
+%Error-PINNOTFOUND: /mnt/c/Users/Potato/Desktop/openpiton/piton/verif/env/pico_reset_ut/pico_reset_ut_top.v:56:10: Pin not found: 'mem_valid_WRONG'
+   56 |         .mem_valid_WRONG (mem_valid),
+      |          ^~~~~~~~~~~~~~~
+%Error: Exiting due to 1 error(s)
+sims: Caught a SIGDIE. failed building model at /mnt/c/Users/Potato/Desktop/openpiton/piton/tools/src/sims/sims,2.0 line 1588.

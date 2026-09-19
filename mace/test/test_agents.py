@@ -11,9 +11,12 @@ around the match, not the match itself.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from mace.agents import (
     KNOWN_ASSESSMENTS,
     KNOWN_DIAGNOSES,
+    is_testbench_port_mismatch,
     parse_assessment,
     parse_cache_overrides,
     parse_diagnosis,
@@ -23,6 +26,8 @@ from mace.agents import (
     parse_tasks,
 )
 from mace.spec import Task
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 PLANNER_TRANSCRIPT = """\
 Looking at the objective, I'll break this into three tasks: first configure
@@ -199,7 +204,9 @@ class TestParseDiagnosis:
         assert "mystery_bug" not in KNOWN_DIAGNOSES
 
     def test_every_documented_taxonomy_value_is_in_known_diagnoses(self):
-        for value in ("test_bug", "config_error", "timeout", "maxcycles", "rtl_suspect"):
+        for value in (
+            "test_bug", "config_error", "timeout", "maxcycles", "rtl_suspect", "testbench_mismatch",
+        ):
             assert value in KNOWN_DIAGNOSES
 
 
@@ -258,3 +265,27 @@ class TestParseNextSteps:
 
     def test_next_steps_text_is_not_lowercased(self):
         assert parse_next_steps("NEXT_STEPS: Try a Larger Mesh") == "Try a Larger Mesh"
+
+
+class TestIsTestbenchPortMismatch:
+    """Fixture is a real capture, not a guess: taken by deliberately
+    renaming a working port connection in the proven pico_reset_ut_top.v
+    testbench and rebuilding against real Verilator -- see
+    mace.agents.is_testbench_port_mismatch's own comment for how."""
+
+    def test_real_pinnotfound_capture_is_detected(self):
+        text = (FIXTURES_DIR / "build_fail_pinnotfound.log").read_text()
+        assert is_testbench_port_mismatch(text) is True
+
+    def test_unrelated_build_failure_is_not_a_mismatch(self):
+        assert is_testbench_port_mismatch("%Error: Exiting due to 1 error(s)\n") is False
+
+    def test_pinmissing_alone_is_not_a_mismatch(self):
+        """An unconnected DUT pin is a separate, non-fatal warning -- often
+        intentional (see mace.loop._run_unit_test_step's own tie-offs), not
+        evidence the testbench named a nonexistent port."""
+        text = "%Warning-PINMISSING: foo.v:1:1: Cell has missing pin: 'bar'\n"
+        assert is_testbench_port_mismatch(text) is False
+
+    def test_empty_stderr_is_not_a_mismatch(self):
+        assert is_testbench_port_mismatch("") is False
