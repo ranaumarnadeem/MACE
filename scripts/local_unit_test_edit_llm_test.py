@@ -8,6 +8,12 @@ common/rtl/alarm_counter.v): a small, self-contained, real module (4 ports,
 no includes, no macros) chosen specifically to keep one real LLM call cheap
 while still proving the mechanism end to end.
 
+Uses Vertex/Gemini on GCP -- this project's only funded LLM credits (see
+memory: opencode and other backends have no available credits). Needs GCP
+Application Default Credentials (`gcloud auth application-default login`);
+the project/model below were confirmed reachable directly against the
+Vertex REST API before this script was written, not guessed.
+
 Run (from the MACE repo root, chia_env active, WSL):
     python scripts/local_unit_test_edit_llm_test.py [piton_root]
 """
@@ -18,17 +24,19 @@ import sys
 
 import ray
 
-from mace.llm import make_llm
+from chia.models.vertex import VertexGeminiLLM
 from mace.loop import run_mace_step
 from mace.spec import MaceSpec, Task
 
 PITON_ROOT = sys.argv[1] if len(sys.argv) > 1 else "/mnt/c/Users/Potato/Desktop/openpiton"
+GCP_PROJECT = "mace-508004"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def main() -> None:
-    ray.init(address="local", resources={"openpiton": 1, "opencode_creds": 1}, log_to_driver=False)
+    ray.init(address="local", resources={"openpiton": 1, "vertex_creds": 1}, log_to_driver=False)
     try:
-        llm = make_llm("opencode")
+        llm = VertexGeminiLLM(model=GEMINI_MODEL, project=GCP_PROJECT, location="us-central1")
         spec = MaceSpec(
             workloads=("hello_world.c",),
             objective="unit test alarm_counter",
