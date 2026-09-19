@@ -270,3 +270,72 @@ class TestSummary:
             "execution_time_s": 0.0,
             "compute_usd": 0.0,
         }
+
+
+class TestModuleStatus:
+    def test_one_unit_test_task_reports_its_module(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        result = make_result("a", True, kind="unit_test", spec="picorv32.v")
+
+        metrics.record_iteration(db, run_id, 0, (result,), wall_s=1.0)
+
+        assert metrics.module_status(db, run_id) == [
+            {
+                "module": "picorv32",
+                "task_id": "a",
+                "iteration": 0,
+                "passed": True,
+                "build_success": True,
+                "run_verdict": "pass",
+            }
+        ]
+
+    def test_non_unit_test_tasks_are_excluded(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        results = (
+            make_result("a", True, kind="workload", spec="hello_world.c"),
+            make_result("b", True, kind="config", spec="x_tiles=2"),
+        )
+
+        metrics.record_iteration(db, run_id, 0, results, wall_s=1.0)
+
+        assert metrics.module_status(db, run_id) == []
+
+    def test_a_retried_module_reports_only_its_latest_iteration(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        failed = make_result("a", False, kind="unit_test", spec="picorv32.v", verdict="fail")
+        fixed = make_result("a2", True, kind="unit_test", spec="picorv32.v")
+
+        metrics.record_iteration(db, run_id, 0, (failed,), wall_s=1.0)
+        metrics.record_iteration(db, run_id, 1, (fixed,), wall_s=1.0)
+
+        statuses = metrics.module_status(db, run_id)
+        assert len(statuses) == 1
+        assert statuses[0]["task_id"] == "a2"
+        assert statuses[0]["passed"] is True
+
+    def test_different_modules_are_both_reported(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        results = (
+            make_result("a", True, kind="unit_test", spec="picorv32.v"),
+            make_result("b", False, kind="unit_test", spec="l15_pipeline.v.pyv", verdict="fail"),
+        )
+
+        metrics.record_iteration(db, run_id, 0, results, wall_s=1.0)
+
+        modules = {row["module"] for row in metrics.module_status(db, run_id)}
+        assert modules == {"picorv32", "l15_pipeline"}
+
+    def test_scoped_to_the_given_run_id(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_a = metrics.start_run(db, make_spec(), run_id="run-a")
+        run_b = metrics.start_run(db, make_spec(), run_id="run-b")
+        metrics.record_iteration(
+            db, run_a, 0, (make_result("a", True, kind="unit_test", spec="picorv32.v"),), wall_s=1.0
+        )
+
+        assert metrics.module_status(db, run_b) == []
