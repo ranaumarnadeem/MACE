@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     run_verdict TEXT,
     wall_s REAL NOT NULL DEFAULT 0,
     caches TEXT,
+    module TEXT,
     PRIMARY KEY (run_id, iteration, task_id)
 );
 
@@ -104,6 +105,13 @@ def open_db(db_path: str, *, ray_placement: bool = True) -> SQLiteNode:
     # this is expected to no-op there.
     try:
         node.execute("ALTER TABLE tasks ADD COLUMN caches TEXT")
+    except Exception as e:
+        if "duplicate column" not in str(e).lower():
+            raise
+    # Same retrofit as caches above, for module (added when unit_test tasks
+    # started recording which module they target -- see _record_task).
+    try:
+        node.execute("ALTER TABLE tasks ADD COLUMN module TEXT")
     except Exception as e:
         if "duplicate column" not in str(e).lower():
             raise
