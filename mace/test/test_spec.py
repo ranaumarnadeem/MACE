@@ -117,6 +117,10 @@ class TestTaskValidation:
         with pytest.raises(ValueError, match="kind"):
             Task(id="t1", deps=(), kind="rebuild", spec="s")
 
+    def test_unit_test_kind_is_accepted(self):
+        t = Task(id="t1", deps=(), kind="unit_test", spec="picorv32.v")
+        assert t.kind == "unit_test"
+
     @pytest.mark.parametrize("bad_deps", [("",), ("t1", ""), (123,)])
     def test_dep_ids_must_be_non_empty_strings(self, bad_deps):
         with pytest.raises(ValueError, match="dep ids"):
