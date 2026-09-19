@@ -671,9 +671,16 @@ def shell(
         help="Path to a .env file with the backend's API key. Required for opencode/claude/"
         "antigravity; omit for vertex if `gcloud auth application-default login` is already set up.",
     ),
-    backend: str = typer.Option("opencode", "--backend", help="LLM backend: opencode, claude, antigravity, vertex"),
+    backend: str = typer.Option(
+        "vertex", "--backend",
+        help="LLM backend: vertex (default -- Gemini on GCP, this project's funded "
+        "credits), opencode, claude, antigravity (no credits available for these -- "
+        "see mace.llm's own docstring).",
+    ),
     model: str = typer.Option(
-        None, "--model", help="Model name (sets MACE_LLM_MODEL). Required for vertex."
+        "gemini-2.5-flash", "--model",
+        help="Model name (sets MACE_LLM_MODEL). Confirmed reachable on this "
+        "project's GCP project as of 2026-09-19; required for vertex.",
     ),
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
 ) -> None:
@@ -714,6 +721,11 @@ def shell(
         typer.echo("--model is required for backend='vertex' (e.g. --model gemini-2.0-flash-001).")
         raise typer.Exit(code=1)
     os.environ.setdefault("MACE_LLM", backend)
+    if backend == "vertex":
+        # VertexGeminiLLM reads GOOGLE_CLOUD_PROJECT itself; nothing else in
+        # this path sets it. Confirmed real (gcloud's own configured
+        # project, reachable via the Vertex REST API) rather than guessed.
+        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "mace-508004")
 
     ray.init(address="local", resources={"openpiton": 1, f"{backend}_creds": 1})
     llm = make_llm(backend)
