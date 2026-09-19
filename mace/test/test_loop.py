@@ -177,3 +177,97 @@ class TestConfigFromSpec:
         build_argv = sims_argv.lines()[0]
         assert "-config_l1d_size=8192" in build_argv
         assert "-config_l1d_associativity=4" in build_argv
+
+
+class TestUnitTestTask:
+    """kind='unit_test' takes a different path: scaffold, prompt the agent
+    to reconcile ports, build -- never run (see mace.loop._run_unit_test_step
+    docstring for why)."""
+
+    def _scaffold(self, stub_piton_root, env_name="foo_ut"):
+        env_dir = stub_piton_root / "piton" / "verif" / "env" / env_name
+        env_dir.mkdir(parents=True)
+        return env_dir
+
+    def _rtl_module(self, stub_piton_root, rel_path="design/foo.v"):
+        rtl = stub_piton_root / rel_path
+        rtl.parent.mkdir(parents=True, exist_ok=True)
+        rtl.write_text("module foo (\n  input clk,\n  output reg done\n);\nendmodule\n")
+        return rel_path
+
+    def test_builds_against_the_scaffolded_sys_not_manycore(
+        self, stub_piton_root, monkeypatch, sims_argv
+    ):
+        self._scaffold(stub_piton_root)
+        rel_path = self._rtl_module(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        task = Task(id="t1", deps=(), kind="unit_test", spec=rel_path)
+
+        result = run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+
+        build_argv = sims_argv.lines()[0]
+        assert "-sys=foo_ut" in build_argv
+        assert result.build.success is True
+
+    def test_never_runs_even_on_a_passing_build(self, stub_piton_root, monkeypatch):
+        self._scaffold(stub_piton_root)
+        rel_path = self._rtl_module(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        task = Task(id="t1", deps=(), kind="unit_test", spec=rel_path)
+
+        result = run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+
+        assert result.run is None
+        assert result.passed is True  # gated on build.success, not a run verdict
+
+    def test_passed_is_false_when_the_build_fails(self, stub_piton_root, monkeypatch):
+        self._scaffold(stub_piton_root)
+        rel_path = self._rtl_module(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_FAIL_BUILD", "1")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        task = Task(id="t1", deps=(), kind="unit_test", spec=rel_path)
+
+        result = run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+
+        assert result.build.success is False
+        assert result.run is None
+        assert result.passed is False
+
+    def test_llm_prompt_includes_the_real_port_names(self, stub_piton_root, monkeypatch):
+        self._scaffold(stub_piton_root)
+        rel_path = self._rtl_module(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        task = Task(id="t1", deps=(), kind="unit_test", spec=rel_path)
+
+        run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+
+        prompt_used = llm.calls[0][0]
+        assert "clk" in prompt_used
+        assert "done" in prompt_used
+        assert "foo_ut" in prompt_used
+
+    def test_missing_module_file_does_not_crash_the_step(self, stub_piton_root, monkeypatch):
+        self._scaffold(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        task = Task(id="t1", deps=(), kind="unit_test", spec="nonexistent/foo.v")
+
+        result = run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+
+        assert "could not read real ports" in llm.calls[0][0]
+        assert result.build.success is True  # build still proceeds regardless
+
+    def test_scaffolding_is_idempotent_across_two_tasks(self, stub_piton_root, monkeypatch):
+        env_dir = self._scaffold(stub_piton_root)
+        rel_path = self._rtl_module(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit 1", "edit 2"])
+        task = Task(id="t1", deps=(), kind="unit_test", spec=rel_path)
+
+        run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+        run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+
+        assert env_dir.is_dir()  # still there, no error from a second scaffold attempt
