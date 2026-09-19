@@ -20,6 +20,7 @@ from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
 from mace.unit_test_scaffold import (
     ModuleNotFoundError_,
+    module_name_from_path,
     read_dut_ports,
     scaffold_env,
     unit_test_env_name,
@@ -97,7 +98,7 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
     env_name = unit_test_env_name(module_path)
     scaffold_env(piton_root, env_name)
 
-    module_name = Path(module_path).stem.split(".")[0]
+    module_name = module_name_from_path(module_path)
     rtl_path = str(Path(piton_root) / module_path)
     try:
         ports = read_dut_ports(rtl_path, module_name)
