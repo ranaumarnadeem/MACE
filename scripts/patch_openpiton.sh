@@ -362,3 +362,163 @@ PYEOF
     fi
 )
 
+
+# 8. sims' -vlt_build/-vlt_run hardcode "cmp_top"/"Vcmp_top" in three places,
+#    completely ignoring -toplevel= from the sys's own .config (confirmed:
+#    piton/tools/src/sims/ifu_esl_lfsr.config sets -toplevel=ifu_esl_lfsr_top,
+#    and VCS/ICV's own build paths already honor $opt{toplevel} -- only the
+#    free/open Verilator path never did). Without this, `sims -sys=<any
+#    non-manycore env> -vlt_build` always tries to elaborate a "cmp_top"
+#    module that doesn't exist in that sys's own flist and fails immediately
+#    -- meaning none of OpenPiton's own unit-test environments (piton/verif/
+#    env/*, registered via piton/tools/src/sims/*.config) have ever actually
+#    been built under Verilator, by anyone, only under commercial simulators.
+#
+#    Separately, my_top.cpp (the C++ driver -vlt_build links against) is
+#    itself hardcoded to a manycore Vcmp_top instantiation with real
+#    simulation work (JBUS/DRAM model init, IOB/reset sequencing) that a
+#    standalone module has no use for -- piton/tools/verilator/unit_top.cpp
+#    is a new, minimal, generic driver for this case (these testbenches are
+#    fully self-contained Verilog, TEST_INFRSTRCT_BEGIN/END drives its own
+#    clk/rst_n and calls $finish itself, so the C++ side has nothing
+#    DUT-specific to do), parameterized via one -CFLAGS define naming the
+#    generated toplevel class -- see that file's own header comment for why
+#    it's a bare identifier rather than an already-quoted string (the latter
+#    doesn't survive sims' own system() call, Verilator's Makefile
+#    generation, and make's own recipe shell intact).
+(
+    cd "$ROOT"
+    SIMS_PL="piton/tools/src/sims/sims,2.0"
+    UNIT_TOP_CPP="piton/tools/verilator/unit_top.cpp"
+    if [ ! -f "$SIMS_PL" ]; then
+        echo "not found, skipping fix 8: $SIMS_PL"
+    else
+        if grep -q "MACE_UNIT_TOP" "$SIMS_PL"; then
+            echo "already patched: $SIMS_PL"
+        else
+            python3 - "$SIMS_PL" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+
+old_a = """    if ($opt{vlt_build}) {
+      $build_cmd = "verilator -cc " ;
+      $build_cmd .= "-exe $dv_root/tools/verilator/my_top.cpp " ;
+      $build_cmd .= "$dv_root/tools/pli/iop/b_ary.c " ;
+      $build_cmd .= "$dv_root/tools/pli/iop/bw_lib.c " ;
+      $build_cmd .= "$dv_root/tools/pli/iop/iob_main.cc " ;
+      $build_cmd .= "$dv_root/tools/pli/iop/iob.cc " ;
+      $build_cmd .= "$dv_root/tools/pli/iop/cpx.cc " ;
+      $build_cmd .= "$dv_root/tools/pli/iop/pcx.cc " ;
+      $build_cmd .= "--top-module cmp_top " ;
+      $build_cmd .= "-Wno-fatal " ;"""
+new_a = """    if ($opt{vlt_build}) {
+      my $is_manycore_sys = ! @{$opt{toplevel}} ;
+      my $vlt_top = $is_manycore_sys ? "cmp_top" : $opt{toplevel}[0] ;
+      $build_cmd = "verilator -cc " ;
+      if ($is_manycore_sys) {
+        # manycore's own driver: owns real simulation work (JBUS/DRAM model
+        # init, IOB/reset sequencing) that a standalone module doesn't have
+        # or need.
+        $build_cmd .= "-exe $dv_root/tools/verilator/my_top.cpp " ;
+        $build_cmd .= "$dv_root/tools/pli/iop/b_ary.c " ;
+        $build_cmd .= "$dv_root/tools/pli/iop/bw_lib.c " ;
+        $build_cmd .= "$dv_root/tools/pli/iop/iob_main.cc " ;
+        $build_cmd .= "$dv_root/tools/pli/iop/iob.cc " ;
+        $build_cmd .= "$dv_root/tools/pli/iop/cpx.cc " ;
+        $build_cmd .= "$dv_root/tools/pli/iop/pcx.cc " ;
+      } else {
+        # A unit-test sys's own testbench (TEST_INFRSTRCT_BEGIN/END, see
+        # piton/verif/env/test_infrstrct/test_infrstrct.v) generates and
+        # drives its own clk/rst_n and calls $finish itself -- nothing
+        # DUT-specific for the C++ side to do, so a small generic driver
+        # (piton/tools/verilator/unit_top.cpp) replaces my_top.cpp and its
+        # manycore-only JBUS/IOB/CPX/PCX C++ model files entirely.
+        $build_cmd .= "-exe $dv_root/tools/verilator/unit_top.cpp " ;
+        $build_cmd .= "-CFLAGS -DMACE_UNIT_TOP=V${vlt_top} " ;
+      }
+      $build_cmd .= "--top-module $vlt_top " ;
+      $build_cmd .= "-Wno-fatal " ;"""
+count_a = content.count(old_a)
+if count_a != 1:
+    print(f"ERROR: expected exactly 1 match for the vlt_build command block, found {count_a}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old_a, new_a)
+
+old_b = """    if ($opt{vlt_build}) {
+      $build_cmd = "make -j -C $model_path/obj_dir -f Vcmp_top.mk Vcmp_top" ;"""
+new_b = """    if ($opt{vlt_build}) {
+      my $vlt_top = @{$opt{toplevel}} ? $opt{toplevel}[0] : "cmp_top" ;
+      $build_cmd = "make -j -C $model_path/obj_dir -f V${vlt_top}.mk V${vlt_top}" ;"""
+count_b = content.count(old_b)
+if count_b != 1:
+    print(f"ERROR: expected exactly 1 match for the vlt_build make block, found {count_b}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old_b, new_b)
+
+old_c = """    if ($opt{vlt_run}) {
+      $cmd .= "$model_path/obj_dir/Vcmp_top " ;"""
+new_c = """    if ($opt{vlt_run}) {
+      $cmd .= "$model_path/obj_dir/V" . (@{$opt{toplevel}} ? $opt{toplevel}[0] : "cmp_top") . " " ;"""
+count_c = content.count(old_c)
+if count_c != 1:
+    print(f"ERROR: expected exactly 1 match for the vlt_run block, found {count_c}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old_c, new_c)
+
+with open(path, "w") as f:
+    f.write(content)
+print("patched: sims,2.0's vlt_build/vlt_run now honor -toplevel= instead of always hardcoding cmp_top")
+PYEOF
+        fi
+
+        if [ ! -f "$UNIT_TOP_CPP" ]; then
+            cat > "$UNIT_TOP_CPP" <<'CPPEOF'
+// Generic Verilator C++ driver for OpenPiton's non-manycore -sys= unit-test
+// environments (piton/tools/src/sims/<sys>.config, piton/verif/env/<sys>/),
+// e.g. ifu_esl_lfsr: a single module built alone against the reusable
+// test_infrstrct stimulus/check harness (piton/verif/env/test_infrstrct/).
+//
+// Unlike my_top.cpp (the manycore driver, which owns real simulation work:
+// JBUS/DRAM model init, IOB/reset sequencing, VCD/coverage wiring), these
+// testbenches are fully self-contained Verilog -- TEST_INFRSTRCT_BEGIN
+// generates its own clk/rst_n and drives them, TEST_INFRSTRCT_END/TEST_CHECK
+// call $finish -- so the C++ side has nothing DUT-specific to do. The one
+// thing that varies per environment is the toplevel class Verilator
+// generates, so this file is parameterized via a single -CFLAGS define:
+//   -CFLAGS -DMACE_UNIT_TOP=Vfoo_top   (the generated class name, a bare
+//                                        identifier -- no quotes, so it
+//                                        survives sims' own system() call,
+//                                        Verilator's Makefile generation and
+//                                        make's own recipe shell unescaped).
+// The #include filename ("Vfoo_top.h") is built from that same identifier
+// via the standard stringify-after-expand trick, rather than trying to pass
+// an already-quoted string through three nested layers of shell parsing.
+#define MACE_STR(x) #x
+#define MACE_XSTR(x) MACE_STR(x)
+#include MACE_XSTR(MACE_UNIT_TOP.h)
+#include "verilated.h"
+
+int main(int argc, char **argv) {
+    VerilatedContext *contextp = new VerilatedContext;
+    contextp->commandArgs(argc, argv);
+    MACE_UNIT_TOP *top = new MACE_UNIT_TOP{contextp};
+
+    while (!contextp->gotFinish()) {
+        top->eval();
+        contextp->timeInc(1);
+    }
+
+    top->final();
+    delete top;
+    delete contextp;
+    return 0;
+}
+CPPEOF
+            echo "created: $UNIT_TOP_CPP"
+        else
+            echo "already exists: $UNIT_TOP_CPP"
+        fi
+    fi
+)
