@@ -25,6 +25,10 @@ current status, and concrete things left to do.
   so it can be dropped into an upstream CHIA checkout as `chia/openpiton/`
   unchanged. Modelled on `chia.esp.esp_workspace.EspWorkspaceNode`.
 - `mace/` — Phase 2: the agentic loop, its agents, gate workloads and metrics.
+  Includes a `unit_test` task kind: scaffold, adapt, and build a standalone
+  Verilator unit test for one RTL module via OpenPiton's own `create_env.py`,
+  with a real, single-file-scoped MCP tool (`mace/tools.py`) letting the
+  agent reconcile the scaffolded testbench against the module's real ports.
 - `examples/` — runnable demos, including the full end-to-end loop and the
   paper's baselines.
 - `scripts/` — the OpenPiton toolchain patch script and standalone diagnostics.
@@ -58,8 +62,8 @@ requirements, then:
 ```bash
 git clone https://github.com/PrincetonUniversity/openpiton.git
 git -C openpiton submodule update --init --recursive piton/design/chip/tile/ariane
-bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 5 real
-                                                       # toolchain/checkout bugs
+bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 8 real
+                                                       # toolchain/checkout/RTL bugs
 ```
 
 **Or skip the toolchain setup above entirely with Nix.** `flake.nix`
@@ -152,15 +156,21 @@ cost) at the end. Everything is also recorded to
 comparison (see `paper/mace_paper.pdf` §6 for what these numbers mean):
 
 ```bash
-python examples/baseline_one_shot_llm.py --piton-root /path/to/openpiton
+bash scripts/local_baselines_b_and_c_test.sh /path/to/openpiton
 ```
 
-A single LLM prompt proposes a configuration once, with no tools and no
-retry — applied directly with no verification loop. Manual mesh scaling
-(baseline (a)) has no dedicated script; `scripts/local_2x2_build_test.py`
-is the closest thing, a hand-run multi-tile attempt with a full log of what
-happened, kept for its historical/diagnostic value rather than as a clean
-reusable baseline runner.
+Runs baseline (b) (`examples/baseline_one_shot_llm.py` — a single LLM prompt
+proposes a configuration once, with no tools and no retry, applied directly
+with no verification loop) then baseline (c) (`examples/mace_end_to_end.py`
+— the full loop) back to back against the same checkout, same objective, for
+a clean comparison; each can also be run standalone. Real result from the
+most recent run: (b) built but the run itself timed out (`verdict=timeout`,
+failed, 178s total); (c) passed, 4/4 tasks, one iteration, 197.7s — the
+verification loop cost almost no extra wall-clock here and is the difference
+between passing and not. Manual mesh scaling (baseline (a)) has no dedicated
+script; `scripts/local_2x2_build_test.py` is the closest thing, a hand-run
+multi-tile attempt with a full log of what happened, kept for its
+historical/diagnostic value rather than as a clean reusable baseline runner.
 
 **4. Read the results** — `paper/mace_paper.pdf` has the full write-up; the
 raw data behind it is in `runs/mace_end_to_end.db` (SQLite; `mace.metrics.summary()`
@@ -177,9 +187,29 @@ stated just as precisely.
   passes a full parallel-build acceptance test across two real checkouts.
 - The full MACE loop has completed multiple real end-to-end runs against real
   hardware, recording real cost/time/task metrics.
-- A third core, PicoRV32, was added to the adapter and builds cleanly — a
-  first for this core under any simulator, by anyone (OpenPiton's own CI only
-  ever builds it, never runs it).
+- A third core, PicoRV32, was added to the adapter and now genuinely
+  **passes** under Verilator (`Simulation -> PASS (HIT GOOD TRAP)`) — a first
+  for this core under any simulator, by anyone (OpenPiton's own CI only ever
+  builds it, never runs it). Getting there took three real, independently
+  waveform-verified RTL/testbench bugs, all fixed: picorv32's own
+  `resetn`/`booted` self-boot gate (it was waiting forever for an interrupt
+  nothing in a bare config ever sends), the manycore monitor's
+  `active_thread` tracking for pico's tile, and a real-silicon BIST
+  self-clear race that was silently discarding pico's first, very early
+  memory writes.
+- Unit-level testing: MACE can scaffold, adapt, and build a standalone
+  Verilator test for one RTL module — not just the whole chip — via
+  OpenPiton's own `create_env.py`. Proven end to end with a real LLM (Gemini
+  on Vertex): given a module it had never seen (`alarm_counter`) and a
+  single-file-scoped edit tool, it correctly reconciled the scaffolded
+  testbench's placeholder ports/widths/module type against the real module on
+  the first try, and the resulting build passed.
+- A real, previously-unknown regression in OpenPiton's own `sims` build
+  script was found and fixed: every manycore build was silently linking
+  against the wrong C++ driver (the new unit-test one instead of the
+  original manycore driver), breaking real Ariane/SPARC builds with
+  undefined DPI references. Root cause and fix are in
+  `scripts/patch_openpiton.sh`.
 - A real dispatch failure was found, filed upstream as
   [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72), and resolved: not a CHIA
   scheduler bug as first suspected, but a launch-configuration gap on our own side (a manually
