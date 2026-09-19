@@ -14,7 +14,7 @@ later task the Planner produces from this diagnosis.
 
 from __future__ import annotations
 
-from mace.agents import parse_diagnosis, parse_fix
+from mace.agents import is_testbench_port_mismatch, parse_diagnosis, parse_fix
 from mace.spec import StepResult, Triage
 
 _PROMPT_TEMPLATE = """\
@@ -28,7 +28,7 @@ Run verdict: {verdict}
 Diagnose why this failed and suggest a fix. Respond with exactly these two
 footer lines (a footer, not prose):
 
-DIAGNOSIS: <a short label, e.g. test_bug, config_error, timeout, maxcycles, rtl_suspect>
+DIAGNOSIS: <a short label, e.g. test_bug, config_error, timeout, maxcycles, rtl_suspect, testbench_mismatch>
 FIX: <a short, concrete instruction for what to try next>
 """
 
@@ -60,11 +60,31 @@ def build_prompt(result: StepResult) -> str:
 def triage(result: StepResult, llm, tools=()) -> Triage:
     """One LLM call, turned into a validated diagnosis.
 
+    Skips that call entirely when the build's own stderr already carries the
+    real, unambiguous signature of a testbench/DUT port mismatch (see
+    mace.agents.is_testbench_port_mismatch) -- there's nothing for an LLM to
+    diagnose that a mechanical check can't already say for certain, and it
+    saves the call. Every other failure still goes through the LLM, since
+    ``test_bug``/``config_error``/``timeout``/``maxcycles``/``rtl_suspect``
+    genuinely need judgment this module doesn't have.
+
     Raises:
         TriageError: no ``DIAGNOSIS:`` line in the response -- "not enough
             to act on", the same fail-open posture mace.agents' parsers and
             mace.planner.plan document.
     """
+    build = result.build
+    if not build.success and is_testbench_port_mismatch(build.stderr):
+        return Triage(
+            diagnosis="testbench_mismatch",
+            fix=(
+                f"Edit the scaffolded testbench for task {result.task.id!r}'s DUT "
+                f"instantiation: it connects a port name the real module doesn't "
+                f"have (see the %Error-PINNOTFOUND line(s) in the build stderr for "
+                f"which name(s)). Fix the testbench's port connections, not the DUT."
+            ),
+        )
+
     query = llm.prompt(build_prompt(result), tools=list(tools))
     diagnosis = parse_diagnosis(query.result)
     if diagnosis is None:
