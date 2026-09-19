@@ -231,9 +231,14 @@ class TestScaffoldEnv:
         assert "-vcs_build_args=+notimingcheck" not in config_text
         assert "-sim_build_args=+incdir+$DV_ROOT/verif/env/test_infrstrct/" in config_text
 
-        flist_text = (env_dir / "foo_ut.flist").read_text()
-        assert "$DV_ROOT/design/common/rtl/foo.v" in flist_text
-        assert "foo_ut_top.v" in flist_text  # the testbench's own file is still there too
+        flist_lines = (env_dir / "foo_ut.flist").read_text().splitlines()
+        # Each real entry must be its OWN line -- create_env.py's own
+        # writeFlistFile does not end the file with a trailing newline, and
+        # a naive append landed on the same line as the testbench's own
+        # filename (confirmed by a real build: Verilator read the two
+        # concatenated as one bogus, nonexistent path).
+        assert "$DV_ROOT/design/common/rtl/foo.v" in flist_lines
+        assert "foo_ut_top.v" in flist_lines
 
     def test_module_dv_path_is_a_noop_when_env_already_exists(self, tmp_path, monkeypatch):
         env_dir = tmp_path / "piton" / "verif" / "env" / "foo_ut"
