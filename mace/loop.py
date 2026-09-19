@@ -125,15 +125,31 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
         f"'{module_name}' at {rtl_path}.\n"
         f"The real module's ports, in declaration order: {ports_desc}\n"
         f"Edit piton/verif/env/{env_name}/{env_name}_top.v (via the edit "
-        f"tool, if one is available) so its DUT instantiation's port "
-        f"connections (currently generic placeholders like .input0(...)) "
-        f"match these real port names/widths exactly. Keep the rest of the "
-        f"scaffolded testbench structure as-is."
+        f"tool, if one is available -- it can also read the real DUT source "
+        f"at {rtl_path} for exact port widths) so it actually builds against "
+        f"the real module. create_env.py's generic template needs several "
+        f"things fixed, all mechanical, not just port names:\n"
+        f"1. The DUT instantiation's module type is currently "
+        f"'{env_name}' (the environment's own name) -- change it to the "
+        f"real module name, '{module_name}'.\n"
+        f"2. Its port connections are generic placeholders (.input0(...), "
+        f".output0(...)) -- reconcile them to the real port names/widths.\n"
+        f"3. SRC_BIT_WIDTH/SINK_BIT_WIDTH (and the matching #() params on "
+        f"the test_source/test_sink instances) are undefined placeholders -- "
+        f"set them to the real sum of input widths (excluding clk/rst_n) "
+        f"and output widths respectively.\n"
+        f"4. SRC_ENTRIES/SRC_LOG2_ENTRIES/SINK_ENTRIES/SINK_LOG2_ENTRIES are "
+        f"also undefined -- any small consistent pair works (e.g. entries=8, "
+        f"log2_entries=3) unless the test case needs more vectors.\n"
+        f"5. NUM_TEST_CASES in the closing `TEST_INFRSTRCT_END(NUM_TEST_CASES) "
+        f"is undefined -- replace it with the actual number of "
+        f"`TEST_CASE_BEGIN blocks in the file.\n"
+        f"Keep the rest of the scaffolded testbench structure as-is."
     )
 
     edit_tool = None
     if ray.is_initialized():
-        edit_tool = TestbenchEditTool(f"unit_test_edit_{task.id}", scaffold_result["top_v"])
+        edit_tool = TestbenchEditTool(f"unit_test_edit_{task.id}", scaffold_result["top_v"], rtl_path)
     all_tools = (*tools, edit_tool) if edit_tool is not None else tools
     try:
         query = llm.prompt(prompt, tools=list(all_tools))
