@@ -167,11 +167,27 @@ def _inherited_path_env() -> dict:
     return {"PATH": os.environ.get("PATH", "")}
 
 
+def module_name_from_path(module_path: str) -> str:
+    """The bare module name a unit_test task's ``spec`` (an RTL path) is
+    expected to declare, e.g. ``picorv32.v`` -> ``picorv32``,
+    ``l15_pipeline.v.pyv`` -> ``l15_pipeline`` (this project's ``.v.pyv``
+    convention for python-preprocessed Verilog carries two extensions,
+    hence ``.split(\".\")[0]`` rather than a single ``Path.stem``).
+    """
+    return Path(module_path).stem.split(".")[0]
+
+
 def unit_test_env_name(module_path: str) -> str:
     """The scaffolded env name for a target module, e.g. ``picorv32.v`` ->
     ``picorv32_ut``. Matches this session's own ``pico_reset_ut`` naming by
     convention (``<module>_ut``), not ``pico_reset_ut``'s specific name --
     that one is hand-authored for one behavior, not module-generic.
+
+    Deliberately just ``Path.stem`` (unlike :func:`module_name_from_path`):
+    this only needs to be a valid, distinct scaffold directory name, not the
+    exact real Verilog module identifier, so a ``.v.pyv`` file's env name
+    keeps its middle ``.v`` (``l15_pipeline.v_ut``) rather than being
+    collapsed to match the real module name.
     """
     stem = Path(module_path).stem
     return f"{stem}_ut"

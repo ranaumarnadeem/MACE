@@ -11,6 +11,7 @@ import pytest
 from mace.unit_test_scaffold import (
     ModuleNotFoundError_,
     extract_module_port_list,
+    module_name_from_path,
     parse_port_names,
     read_dut_ports,
     scaffold_env,
@@ -99,6 +100,15 @@ class TestReadDutPorts:
         rtl = tmp_path / "foo.v"
         rtl.write_text(SIMPLE_MODULE)
         assert read_dut_ports(str(rtl), "foo") == ["clk", "rst_n", "done"]
+
+
+class TestModuleNameFromPath:
+    @pytest.mark.parametrize(
+        "module_path,expected",
+        [("picorv32.v", "picorv32"), ("/a/b/l15_pipeline.v.pyv", "l15_pipeline")],
+    )
+    def test_strips_all_extensions(self, module_path, expected):
+        assert module_name_from_path(module_path) == expected
 
 
 class TestUnitTestEnvName:
