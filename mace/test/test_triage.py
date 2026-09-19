@@ -74,3 +74,31 @@ class TestTriage:
         llm = FakeLLM(responses=["I'm not sure what happened."])
         with pytest.raises(TriageError, match="no DIAGNOSIS:"):
             triage(make_failed_result(), llm)
+
+
+class TestTestbenchMismatchShortCircuit:
+    """A real PINNOTFOUND build failure is diagnosed mechanically -- no LLM
+    call needed (see mace.triage.triage's own docstring for why)."""
+
+    def _pinnotfound_result(self):
+        cfg = PitonConfig()
+        build = PitonBuildArtifact(
+            success=False, returncode=1, config=cfg, sim_type="vlt", model_dir="/x",
+            binary_path="", wall_time_s=1.0, failure_reason="verilator_error",
+            stderr="%Error-PINNOTFOUND: foo_ut_top.v:56:10: Pin not found: 'mem_valid_WRONG'\n",
+        )
+        task = Task(id="t1", deps=(), kind="unit_test", spec="picorv32.v")
+        query = FakeLLM(responses=["edit"]).prompt("edit")
+        return StepResult(task=task, query=query, build=build, run=None, passed=False)
+
+    def test_diagnoses_without_calling_the_llm(self):
+        llm = FakeLLM(responses=[])  # would raise if prompt() were called
+        result = triage(self._pinnotfound_result(), llm)
+        assert result.diagnosis == "testbench_mismatch"
+        assert "t1" in result.fix
+
+    def test_other_build_failures_still_go_through_the_llm(self):
+        llm = FakeLLM(responses=["DIAGNOSIS: rtl_suspect\nFIX: investigate\n"])
+        result = triage(make_failed_result(build_success=False), llm)
+        assert result.diagnosis == "rtl_suspect"
+        assert len(llm.calls) == 1
