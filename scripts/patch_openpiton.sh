@@ -499,17 +499,33 @@ PYEOF
 #define MACE_XSTR(x) MACE_STR(x)
 #include MACE_XSTR(MACE_UNIT_TOP.h)
 #include "verilated.h"
+#ifdef VERILATOR_VCD
+#include "verilated_vcd_c.h"
+#endif
 
 int main(int argc, char **argv) {
     VerilatedContext *contextp = new VerilatedContext;
     contextp->commandArgs(argc, argv);
     MACE_UNIT_TOP *top = new MACE_UNIT_TOP{contextp};
 
+#ifdef VERILATOR_VCD
+    Verilated::traceEverOn(true);
+    VerilatedVcdC *tfp = new VerilatedVcdC;
+    top->trace(tfp, 99);
+    tfp->open("unit_top.vcd");
+#endif
+
     while (!contextp->gotFinish()) {
         top->eval();
+#ifdef VERILATOR_VCD
+        tfp->dump(contextp->time());
+#endif
         contextp->timeInc(1);
     }
 
+#ifdef VERILATOR_VCD
+    tfp->close();
+#endif
     top->final();
     delete top;
     delete contextp;
