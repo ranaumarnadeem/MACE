@@ -16,6 +16,7 @@ from __future__ import annotations
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
+from mace.unit_test_scaffold import read_dut_ports, scaffold_env, unit_test_env_name
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 
