@@ -52,8 +52,35 @@ logger = logging.getLogger(__name__)
 # would inflate the object store on every call.
 LOG_TAIL_BYTES = 8000
 
-# OpenPiton's Verilator model, relative to a model directory.
+# OpenPiton's Verilator model for the manycore sys, relative to a model
+# directory. A non-manycore sys (a unit-test environment) builds a
+# differently-named binary matching its own -toplevel= (e.g. ifu_esl_lfsr's
+# is Vifu_esl_lfsr_top, not Vcmp_top) -- see _find_model_binary(), which
+# globs for it rather than assuming a fixed name for every sys.
 MODEL_BINARY = "obj_dir/Vcmp_top"
+
+
+def _find_model_binary(model_dir: str, sys: str) -> str:
+    """The built Verilator binary under *model_dir*, or ``""`` if absent.
+
+    manycore's own binary name (Vcmp_top) is known and checked directly, both
+    because it's the overwhelmingly common case and so a glob never has to
+    disambiguate between a real binary and Verilator's other obj_dir output
+    (.d/.o files, a matching-prefix intermediate). Any other sys's toplevel
+    name isn't something this adapter curates per environment, so it globs
+    obj_dir for the one executable V<toplevel> file sims' own -vlt_build
+    produces there.
+    """
+    if sys == "manycore":
+        candidate = os.path.join(model_dir, MODEL_BINARY)
+        return candidate if os.path.exists(candidate) else ""
+    obj_dir = os.path.join(model_dir, "obj_dir")
+    matches = [
+        p
+        for p in _glob.glob(os.path.join(obj_dir, "V*"))
+        if os.path.isfile(p) and os.access(p, os.X_OK) and "." not in os.path.basename(p)
+    ]
+    return matches[0] if len(matches) == 1 else ""
 
 # Written after a successful build, alongside the binary. Presence of the
 # binary alone isn't proof of a good build: a worker killed mid-link can leave
@@ -351,6 +378,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         caches: dict[str, tuple[int, int]] | None = None,
         address_map: str | None = None,
         extra_flags: tuple[str, ...] = (),
+        sys: str = "manycore",
         timeout_seconds: int = 300,
     ) -> PitonConfig:
         """Resolve a configuration against this checkout and return its identity.
@@ -376,6 +404,11 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 (``piton/verif/env/manycore/devices_ariane.xml``). None leaves
                 the checkout untouched.
             extra_flags: Any further sims flags, appended verbatim.
+            sys: ``-sys=`` value. ``"manycore"`` (default) is the full-chip
+                mesh; any other name is a registered OpenPiton unit-test
+                environment (``piton/tools/src/sims/<sys>.config``), in which
+                case the mesh/core/cache args above are accepted but unused --
+                see ``PitonConfig.sims_flags()``.
             timeout_seconds: Limit for the revision/version probes.
 
         Returns:
@@ -407,6 +440,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         version = OpenPitonWorkspaceNode.verilator_version_text(root, core, timeout_seconds)
 
         return PitonConfig(
+            sys=sys,
             core=core,
             x_tiles=x_tiles,
             y_tiles=y_tiles,
@@ -500,11 +534,11 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         if sim_type not in SIM_TYPES:
             raise ValueError(f"sim_type must be one of {sorted(SIM_TYPES)}, got {sim_type!r}")
 
-        model_dir = os.path.join(root, "build", "manycore", config.build_id)
-        binary = os.path.join(model_dir, MODEL_BINARY)
+        model_dir = os.path.join(root, "build", config.sys, config.build_id)
+        binary = _find_model_binary(model_dir, config.sys)
         marker = os.path.join(model_dir, BUILD_OK_MARKER)
 
-        if not clean and os.path.exists(marker) and os.path.exists(binary):
+        if not clean and os.path.exists(marker) and binary:
             logger.info("reusing prior build at %s (build_id=%s)", model_dir, config.build_id)
             return PitonBuildArtifact(
                 success=True,
@@ -552,11 +586,12 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             timeout_seconds,
         )
 
-        built = os.path.exists(binary)
+        binary = _find_model_binary(model_dir, config.sys)
+        built = bool(binary)
         success = rc == 0 and built
         reason = "" if success else (parse.build_failure_reason(stdout, stderr) or "no_model_binary")
         if rc == 0 and not built:
-            logger.error("sims exited 0 but %s was not produced", binary)
+            logger.error("sims exited 0 but no model binary was produced under %s", model_dir)
         if success:
             # Written last, and only on a confirmed-good build: its presence
             # is what a later call trusts to skip rebuilding, so it must never
@@ -628,25 +663,36 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         if sim_type not in SIM_TYPES:
             raise ValueError(f"sim_type must be one of {sorted(SIM_TYPES)}, got {sim_type!r}")
 
-        model_dir = os.path.join(root, "build", "manycore", config.build_id)
+        model_dir = os.path.join(root, "build", config.sys, config.build_id)
         safe_test = test.replace("/", "_")
         run_dir = os.path.join(model_dir, "runs", f"{safe_test}-{int(time.time() * 1000) % 100000}")
         os.makedirs(run_dir, exist_ok=True)
 
         argv = [*config.sims_flags(), f"-build_id={config.build_id}"]
-        if precompiled:
-            argv.append("-precompiled")
-        if asm_diag_root:
-            argv.append(f"-asm_diag_root={asm_diag_root}")
-        mask = finish_mask if finish_mask is not None else config.finish_mask
-        if mask:
-            argv.append(f"-finish_mask={mask}")
-        if rtl_timeout is not None:
-            argv.append(f"-rtl_timeout={rtl_timeout}")
-        if max_cycle is not None:
-            argv.append(f"-max_cycle={max_cycle}")
+        if config.sys == "manycore":
+            # precompiled/asm_diag_root/finish_mask/rtl_timeout/max_cycle and
+            # the trailing "-<sim>_run <test>" diag-selection convention are
+            # all manycore concepts (a diag to compile-or-find and simulate
+            # against the full mesh). A unit-test sys's own testbench selects
+            # its test case itself, via a +test_case= plusarg the caller
+            # supplies through extra_run_args (matching how ifu_esl_lfsr.v
+            # reads it) -- there is nothing for sims itself to select here,
+            # so -<sim>_run is passed with no trailing test name.
+            if precompiled:
+                argv.append("-precompiled")
+            if asm_diag_root:
+                argv.append(f"-asm_diag_root={asm_diag_root}")
+            mask = finish_mask if finish_mask is not None else config.finish_mask
+            if mask:
+                argv.append(f"-finish_mask={mask}")
+            if rtl_timeout is not None:
+                argv.append(f"-rtl_timeout={rtl_timeout}")
+            if max_cycle is not None:
+                argv.append(f"-max_cycle={max_cycle}")
         argv.extend(extra_run_args)
-        argv += [f"-{sim_type}_run", test]
+        argv.append(f"-{sim_type}_run")
+        if config.sys == "manycore":
+            argv.append(test)
 
         stdout, stderr, rc, wall = _run(
             "sims " + " ".join(shlex.quote(a) for a in argv),
@@ -720,7 +766,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             num_tests=len(results),
             num_failures=len(failures),
             results=results,
-            results_dir=os.path.join(root, "build", "manycore", config.build_id, "runs"),
+            results_dir=os.path.join(root, "build", config.sys, config.build_id, "runs"),
         )
 
     # -- workspace files -------------------------------------------------------
@@ -798,7 +844,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         import shutil
 
         root = _require_root(piton_root)
-        model_dir = os.path.join(root, "build", "manycore", config.build_id)
+        model_dir = os.path.join(root, "build", config.sys, config.build_id)
         if not os.path.isdir(model_dir):
             return False
         shutil.rmtree(model_dir, ignore_errors=True)

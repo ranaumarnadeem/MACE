@@ -68,6 +68,7 @@ class TestCacheKey:
     @pytest.mark.parametrize(
         "change",
         [
+            {"sys": "ifu_esl_lfsr"},
             {"x_tiles": 2},
             {"y_tiles": 2},
             {"core": "sparc"},
@@ -130,6 +131,16 @@ class TestSimsFlags:
 
     def test_extra_flags_are_appended_verbatim(self):
         assert PitonConfig(extra_flags=("-uart_dmw",)).sims_flags()[-1] == "-uart_dmw"
+
+    def test_non_manycore_sys_emits_only_sys_and_extra_flags(self):
+        """A unit-test sys (e.g. ifu_esl_lfsr) has its own -toplevel=/-flist=
+        in its own sims.config entry -- mesh/core/cache flags are manycore
+        concepts that don't apply and shouldn't be sent."""
+        flags = PitonConfig(sys="ifu_esl_lfsr", extra_flags=("-some_flag",)).sims_flags()
+        assert flags == ("-sys=ifu_esl_lfsr", "-some_flag")
+
+    def test_manycore_is_still_the_default_sys(self):
+        assert PitonConfig().sims_flags()[0] == "-sys=manycore"
 
 
 class TestFinishMask:

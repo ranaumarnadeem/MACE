@@ -247,6 +247,19 @@ class TestBuildResult:
     def test_cache_key_is_carried_on_the_artifact(self, node, cfg):
         assert node.build(cfg).cache_key == cfg.key
 
+    def test_non_manycore_sys_builds_under_its_own_dir_and_binary_name(self, node, cfg):
+        """A unit-test sys (e.g. ifu_esl_lfsr) builds a differently-named
+        binary under build/<sys>/, not build/manycore/Vcmp_top -- the
+        adapter must find it via glob, not the manycore fast path."""
+        import dataclasses
+
+        ut_cfg = dataclasses.replace(cfg, sys="ifu_esl_lfsr")
+        art = node.build(ut_cfg)
+        assert art.success is True
+        assert "/ifu_esl_lfsr/" in art.binary_path.replace("\\", "/")
+        assert art.binary_path.endswith("obj_dir/Vifu_esl_lfsr_top")
+        assert os.path.exists(art.binary_path)
+
 
 class TestBuildReuse:
     """A build_id that already succeeded is served from disk, not rebuilt --

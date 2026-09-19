@@ -80,6 +80,15 @@ class PitonConfig:
     yields a different ``build_id`` and therefore a separate model directory.
     """
 
+    # sims -sys=<name>: which testbench configuration to build/run. "manycore"
+    # (the default) is the full-chip mesh; anything else is a registered
+    # OpenPiton unit-test environment (piton/tools/src/sims/<sys>.config,
+    # e.g. "ifu_esl_lfsr" -- a single module built alone against a generic
+    # test_infrstrct stimulus/check harness, piton/verif/env/<sys>/). The
+    # mesh/core/cache fields below are manycore-specific and are only
+    # emitted by sims_flags() when sys == "manycore"; a unit-test sys gets
+    # just -sys=<name> plus extra_flags.
+    sys: str = "manycore"
     core: PitonCore = "ariane"
     x_tiles: int = 1
     y_tiles: int = 1
@@ -126,6 +135,7 @@ class PitonConfig:
     def key(self) -> str:
         """Stable content hash of this configuration."""
         identity = {
+            "sys": self.sys,
             "core": self.core,
             "x_tiles": self.x_tiles,
             "y_tiles": self.y_tiles,
@@ -157,8 +167,15 @@ class PitonConfig:
 
     def sims_flags(self) -> tuple[str, ...]:
         """The ``sims`` arguments this configuration implies, in a stable order."""
-        flags: list[str] = [
-            "-sys=manycore",
+        flags: list[str] = [f"-sys={self.sys}"]
+        if self.sys != "manycore":
+            # Mesh/core/cache geometry are manycore concepts (they configure
+            # the full-chip build sims' own ifu_esl_lfsr.config-style unit-test
+            # environments don't use) -- a non-manycore sys gets only its own
+            # -sys= plus whatever extra_flags the caller passed.
+            flags.extend(self.extra_flags)
+            return tuple(flags)
+        flags += [
             f"-x_tiles={self.x_tiles}",
             f"-y_tiles={self.y_tiles}",
             f"-network_config={self.network_config}",

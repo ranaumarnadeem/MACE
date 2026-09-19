@@ -69,12 +69,24 @@ STUB_SIMS = r"""#!/bin/bash
 printf '%s\n' "$*" >> "${FAKE_SIMS_ARGV:-/dev/null}"
 
 build_id="rel-0.1"
+sys="manycore"
 for arg in "$@"; do
     case "$arg" in
         -build_id=*) build_id="${arg#-build_id=}" ;;
+        -sys=*) sys="${arg#-sys=}" ;;
     esac
 done
-model_dir="$PITON_ROOT/build/manycore/$build_id"
+model_dir="$PITON_ROOT/build/$sys/$build_id"
+# manycore's real Verilator binary is Vcmp_top; a non-manycore sys (a
+# unit-test env) builds its own -toplevel=<name>-derived binary instead --
+# V<sys>_top mirrors that shape closely enough to exercise the adapter's
+# glob-based discovery (_find_model_binary) rather than its manycore fast
+# path, without needing a real per-sys -toplevel= value in this stub.
+if [ "$sys" = "manycore" ]; then
+    model_binary="Vcmp_top"
+else
+    model_binary="V${sys}_top"
+fi
 
 if [ -n "$FAKE_SIMS_SLEEP" ]; then
     sleep "$FAKE_SIMS_SLEEP"
@@ -94,8 +106,8 @@ case "$*" in
             exit 1
         fi
         mkdir -p "$model_dir/obj_dir"
-        echo "#!/bin/true" > "$model_dir/obj_dir/Vcmp_top"
-        chmod +x "$model_dir/obj_dir/Vcmp_top"
+        echo "#!/bin/true" > "$model_dir/obj_dir/$model_binary"
+        chmod +x "$model_dir/obj_dir/$model_binary"
         exit 0
         ;;
     *_run*)
