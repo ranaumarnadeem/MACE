@@ -290,3 +290,75 @@ PYEOF
     fi
 )
 
+# 7. pc_cmp.v's RTL_PICO0 active_thread tracking never turns on: unlike
+#    RTL_ARIANE0's own equivalent block (a clocked always @(posedge clk)
+#    that unconditionally asserts active_thread once out of reset, exactly
+#    matching how spc0_inst_done/spc0_phy_pc_w are ALREADY wired for pico
+#    right below this block, unconditionally, off PICO_CORE0.launch_next_insn/
+#    reg_pc), pico's active_thread block is a combinational latch gated on
+#    `PICO_CORE0.pico_int == 1'b1` -- the same L15 wakeup interrupt fix 6
+#    already established is never sent in a bare config. With fix 6 applied,
+#    the core genuinely boots and runs (confirmed: reaches its own
+#    configured good_trap PC, per a real waveform/sim.log trace), but the
+#    monitor's own "is this thread active" bit for pico never turns on, so
+#    the good/bad-trap detection that gates on active_thread never fires --
+#    the simulation just runs to maxcycles regardless of what the core
+#    itself actually does. Matches RTL_ARIANE0's own clocked, unconditional
+#    pattern (same rst_l reset signal already in scope) rather than
+#    inventing a new mechanism.
+(
+    cd "$ROOT"
+    PC_CMP="piton/verif/env/manycore/pc_cmp.v.pyv"
+    if [ ! -f "$PC_CMP" ]; then
+        echo "not found, skipping fix 7: $PC_CMP"
+    else
+        # PICO_CORE0.pico_int is unique to the old, buggy pico block --
+        # Ariane's own equivalent block (which legitimately contains the
+        # same active_thread <= 1'b0/1'b1 lines this patch introduces for
+        # pico too) never mentions PICO_CORE0, so checking for its absence
+        # -- not for the presence of lines the two blocks now share -- is
+        # what actually distinguishes patched from unpatched here.
+        if ! grep -q "PICO_CORE0.pico_int" "$PC_CMP"; then
+            echo "already patched: $PC_CMP"
+        else
+            python3 - "$PC_CMP" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+old = """                always @*
+                begin
+                    if (`PICO_CORE0.pico_int == 1'b1)
+                    begin
+                        active_thread[(0*4)] = 1'b1;
+                        active_thread[(0*4)+1] = 1'b1;
+                        active_thread[(0*4)+2] = 1'b1;
+                        active_thread[(0*4)+3] = 1'b1;
+                    end
+                end"""
+new = """                always @(posedge clk) begin
+                    if (~rst_l) begin
+                      active_thread[(0*4)]   <= 1'b0;
+                      active_thread[(0*4)+1] <= 1'b0;
+                      active_thread[(0*4)+2] <= 1'b0;
+                      active_thread[(0*4)+3] <= 1'b0;
+                    end else begin
+                      active_thread[(0*4)]   <= 1'b1;
+                      active_thread[(0*4)+1] <= 1'b1;
+                      active_thread[(0*4)+2] <= 1'b1;
+                      active_thread[(0*4)+3] <= 1'b1;
+                    end
+                end"""
+count = content.count(old)
+if count != 1:
+    print(f"ERROR: expected exactly 1 match for pico's active_thread block, found {count}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: pc_cmp.v.pyv's RTL_PICO0 active_thread now tracks unconditionally, matching RTL_ARIANE0's own pattern")
+PYEOF
+        fi
+    fi
+)
+
