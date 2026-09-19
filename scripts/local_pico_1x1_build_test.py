@@ -21,6 +21,33 @@ of scope for this pass.
 
 Run from WSL, real checkout:
     python scripts/local_pico_1x1_build_test.py
+
+Update: real PASS achieved (status.log: "Diag: addi.S-... PASS", sim.log:
+"Info: spc(0) thread(0) Hit Good trap" / "Simulation -> PASS (HIT GOOD
+TRAP)") -- the first real Verilator pass for PicoRV32 on OpenPiton, by
+anyone. Getting there took three independent, real, waveform-verified
+fixes (scripts/patch_openpiton.sh findings 6-8), each a genuine
+previously-undiscovered gap in OpenPiton's own RTL/testbench/build
+infrastructure, not a chia_openpiton adapter bug:
+  6. picorv32.v's own resetn gate only ever turned on via an L15
+     interrupt nothing sends in a bare config -- the core never left
+     reset.
+  7. pc_cmp.v's RTL_PICO0 active_thread tracking was gated on that same
+     dead interrupt, so even a genuinely-running core (after fix 6)
+     never got recognized as active by the monitor.
+  8. A real, previously-undiscovered simulation-infrastructure race: a
+     power-on BIST self-clear sweep in the generic SRAM model
+     (bram_1rw_wrapper.v) silently discards every real write to an
+     array until its own multi-microsecond sweep finishes -- pico boots
+     fast enough to land its very first memory request entirely inside
+     that window; ariane/sparc apparently never do. CONFIG_DISABLE_BIST_
+     CLEAR (already used by the FPGA flows, for the same underlying
+     reason -- BIST is a real-silicon bring-up concern with no role in
+     RTL functional simulation) fixes it, scoped to this script only
+     for now -- not yet the project's config_rtl default, since ariane/
+     sparc's own published numbers were generated without it and
+     re-verifying every existing result wasn't warranted just to widen
+     this fix's scope.
 """
 from __future__ import annotations
 
@@ -42,7 +69,10 @@ ray.init(address="local", resources={"openpiton": 1}, log_to_driver=False)
 node = OpenPitonWorkspaceNode(ROOT, pg_ready_timeout_s=120)
 try:
     print("configuring 1x1 pico...", flush=True)
-    cfg = get(node.configure.chia_remote(x_tiles=1, y_tiles=1, core="pico"))
+    cfg = get(node.configure.chia_remote(
+        x_tiles=1, y_tiles=1, core="pico",
+        config_rtl=("MINIMAL_MONITORING", "CONFIG_DISABLE_BIST_CLEAR"),
+    ))
     print(f"build_id={cfg.build_id} key={cfg.key}", flush=True)
     print("sims_flags:", cfg.sims_flags(), flush=True)
 
