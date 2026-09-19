@@ -6,18 +6,22 @@ Run:
 Same technique chia_openpiton/test/test_tools_local.py uses: a bare
 instance built with object.__new__, skipping ChiaTool.__init__/__post_init__
 (the only parts that touch Ray) entirely, since read_testbench/
-write_testbench are plain file I/O with no Ray dependency of their own.
+write_testbench/read_dut_source are plain file I/O with no Ray dependency
+of their own.
 """
 
 from __future__ import annotations
 
+import inspect
+
 from mace.tools import TestbenchEditTool
 
 
-def bare_tool(top_v_path: str) -> TestbenchEditTool:
+def bare_tool(top_v_path: str, dut_source_path: str = "") -> TestbenchEditTool:
     tool = object.__new__(TestbenchEditTool)
     tool.name = "unit_test_edit"
     tool.top_v_path = top_v_path
+    tool.dut_source_path = dut_source_path
     return tool
 
 
@@ -54,13 +58,27 @@ class TestWriteTestbench:
         """The whole point of this tool over a general BashTool: there is
         no way to name a different file. Asserted here as a signature
         check so a future edit can't quietly add one without this failing."""
-        import inspect
-
         params = list(inspect.signature(TestbenchEditTool.write_testbench).parameters)
         assert params == ["self", "content"]
 
     def test_read_testbench_also_has_no_path_parameter(self):
-        import inspect
-
         params = list(inspect.signature(TestbenchEditTool.read_testbench).parameters)
         assert params == ["self"]
+
+
+class TestReadDutSource:
+    def test_returns_the_dut_source_content(self, tmp_path):
+        rtl = tmp_path / "foo.v"
+        rtl.write_text("module foo (\n  input clk\n);\nendmodule\n")
+        tool = bare_tool(str(tmp_path / "foo_ut_top.v"), dut_source_path=str(rtl))
+
+        assert tool.read_dut_source() == "module foo (\n  input clk\n);\nendmodule\n"
+
+    def test_has_no_path_parameter(self):
+        params = list(inspect.signature(TestbenchEditTool.read_dut_source).parameters)
+        assert params == ["self"]
+
+    def test_does_not_expose_a_write_method(self):
+        """Read-only, deliberately: reconciling a testbench is never a
+        reason to edit the module it targets."""
+        assert not hasattr(TestbenchEditTool, "write_dut_source")
