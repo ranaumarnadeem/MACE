@@ -414,7 +414,7 @@ old_a = """    if ($opt{vlt_build}) {
       $build_cmd .= "--top-module cmp_top " ;
       $build_cmd .= "-Wno-fatal " ;"""
 new_a = """    if ($opt{vlt_build}) {
-      my $is_manycore_sys = ! @{$opt{toplevel}} ;
+      my $is_manycore_sys = ($opt{sys} eq "manycore") ;
       my $vlt_top = $is_manycore_sys ? "cmp_top" : $opt{toplevel}[0] ;
       $build_cmd = "verilator -cc " ;
       if ($is_manycore_sys) {
