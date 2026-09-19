@@ -95,7 +95,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--piton-root", required=True)
     ap.add_argument("--core", default="ariane", choices=("ariane", "sparc"))
-    ap.add_argument("--model", default="opencode/nemotron-3-ultra-free")
+    ap.add_argument("--backend", default="vertex", help="LLM backend -- vertex is this project's only funded one")
+    ap.add_argument("--model", default="gemini-2.5-flash")
+    ap.add_argument("--project", default="mace-508004")
     ap.add_argument(
         "--objective",
         default="Verify the barrier_atomic gate workload passes on a 1x1 mesh.",
@@ -104,11 +106,12 @@ def main() -> int:
     args = ap.parse_args()
 
     piton_root = os.path.abspath(args.piton_root)
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", args.project)
     # address="local": see examples/mace_end_to_end.py's ray.init() comment --
     # avoids silently attaching to a stale torn-down cluster's marker.
-    ray.init(address="local", resources={"openpiton": 1, "opencode_creds": 1})
+    ray.init(address="local", resources={"openpiton": 1, f"{args.backend}_creds": 1})
 
-    llm = make_llm("opencode", model=args.model)
+    llm = make_llm(args.backend, model=args.model)
 
     print("asking the LLM for a config, once, no tools...", flush=True)
     started = time.monotonic()

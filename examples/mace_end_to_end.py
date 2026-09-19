@@ -39,7 +39,9 @@ def main() -> int:
     ap.add_argument("--piton-root", required=True, help="First OpenPiton checkout")
     ap.add_argument("--piton-root-2", default=None, help="Second checkout, for fan-out")
     ap.add_argument("--core", default="ariane", choices=("ariane", "sparc", "pico"))
-    ap.add_argument("--model", default="opencode/big-pickle")
+    ap.add_argument("--backend", default="vertex", help="LLM backend -- vertex is this project's only funded one")
+    ap.add_argument("--model", default="gemini-2.5-flash")
+    ap.add_argument("--project", default="mace-508004")
     ap.add_argument("--workload", default="barrier_atomic.c")
     ap.add_argument(
         "--objective",
@@ -53,13 +55,14 @@ def main() -> int:
         os.path.abspath(p) for p in (args.piton_root, args.piton_root_2) if p
     )
     os.makedirs(os.path.dirname(args.db_path), exist_ok=True)
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", args.project)
     # address="local" forces a brand-new local instance regardless of any stale
     # /tmp/ray/ray_current_cluster marker left by an earlier torn-down cluster
     # (e.g. a `chia up`/`chia down` session) -- without it, ray.init() can
     # silently try to attach to that dead address instead of starting fresh.
     ray.init(
         address="local",
-        resources={"openpiton": len(piton_roots), "opencode_creds": len(piton_roots)},
+        resources={"openpiton": len(piton_roots), f"{args.backend}_creds": len(piton_roots)},
     )
 
     spec = MaceSpec(
@@ -69,7 +72,7 @@ def main() -> int:
         target_mesh=(1, 1),
         budget=Budget(max_iterations=args.max_iterations),
     )
-    llm = make_llm("opencode", model=args.model)
+    llm = make_llm(args.backend, model=args.model)
     db = open_db(args.db_path, ray_placement=False)
 
     result = run_mace_loop(piton_roots, spec, llm, db)
