@@ -29,8 +29,14 @@ from mace.spec import TASK_KINDS, Task
 
 # Not enforced by parse_diagnosis -- see its docstring for why. Exposed so a
 # caller can decide whether a parsed value is one it recognizes.
+#
+# testbench_mismatch is distinct from rtl_suspect: it means the scaffolded
+# unit-test testbench's DUT port connections don't match the real module
+# (see mace.unit_test_scaffold, mace.loop._run_unit_test_step) -- an edit to
+# the testbench file fixes it, not the DUT. Conflating the two would send an
+# agent to "fix" working RTL for what is actually a stale connection list.
 KNOWN_DIAGNOSES: frozenset[str] = frozenset(
-    ("test_bug", "config_error", "timeout", "maxcycles", "rtl_suspect")
+    ("test_bug", "config_error", "timeout", "maxcycles", "rtl_suspect", "testbench_mismatch")
 )
 
 # Same non-enforcement convention as KNOWN_DIAGNOSES -- see parse_assessment.
@@ -171,3 +177,24 @@ def parse_next_steps(text: str) -> str | None:
     """The last ``NEXT_STEPS: ...`` value, verbatim; ``None`` if absent."""
     lines = _footer_lines(text, "NEXT_STEPS")
     return lines[-1].strip() if lines else None
+
+
+# The real Verilator error for a testbench instantiation naming a port that
+# doesn't exist on the DUT -- captured by deliberately renaming a working
+# port connection in piton/verif/env/pico_reset_ut/pico_reset_ut_top.v and
+# rebuilding, not guessed:
+#   %Error-PINNOTFOUND: <file>:<line>: Pin not found: 'mem_valid_WRONG'
+# %Warning-PINMISSING (an unconnected DUT pin) is a separate, non-fatal
+# signature and is deliberately not matched here -- it doesn't fail the
+# build, and an unconnected pin is often intentional (see
+# mace.loop._run_unit_test_step's own tie-offs), unlike a nonexistent one.
+_PINNOTFOUND = re.compile(r"%Error-PINNOTFOUND\b")
+
+
+def is_testbench_port_mismatch(build_stderr: str) -> bool:
+    """Whether a build's stderr shows the real signature of a scaffolded
+    unit-test testbench naming a DUT port that doesn't exist -- see
+    :data:`KNOWN_DIAGNOSES`'s ``testbench_mismatch`` entry for why this is
+    kept distinct from an ``rtl_suspect`` diagnosis.
+    """
+    return bool(_PINNOTFOUND.search(build_stderr))
