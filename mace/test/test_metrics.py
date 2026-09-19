@@ -25,7 +25,7 @@ def make_spec(**override):
     return MaceSpec(**kwargs)
 
 
-def make_result(task_id, passed, wall_s=1.0, kind="workload", verdict="pass"):
+def make_result(task_id, passed, wall_s=1.0, kind="workload", verdict="pass", spec="hello_world.c"):
     cfg = PitonConfig()
     build = PitonBuildArtifact(
         success=True, returncode=0, config=cfg, sim_type="vlt",
@@ -36,7 +36,7 @@ def make_result(task_id, passed, wall_s=1.0, kind="workload", verdict="pass"):
         run_dir="/x/runs/1", verdict=verdict,
     )
     query = QueryResult(result="edit", returncode=0, stderr="", stream_result="edit", success=True)
-    task = Task(id=task_id, deps=(), kind=kind, spec="hello_world.c")
+    task = Task(id=task_id, deps=(), kind=kind, spec=spec)
     return StepResult(task=task, query=query, build=build, run=run, passed=passed)
 
 
@@ -74,6 +74,31 @@ class TestCachesColumnMigration:
         db_path = tmp_path / "fresh.db"
         metrics.open_db(str(db_path), ray_placement=False)
         metrics.open_db(str(db_path), ray_placement=False)  # column already added -- must no-op
+
+
+class TestModuleColumnMigration:
+    def test_opening_a_pre_existing_db_without_the_module_column_adds_it(self, tmp_path):
+        """Same retrofit as TestCachesColumnMigration, for module: this
+        project's own real runs/*.db files predate it too."""
+        db_path = tmp_path / "old.db"
+        con = sqlite3.connect(str(db_path))
+        con.execute(
+            "CREATE TABLE tasks ("
+            "run_id TEXT NOT NULL, iteration INTEGER NOT NULL, task_id TEXT NOT NULL, "
+            "kind TEXT NOT NULL, spec TEXT NOT NULL, passed INTEGER NOT NULL, "
+            "build_success INTEGER NOT NULL, run_verdict TEXT, wall_s REAL NOT NULL DEFAULT 0, "
+            "caches TEXT, "
+            "PRIMARY KEY (run_id, iteration, task_id))"
+        )
+        con.commit()
+        con.close()
+
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_iteration(db, run_id, 0, (make_result("a", True),), wall_s=1.0)
+
+        row = db.query_one("SELECT module FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
+        assert row is not None  # column exists and is queryable; value is None for a workload task
 
 
 class TestRunLifecycle:

@@ -23,6 +23,7 @@ import uuid
 from chia.database.sqlite_node import SQLiteNode
 
 from mace.spec import MaceSpec, PostMortem, StepResult
+from mace.unit_test_scaffold import module_name_from_path
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -173,10 +174,11 @@ def _record_task(db: SQLiteNode, run_id: str, iteration: int, result: StepResult
     ground truth for what really got tested.
     """
     wall_s = result.build.wall_time_s + (result.run.wall_time_s if result.run else 0.0)
+    module = module_name_from_path(result.task.spec) if result.task.kind == "unit_test" else None
     db.execute(
         "INSERT OR REPLACE INTO tasks "
-        "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             iteration,
@@ -188,6 +190,7 @@ def _record_task(db: SQLiteNode, run_id: str, iteration: int, result: StepResult
             result.run.verdict if result.run else None,
             wall_s,
             json.dumps(result.build.config.caches, sort_keys=True),
+            module,
         ),
     )
 
