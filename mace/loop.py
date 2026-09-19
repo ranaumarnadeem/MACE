@@ -15,9 +15,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import ray
+
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
+from mace.tools import TestbenchEditTool
 from mace.unit_test_scaffold import (
     ModuleNotFoundError_,
     module_name_from_path,
@@ -93,10 +96,19 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
     which has a real, documented, deliberately deferred Verilator
     incompatibility on the RUN side. Reporting a run verdict here would
     misattribute that known, pre-existing gap to this task.
+
+    When Ray is actually initialized (a real run, never a tier-0 test --
+    see mace.tools.TestbenchEditTool's own module docstring for why this is
+    a purpose-built, single-file-scoped tool rather than a general BashTool),
+    this constructs one and adds it to *tools* for the duration of the LLM
+    call, then tears it down -- it is per-task (scoped to this task's own
+    scaffolded file, only known once :func:`scaffold_env` has run), so it
+    cannot be constructed once by a caller and reused the way a general
+    tool can.
     """
     module_path = task.spec.strip()
     env_name = unit_test_env_name(module_path)
-    scaffold_env(piton_root, env_name)
+    scaffold_result = scaffold_env(piton_root, env_name)
 
     module_name = module_name_from_path(module_path)
     rtl_path = str(Path(piton_root) / module_path)
@@ -110,12 +122,22 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
         f"Scaffolded a new unit-test environment '{env_name}' for module "
         f"'{module_name}' at {rtl_path}.\n"
         f"The real module's ports, in declaration order: {ports_desc}\n"
-        f"Edit piton/verif/env/{env_name}/{env_name}_top.v so its DUT "
-        f"instantiation's port connections (currently generic placeholders "
-        f"like .input0(...)) match these real port names/widths exactly. "
-        f"Keep the rest of the scaffolded testbench structure as-is."
+        f"Edit piton/verif/env/{env_name}/{env_name}_top.v (via the edit "
+        f"tool, if one is available) so its DUT instantiation's port "
+        f"connections (currently generic placeholders like .input0(...)) "
+        f"match these real port names/widths exactly. Keep the rest of the "
+        f"scaffolded testbench structure as-is."
     )
-    query = llm.prompt(prompt, tools=list(tools))
+
+    edit_tool = None
+    if ray.is_initialized():
+        edit_tool = TestbenchEditTool(f"unit_test_edit_{task.id}", scaffold_result["top_v"])
+    all_tools = (*tools, edit_tool) if edit_tool is not None else tools
+    try:
+        query = llm.prompt(prompt, tools=list(all_tools))
+    finally:
+        if edit_tool is not None:
+            edit_tool.stop()
 
     build = OpenPitonWorkspaceNode.build(piton_root, PitonConfig(sys=env_name))
     return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
