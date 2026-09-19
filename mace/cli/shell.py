@@ -40,7 +40,7 @@ from mace.cli.config import (
 from mace.cli.session import KNOWN_MESH_OUTCOMES, Session
 from mace.cli.spec_file import parse_spec_file
 from mace.llm import make_llm
-from mace.metrics import get_post_mortem, open_db, record_post_mortem, summary
+from mace.metrics import get_post_mortem, module_status, open_db, record_post_mortem, summary
 from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec, PostMortem
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT
@@ -482,17 +482,21 @@ class MaceShell(cmd.Cmd):
         )
 
         def on_iteration(iteration, results):
-            # This is a system-level integration verification loop: one
-            # assembled-chip Verilator simulation, one pass/fail verdict per
-            # task -- there is no per-module unit-test breakdown to show
-            # per-iteration because nothing here builds separate per-module
-            # testbenches. (Real coverage -- how much of the design a passing
-            # run actually exercised, per file -- is a separate, real thing
-            # this shell now does, once, after the whole run finishes; see
-            # below.) What this CAN always do, and a live user correctly
-            # pointed out it wasn't doing: name the real files on disk, and
-            # show much more than a fixed tail on failure, since that's
-            # genuinely how someone would debug this by hand.
+            # A "config" task builds one assembled-chip Verilator simulation
+            # and stops there; a "workload" task builds and runs one gate
+            # program against it, one pass/fail verdict. "unit_test" tasks
+            # are the one per-module exception (see mace.loop.
+            # _run_unit_test_step): each builds its own separate, smaller
+            # testbench for one target module -- shown below, gated on build
+            # success only, since running any of them still hits the same
+            # documented test_infrstrct.v Verilator gap pico_reset_ut does
+            # (see scripts/patch_openpiton.sh). (Real coverage -- how much of
+            # the design a passing run actually exercised, per file -- is a
+            # separate, real thing this shell now does, once, after the whole
+            # run finishes; see below.) What this CAN always do, and a live
+            # user correctly pointed out it wasn't doing: name the real files
+            # on disk, and show much more than a fixed tail on failure, since
+            # that's genuinely how someone would debug this by hand.
             c.rule(f"iteration {iteration}", style="cyan")
             for r in results:
                 if r.task.kind == "config":
@@ -503,6 +507,20 @@ class MaceShell(cmd.Cmd):
                     if not r.build.success:
                         c.print(Panel(r.build.stderr[-4000:], title="build stderr (tail)", border_style="red"))
                         c.print(f"  [dim]full stderr is on the build artifact; model_dir above has sims.log[/dim]")
+                elif r.task.kind == "unit_test":
+                    c.print(f"[yellow]Unit test:[/yellow] {r.task.spec}")
+                    status = "[green]OK[/green]" if r.build.success else "[bold red]FAILED[/bold red]"
+                    c.print(f"  build: {status} ({r.build.wall_time_s:.0f}s)")
+                    c.print(f"  [dim]model_dir: {r.build.model_dir}[/dim]")
+                    if not r.build.success:
+                        c.print(Panel(r.build.stderr[-4000:], title="build stderr (tail)", border_style="red"))
+                    else:
+                        c.print(
+                            "  [dim]run skipped -- test_infrstrct.v's Verilator "
+                            "incompatibility blocks running any unit-test environment "
+                            "for now (see scripts/patch_openpiton.sh); build success "
+                            "is this task's gate.[/dim]"
+                        )
                 else:
                     c.print(f"[yellow]Running verification:[/yellow] {r.task.spec}")
                     status = "[green]OK[/green]" if r.build.success else "[bold red]FAILED[/bold red]"
@@ -529,6 +547,19 @@ class MaceShell(cmd.Cmd):
         c.print(f"\nrun_id=[bold]{result.run_id}[/bold] status=[bold {status_style}]{result.status}[/bold {status_style}]")
         if result.post_mortem is not None:
             _print_post_mortem(c, result.post_mortem)
+
+        if result.run_id is not None:
+            statuses = module_status(self.db, result.run_id)
+            if statuses:
+                table = Table(title="per-module status", header_style="bold cyan", show_lines=False)
+                table.add_column("module", style="bold")
+                table.add_column("build")
+                table.add_column("task")
+                table.add_column("iteration")
+                for m in statuses:
+                    build_cell = "[green]OK[/green]" if m["build_success"] else "[bold red]FAILED[/bold red]"
+                    table.add_row(m["module"], build_cell, m["task_id"], str(m["iteration"]))
+                c.print(table)
 
         self.session.last_coverage = None
         if self.session.coverage and result.status == "passed":
