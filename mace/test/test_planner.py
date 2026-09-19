@@ -42,6 +42,11 @@ class TestBuildPrompt:
     def test_documents_the_caches_line_format(self):
         prompt = build_prompt(make_spec())
         assert "CACHES:" in prompt
+
+    def test_documents_unit_test_as_a_kind(self):
+        prompt = build_prompt(make_spec())
+        assert "kind=config|workload|unit_test" in prompt
+        assert "unit_test" in prompt
         assert "l1d" in prompt
 
 
