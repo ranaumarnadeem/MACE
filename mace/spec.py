@@ -85,7 +85,7 @@ class MaceSpec:
             raise ValueError(f"budget must be a Budget, got {type(self.budget).__name__}")
 
 
-TASK_KINDS: frozenset[str] = frozenset(("config", "workload"))
+TASK_KINDS: frozenset[str] = frozenset(("config", "workload", "unit_test"))
 
 
 @dataclass(frozen=True)
