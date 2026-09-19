@@ -13,6 +13,7 @@ layered on top of it.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import ray
@@ -108,10 +109,11 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
     """
     module_path = task.spec.strip()
     env_name = unit_test_env_name(module_path)
-    scaffold_result = scaffold_env(piton_root, env_name)
+    rtl_path = str(Path(piton_root) / module_path)
+    module_dv_path = os.path.relpath(rtl_path, str(Path(piton_root) / "piton"))
+    scaffold_result = scaffold_env(piton_root, env_name, module_dv_path=module_dv_path)
 
     module_name = module_name_from_path(module_path)
-    rtl_path = str(Path(piton_root) / module_path)
     try:
         ports = read_dut_ports(rtl_path, module_name)
         ports_desc = ", ".join(ports)
