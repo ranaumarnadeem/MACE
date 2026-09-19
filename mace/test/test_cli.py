@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from mace import metrics
 from mace.cli.config import apply_env_to_environment, load_env_file, write_env_file
 from mace.cli.session import KNOWN_MESH_OUTCOMES, Session, detect_core, mesh_for_core_count
 from mace.cli.spec_file import parse_spec_file
@@ -26,7 +27,7 @@ from mace.cli.shell import (
     no_adapter_post_mortem,
     resolve_verilator_coverage,
 )
-from mace.spec import LoopResult, PostMortem, StepResult, Task
+from mace.spec import LoopResult, MaceSpec, PostMortem, StepResult, Task
 
 
 class TestDetectCore:
@@ -285,6 +286,28 @@ class TestFormatReport:
         session = Session(piton_root="/x", top_module="custom")
         session.last_result = LoopResult(run_id="r1", status="passed", iterations=())
         assert "coverage" not in format_report(session)
+
+    def test_includes_per_module_status_when_db_has_unit_test_tasks(self, tmp_path):
+        from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig
+
+        db = metrics.open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        spec = MaceSpec(workloads=("hello_world.c",), objective="bring up pico")
+        run_id = metrics.start_run(db, spec, run_id="r1")
+        build = PitonBuildArtifact(
+            success=True, returncode=0, config=PitonConfig(), sim_type="vlt",
+            model_dir="/x", binary_path="/x/Vpicorv32_ut_top", wall_time_s=16.0,
+        )
+        task = Task(id="t1", deps=(), kind="unit_test", spec="picorv32.v")
+        step = StepResult(task=task, query=None, build=build, run=None, passed=True)
+        metrics.record_iteration(db, run_id, 0, (step,), wall_s=16.0)
+
+        session = Session(piton_root="/x", top_module="custom")
+        session.last_result = LoopResult(run_id="r1", status="passed", iterations=())
+
+        text = format_report(session, db)
+
+        assert "per-module status:" in text
+        assert "picorv32: build OK (task t1, iteration 0)" in text
 
 
 def _fake_run_result(run_dir: str, verdict: str = "pass"):
