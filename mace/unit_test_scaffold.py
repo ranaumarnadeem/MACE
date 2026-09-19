@@ -181,8 +181,15 @@ def scaffold_env(
 
     if module_dv_path is not None:
         config_path.write_text(_fix_config_for_verilator(config_path.read_text(), env_name))
-        with flist_path.open("a") as f:
-            f.write(f"$DV_ROOT/{module_dv_path}\n")
+        # create_env.py's own writeFlistFile does not end the file with a
+        # newline (confirmed by a real build: a naive append landed directly
+        # on the same line as the testbench filename, and Verilator read the
+        # two concatenated as one bogus path) -- always force one before
+        # appending, regardless of what's already there.
+        flist_text = flist_path.read_text()
+        if not flist_text.endswith("\n"):
+            flist_text += "\n"
+        flist_path.write_text(flist_text + f"$DV_ROOT/{module_dv_path}\n")
 
     return {
         "created": True,
