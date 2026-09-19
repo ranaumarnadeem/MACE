@@ -214,3 +214,79 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
         fi
     fi
 )
+
+# 6. PicoRV32's own internal `resetn` gate (distinct from the tile-wide
+#    reset_l every core shares) only ever turns on via an L15 interrupt
+#    (pico_int) -- there is no path to boot on a plain reset. Confirmed via
+#    a real Verilator waveform trace (my_top.vcd): reset_l deasserts right
+#    on schedule, but resetn/pico_int/mem_valid never move again for the
+#    rest of the run and reg_pc stays pinned at PROGADDR_RESET -- the core
+#    issues zero memory transactions after boot, exactly matching the
+#    previously-observed "generic IOB handshake completes, then silence to
+#    maxcycles" signature. Nothing in a bare OpenPiton config (no diag, no
+#    testbench code) ever sends that interrupt, so pico can never start.
+#
+#    A new `booted` register distinguishes "just came out of the tile's own
+#    reset, boot for the first time" from "voluntarily asleep, waiting for a
+#    real wake interrupt" (the write-to-0xffffffff path this fork clearly
+#    added on purpose) -- a bare, unconditional `else resetn <= 1'b1` would
+#    also un-sleep the core one cycle after every voluntary sleep write,
+#    breaking that mechanism entirely. python3 (not sed) for this one: it's
+#    a multi-line structural block, and an exact-match-count replace is
+#    safer here than chaining several line-number-dependent sed inserts.
+(
+    cd "$ROOT"
+    PICO_RTL="piton/design/chip/tile/pico/rtl/picorv32.v"
+    if [ ! -f "$PICO_RTL" ]; then
+        echo "not found, skipping fix 6: $PICO_RTL"
+    else
+        if grep -q "pico_int || !booted" "$PICO_RTL"; then
+            echo "already patched: $PICO_RTL"
+        else
+            python3 - "$PICO_RTL" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+old = """    reg        resetn;
+
+    always @ (posedge clk) begin
+        if(!reset_l) begin
+            resetn <= 1'b0;
+        end
+        else if (mem_la_write & (mem_la_addr == 32'hffffffff)) begin
+            resetn <= 1'b0;
+        end
+        else if (pico_int) begin
+            resetn <= 1'b1;
+        end
+    end"""
+new = """    reg        resetn;
+    reg        booted;
+
+    always @ (posedge clk) begin
+        if(!reset_l) begin
+            resetn <= 1'b0;
+            booted <= 1'b0;
+        end
+        else if (mem_la_write & (mem_la_addr == 32'hffffffff)) begin
+            resetn <= 1'b0;
+        end
+        else if (pico_int || !booted) begin
+            resetn <= 1'b1;
+            booted <= 1'b1;
+        end
+    end"""
+count = content.count(old)
+if count != 1:
+    print(f"ERROR: expected exactly 1 match for the resetn block, found {count}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: picorv32.v's resetn now self-boots once, still sleep/wake-able via pico_int")
+PYEOF
+        fi
+    fi
+)
+
