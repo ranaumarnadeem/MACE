@@ -24,12 +24,16 @@ Gate workloads (must all still pass after every task): {workloads}
 Break this into an ordered set of tasks. Respond with one line per task,
 in exactly this format (a footer, not prose):
 
-TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload | <short instruction>
+TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|unit_test | <short instruction>
 
 - <id> must be unique.
 - deps must name only ids you also define here, and must not form a cycle.
 - kind is "config" for a configuration/RTL change, "workload" for running
-  or fixing a gate workload.
+  or fixing a gate workload, "unit_test" for a standalone unit test of one
+  RTL module (added or changed this run) separate from the whole-chip build
+  -- for a unit_test task, the instruction must be just that module's RTL
+  path relative to the checkout root (e.g. piton/design/chip/tile/pico/rtl/
+  picorv32.v), nothing else.
 - Emit at least one TASK: line. Nothing else you write is parsed, but keep
   the rest brief.
 
