@@ -266,6 +266,43 @@ def mark_all_recovered(db: SQLiteNode, run_id: str) -> None:
     db.execute("UPDATE failures SET recovered = 1 WHERE run_id = ?", (run_id,))
 
 
+def module_status(db: SQLiteNode, run_id: str) -> list[dict]:
+    """Latest pass/fail status per module with a unit_test task in *run_id*.
+
+    Answers "status of each added module" (plan.md sec 21, Layer 3) directly
+    off the tasks table every other kind already writes to -- no new table.
+
+    A module can appear across multiple iterations (a retried task after
+    triage) or under different task ids (a replanned DAG isn't guaranteed to
+    reuse the same task id), so this keeps only the highest-iteration row
+    per module -- that's the module's current, most-informative status, not
+    its whole history.
+    """
+    rows = db.query(
+        "SELECT module, task_id, iteration, passed, build_success, run_verdict "
+        "FROM tasks WHERE run_id = ? AND kind = 'unit_test' AND module IS NOT NULL "
+        "ORDER BY iteration DESC",
+        (run_id,),
+    )
+    seen: set[str] = set()
+    result = []
+    for row in rows:
+        if row["module"] in seen:
+            continue
+        seen.add(row["module"])
+        result.append(
+            {
+                "module": row["module"],
+                "task_id": row["task_id"],
+                "iteration": row["iteration"],
+                "passed": bool(row["passed"]),
+                "build_success": bool(row["build_success"]),
+                "run_verdict": row["run_verdict"],
+            }
+        )
+    return result
+
+
 def summary(db: SQLiteNode, run_id: str) -> dict:
     """The five metrics the proposal promises, for one run."""
     return {
