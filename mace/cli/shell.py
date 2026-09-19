@@ -245,6 +245,12 @@ def format_report(session: Session, db: SQLiteNode | None = None) -> str:
     if db is not None and getattr(result, "run_id", None):
         for key, value in summary(db, result.run_id).items():
             lines.append(f"  {key}: {value}")
+        statuses = module_status(db, result.run_id)
+        if statuses:
+            lines.append("\nper-module status:")
+            for m in statuses:
+                build_label = "OK" if m["build_success"] else "FAILED"
+                lines.append(f"  {m['module']}: build {build_label} (task {m['task_id']}, iteration {m['iteration']})")
     if session.last_coverage is not None:
         cov = session.last_coverage
         if cov["percent"] is not None:
