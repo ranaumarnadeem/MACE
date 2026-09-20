@@ -153,6 +153,14 @@ class TestConfig:
         path = write_env_file("some_future_backend", "sk-x", tmp_path / ".env")
         assert load_env_file(path) == {"MACE_LLM_API_KEY": "sk-x"}
 
+    def test_write_for_a_second_backend_keeps_the_first_backends_key(self, tmp_path):
+        path = write_env_file("opencode", "sk-opencode", tmp_path / ".env")
+        write_env_file("claude", "sk-claude", path)
+        assert load_env_file(path) == {
+            "OPENCODE_API_KEY": "sk-opencode",
+            "ANTHROPIC_API_KEY": "sk-claude",
+        }
+
     def test_apply_sets_environment_variables(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         apply_env_to_environment({"ANTHROPIC_API_KEY": "sk-x"})

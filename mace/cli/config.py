@@ -34,11 +34,18 @@ BACKEND_ENV_VARS: dict[str, str] = {
 
 
 def write_env_file(backend: str, api_key: str, path: Path = DEFAULT_ENV_PATH) -> Path:
-    """Write ``<VAR>=<api_key>`` for *backend*'s env var to *path*, owner-only
+    """Merge ``<VAR>=<api_key>`` for *backend*'s env var into *path*, owner-only
     permissions. Returns the path written."""
     env_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{env_var}={api_key}\n")
+    try:
+        env = load_env_file(path)
+    except FileNotFoundError:
+        env = {}
+    env[env_var] = api_key
+    # Preserve insertion order so a second init for a new backend appends
+    # rather than reshuffling keys a user may already be reading top-down.
+    path.write_text("".join(f"{k}={v}\n" for k, v in env.items()))
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
     return path
 
