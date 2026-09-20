@@ -376,6 +376,29 @@ class TestDoRun:
         assert "has no effect" in capsys.readouterr().out
 
 
+class TestPrompt:
+    """The interactive prompt is a raw ANSI escape, not routed through
+    Rich (which guards non-tty output on its own) -- it must guard itself.
+    """
+
+    def test_non_tty_prompt_has_no_raw_ansi_escape(self):
+        from mace.cli.shell import MaceShell
+
+        # pytest's own output capture already makes sys.stdout not a real
+        # tty, which is exactly the condition being tested.
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        assert shell.prompt == "mace> "
+
+    def test_tty_prompt_uses_the_styled_escape(self, monkeypatch):
+        import sys as sys_module
+
+        from mace.cli.shell import MaceShell
+
+        monkeypatch.setattr(sys_module.stdout, "isatty", lambda: True)
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        assert shell.prompt == "\033[1;36mmace> \033[0m"
+
+
 class TestDefault:
     """Unknown-command handling -- a generic closest-match suggestion on
     top of the two hand-diagnosed cases (`init`, `mace`) already there.

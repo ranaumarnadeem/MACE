@@ -434,13 +434,19 @@ class MaceShell(cmd.Cmd):
     # Rich can't style cmd.Cmd's plain input() prompt through markup, so this
     # is a raw ANSI escape (bold cyan) -- simpler and more reliable here than
     # fighting cmd.Cmd's own I/O assumptions for the one line that needs it.
-    prompt = "\033[1;36mmace> \033[0m"
+    # Class-level fallback for non-tty output (piped, redirected, captured);
+    # __init__ overrides it with the real escape when stdout is a tty --
+    # unlike every other line here, this one bypasses Rich, which guards
+    # against exactly this on its own.
+    prompt = "mace> "
 
     def __init__(self, session: Session, llm, db: SQLiteNode) -> None:
         super().__init__()
         self.session = session
         self.llm = llm
         self.db = db
+        if sys.stdout.isatty():
+            self.prompt = "\033[1;36mmace> \033[0m"
         # width=100: don't rely on terminal-size auto-detection, which is
         # unreliable when stdin/stdout aren't a real tty (piped input,
         # captured test output) and produced genuinely corrupted table
