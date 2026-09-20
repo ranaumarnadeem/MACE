@@ -33,7 +33,7 @@ from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
 from mace.llm import extract_cost_usd, make_llm
-from mace.workloads import WORKLOADS_DIR
+from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 _PROMPT_TEMPLATE = """\
 You are configuring OpenPiton/{core} to satisfy one objective, in a single
@@ -147,7 +147,8 @@ def main() -> int:
 
         run_started = time.monotonic()
         res = get(node.run.chia_remote(
-            cfg, args.workload, asm_diag_root=str(WORKLOADS_DIR), timeout_seconds=1800
+            cfg, args.workload, asm_diag_root=str(WORKLOADS_DIR),
+            rtl_timeout=RECOMMENDED_RTL_TIMEOUT, timeout_seconds=1800
         ))
         run_wall_s = time.monotonic() - run_started
         total_wall_s = time.monotonic() - started
