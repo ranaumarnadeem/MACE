@@ -57,9 +57,16 @@ def extract_cost_usd(query: QueryResult) -> float:
     do. Claude's cost tracking lives on the ``LLMCallBase`` instance's own
     ``_last_metadata`` instead (chia.models.claude), which is a different
     copy on the remote worker after dispatch and never visible back here --
-    so this always returns ``0.0`` for that backend. Not a bug to fix in
-    this function: a real API-shape limitation this project doesn't
-    control, not something worth papering over with a wrong number.
+    so this always returns ``0.0`` for that backend. **Vertex, this
+    project's only funded backend, is the same story**: ``VertexGeminiLLM``
+    returns the plain base ``QueryResult`` (chia.base.llm_call), which has
+    no ``usage`` field at all -- confirmed against chia's own source, not
+    guessed -- so every ``compute_usd`` figure recorded from a real vertex
+    run (both captured baseline logs show ``compute_usd: 0.0``) is an
+    unconditional zero, not a partial real measurement of a genuinely free
+    call. Not a bug to fix in this function: a real API-shape limitation
+    this project doesn't control, not something worth papering over with a
+    wrong number.
     """
     usage = getattr(query, "usage", None)
     if not usage:
