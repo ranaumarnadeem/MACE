@@ -401,6 +401,33 @@ class TestDoRun:
 
         assert "has no effect" in capsys.readouterr().out
 
+    def test_redirect_syntax_gets_a_specific_error_not_a_generic_one(self, capsys):
+        """`>` is real syntax on write_report -- a plausible mistake to
+        carry over to run, which doesn't support it. The error must name
+        the actual fix, not just say "unknown option".
+        """
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x", top_module="not_a_known_core")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.do_run("> result.rpt")
+
+        out = capsys.readouterr().out
+        assert "doesn't support" in out
+        assert "write_report" in out
+        assert "unknown run option" not in out
+
+    def test_unrelated_unknown_option_still_gets_the_generic_error(self, capsys):
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x", top_module="not_a_known_core")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.do_run("-bogus")
+
+        assert "unknown run option" in capsys.readouterr().out
+
 
 class TestPrompt:
     """The interactive prompt is a raw ANSI escape, not routed through

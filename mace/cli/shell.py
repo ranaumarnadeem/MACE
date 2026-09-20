@@ -569,7 +569,19 @@ class MaceShell(cmd.Cmd):
         recognized = {"-verbose", "--verbose", "-coverage", "--coverage"}
         unknown = [t for t in tokens if t not in recognized]
         if unknown:
-            c.print(f"[bold red]✗ ERROR: unknown run option(s): {' '.join(unknown)}[/bold red]")
+            if ">" in unknown:
+                # write_report's own `> file` syntax doesn't generalize here
+                # -- a plausible mistake right after learning it, since this
+                # is the one other command that produces output. Name the
+                # actual fix instead of a generic "unknown option".
+                c.print(
+                    "[bold red]✗ ERROR: run doesn't support `>` redirection -- its "
+                    "progress and results always print to this console.[/bold red]\n"
+                    "[dim]Run it plainly, then save the report afterward: "
+                    "write_report > result.rpt[/dim]"
+                )
+            else:
+                c.print(f"[bold red]✗ ERROR: unknown run option(s): {' '.join(unknown)}[/bold red]")
             return
         if "-verbose" in tokens or "--verbose" in tokens:
             c.print("[dim]-verbose has no effect: output here is always verbose.[/dim]")
