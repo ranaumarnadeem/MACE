@@ -178,6 +178,19 @@ class TestConfigFromSpec:
         assert "-config_l1d_size=8192" in build_argv
         assert "-config_l1d_associativity=4" in build_argv
 
+    def test_spec_coverage_flag_reaches_the_real_build(self, stub_piton_root, monkeypatch, sims_argv):
+        """Mirrors test_task_cache_override_reaches_the_real_build: spec.coverage
+        only matters if it actually reaches the build's argv, not just the
+        PitonConfig object -- this proves COVERAGE_LINE_FLAG gets there."""
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+        spec = make_spec(coverage=True)
+
+        run_mace_step(str(stub_piton_root), spec, TASK, llm)
+
+        build_argv = sims_argv.lines()[0]
+        assert "-vlt_build_args=--coverage-line" in build_argv
+
 
 class TestUnitTestTask:
     """kind='unit_test' takes a different path: scaffold, prompt the agent
