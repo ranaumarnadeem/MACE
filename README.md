@@ -143,7 +143,7 @@ recorded to a metrics database:
 ```bash
 python examples/mace_end_to_end.py \
     --piton-root /path/to/openpiton \
-    --model opencode/big-pickle \
+    --backend opencode --model opencode/big-pickle \
     --max-iterations 3
 ```
 
