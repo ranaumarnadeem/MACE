@@ -1,7 +1,7 @@
 # chia_openpiton
 
 A CHIA platform adapter for [OpenPiton](https://github.com/PrincetonUniversity/openpiton),
-Princeton's manycore RTL platform (Ariane/CVA6 and SPARC cores), exposing
+Princeton's manycore RTL platform (Ariane/CVA6, SPARC, and PicoRV32 cores), exposing
 configure/build/run/collect through `OpenPitonWorkspaceNode` plus an
 agent-facing MCP tool (`tools.py`). Imports **nothing** from `mace` — this
 directory is self-contained so it can be dropped into an upstream CHIA
@@ -35,6 +35,14 @@ For the Ariane (RISC-V) core the worker additionally needs the toolchain from
 `piton/ariane_build_tools.sh`: a `riscv64-unknown-elf` GCC covering
 `rv64imafdc`/`lp64d`, Verilator, and (for the RV64 boot ROM, which is rebuilt at
 *build* time) `dtc` and `python3`.
+
+For the `pico` (PicoRV32) core, no separate toolchain is needed: no
+`riscv32-unknown-elf` GCC exists on this machine or in OpenPiton's own CI, so
+the adapter cross-compiles with the same `riscv64-unknown-elf-gcc` targeting
+`rv32ima`/`ilp32` instead (see `PitonCore` in `state_def.py`). It also needs
+`scripts/patch_openpiton.sh`'s fixes to `picorv32.v`'s reset gate and
+`pc_cmp.v.pyv`'s active-thread tracking — without them PicoRV32 never reaches
+a Verilator PASS.
 
 ## Things that will bite you
 
