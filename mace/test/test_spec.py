@@ -144,6 +144,16 @@ class TestTaskValidation:
         with pytest.raises(ValueError, match="unknown cache"):
             Task(id="t1", deps=(), kind="config", spec="s", caches=(("l3", (128, 1)),))
 
+    def test_duplicate_cache_name_rejected(self):
+        with pytest.raises(ValueError, match="duplicate cache"):
+            Task(
+                id="t1",
+                deps=(),
+                kind="config",
+                spec="s",
+                caches=(("l1d", (128, 1)), ("l1d", (256, 2))),
+            )
+
     @pytest.mark.parametrize("bad_geom", [(0, 1), (128, 0), (-8, 4)])
     def test_non_positive_cache_geometry_rejected(self, bad_geom):
         with pytest.raises(ValueError, match="positive"):

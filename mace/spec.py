@@ -116,9 +116,15 @@ class Task:
             if not isinstance(d, str) or not d.strip():
                 raise ValueError(f"dep ids must be non-empty strings, got {d!r}")
         if self.caches is not None:
+            seen_names: set[str] = set()
             for name, geom in self.caches:
                 if name not in DEFAULT_CACHES:
                     raise ValueError(f"unknown cache {name!r}; valid: {sorted(DEFAULT_CACHES)}")
+                if name in seen_names:
+                    # dict(self.caches) would otherwise silently keep only the last
+                    # entry, dropping an earlier override with no error.
+                    raise ValueError(f"duplicate cache {name!r} in caches")
+                seen_names.add(name)
                 size, assoc = geom
                 if size <= 0 or assoc <= 0:
                     raise ValueError(f"cache {name} size/associativity must be positive, got {geom}")
