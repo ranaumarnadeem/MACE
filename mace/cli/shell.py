@@ -32,6 +32,7 @@ except ImportError:
 import ray
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
@@ -458,11 +459,18 @@ def _complete_path(text: str) -> list[str]:
 
 def _print_result(console: Console, msg: str) -> None:
     """Render a handle_*() result: red for an ERROR:-prefixed message, a
-    green check for everything else."""
+    green check for everything else.
+
+    escape(): every handle_* message embeds the user's own raw argument
+    (a filename, a module name, ...) -- unescaped, typing something merely
+    shaped like "[...]" (e.g. `top_module notes[/legacy]`) raises an
+    uncaught rich.errors.MarkupError instead of printing the literal text,
+    crashing the interactive shell on an otherwise ordinary command.
+    """
     if msg.startswith("ERROR"):
-        console.print(f"[bold red]✗ {msg}[/bold red]")
+        console.print(f"[bold red]✗ {escape(msg)}[/bold red]")
     else:
-        console.print(f"[green]✓[/green] {msg}")
+        console.print(f"[green]✓[/green] {escape(msg)}")
 
 
 def parse_script_lines(text: str) -> list[str]:
@@ -480,10 +488,13 @@ def parse_script_lines(text: str) -> list[str]:
 
 
 def _print_post_mortem(console: Console, pm: PostMortem) -> None:
+    # escape(): explanation/next_steps are real LLM free text -- see
+    # _print_result's own comment on why unescaped markup-shaped text
+    # crashes instead of printing literally.
     style = _ASSESSMENT_STYLE.get(pm.assessment, "white")
-    body = f"[bold]{pm.assessment}[/bold]\n\n{pm.explanation}"
+    body = f"[bold]{escape(pm.assessment)}[/bold]\n\n{escape(pm.explanation)}"
     if pm.next_steps:
-        body += f"\n\n[dim]Next steps:[/dim] {pm.next_steps}"
+        body += f"\n\n[dim]Next steps:[/dim] {escape(pm.next_steps)}"
     console.print(Panel(body, title="Assessment", border_style=style, expand=False))
 
 
@@ -549,7 +560,10 @@ class MaceShell(cmd.Cmd):
             self.console.print("\n[bold yellow]✗ interrupted -- back to the prompt[/bold yellow]")
             return False
         except Exception as e:  # noqa: BLE001
-            self.console.print(f"[bold red]✗ ERROR: {type(e).__name__}: {e}[/bold red]")
+            # escape(str(e)): an exception message can embed arbitrary
+            # user-supplied text (e.g. a bad path) -- same markup-crash
+            # risk as _print_result's own free-text fields.
+            self.console.print(f"[bold red]✗ ERROR: {type(e).__name__}: {escape(str(e))}[/bold red]")
             return False
 
     def preloop(self) -> None:
@@ -750,7 +764,7 @@ class MaceShell(cmd.Cmd):
                 table.add_column("iteration")
                 for m in statuses:
                     build_cell = "[green]OK[/green]" if m["build_success"] else "[bold red]FAILED[/bold red]"
-                    table.add_row(m["module"], build_cell, m["task_id"], str(m["iteration"]))
+                    table.add_row(escape(m["module"]), build_cell, escape(m["task_id"]), str(m["iteration"]))
                 c.print(table)
 
         if self.session.coverage and result.status == "passed":
@@ -776,7 +790,7 @@ class MaceShell(cmd.Cmd):
             return
         text = format_report(self.session, self.db)
         Path(target).write_text(text)
-        self.console.print(f"[green]✓[/green] wrote {target}")
+        self.console.print(f"[green]✓[/green] wrote {escape(target)}")
 
     def complete_write_report(self, text, line, begidx, endidx):
         return _complete_path(text)
@@ -786,9 +800,12 @@ class MaceShell(cmd.Cmd):
         if arg:
             doc = (getattr(self, f"do_{arg}", None) or (lambda a: None)).__doc__
             if doc:
-                self.console.print(doc.strip())
+                # escape(): several do_* docstrings document optional args
+                # as "[file2 ...]" -- unescaped, Rich's markup parser
+                # silently drops that exact text instead of printing it.
+                self.console.print(escape(doc.strip()))
             else:
-                self.console.print(f"[red]no such command: {arg}[/red]")
+                self.console.print(f"[red]no such command: {escape(arg)}[/red]")
             return
         table = Table(title="MACE shell commands", header_style="bold cyan", show_lines=False)
         table.add_column("command", style="bold")
@@ -807,7 +824,10 @@ class MaceShell(cmd.Cmd):
                 desc = desc.strip()
             else:
                 usage, desc = "", doc
-            table.add_row(name, usage, desc)
+            # escape(): usage/desc come straight from a docstring's own
+            # "[optional arg]" syntax, e.g. read_verilog's "[file2 ...]" --
+            # unescaped, Rich's markup parser silently drops that text.
+            table.add_row(name, escape(usage), escape(desc))
         self.console.print(table)
 
     do_h = do_help
@@ -852,11 +872,14 @@ class MaceShell(cmd.Cmd):
         close = difflib.get_close_matches(word, commands, n=1)
         if close:
             self.console.print(
-                f"[red]unknown command: {word!r}[/red] -- did you mean "
+                f"[red]unknown command: {escape(repr(word))}[/red] -- did you mean "
                 f"[bold]{close[0]}[/bold]? (type [cyan]help[/cyan] for the list)"
             )
             return
-        self.console.print(f"[red]unknown command: {word or line!r}[/red] (type [cyan]help[/cyan] for the list)")
+        self.console.print(
+            f"[red]unknown command: {escape(repr(word or line))}[/red] "
+            "(type [cyan]help[/cyan] for the list)"
+        )
 
     def emptyline(self) -> None:
         pass  # cmd.Cmd's default re-runs the last command on a blank line -- surprising here
@@ -871,7 +894,12 @@ class MaceShell(cmd.Cmd):
         interactive error handling already does.
         """
         for line in lines:
-            self.console.print(f"{self.prompt}{line}")
+            # escape(): line is raw text from the script file -- unescaped,
+            # a line merely containing something bracket-shaped (e.g. a
+            # path like "notes[/legacy].txt") is either silently mangled
+            # by Rich's markup parser or raises MarkupError outright,
+            # aborting the whole script before onecmd ever sees it.
+            self.console.print(f"{self.prompt}{escape(line)}")
             line = self.precmd(line)
             stop = self.onecmd(line)
             stop = self.postcmd(stop, line)
@@ -997,8 +1025,20 @@ def _run_chia(cmd: list[str]) -> None:
     """Shell out and exit with the child's own exit code -- a pass-through,
     not a reimplementation, so chia up/down's own prompts, errors, and exit
     codes are exactly what the user sees, not a MACE-specific paraphrase of
-    them."""
-    result = subprocess.run(cmd)
+    them.
+
+    The one case that isn't the child's own output: ``cmd[0]`` (``chia`` or
+    ``ray``) missing from PATH entirely -- subprocess.run can't hand us a
+    child exit code for a process that never started, so this mirrors
+    chia's own ray_passthrough.py convention for the identical situation
+    (friendly message on stderr, exit 127) instead of letting a raw
+    FileNotFoundError traceback crash the whole command.
+    """
+    try:
+        result = subprocess.run(cmd)
+    except FileNotFoundError:
+        typer.echo(f"mace: {cmd[0]!r} was not found on PATH.", err=True)
+        raise typer.Exit(code=127)
     raise typer.Exit(code=result.returncode)
 
 
@@ -1042,10 +1082,19 @@ def _render_trace(console: Console, t: dict) -> None:
     """The plan -> dispatch -> triage story for one run as a tree: each
     iteration is a replan cycle, its tasks are what got dispatched, and a
     TRIAGE branch appears only when something needed diagnosing -- absence
-    of one is itself the answer to "did this iteration need a replan"."""
+    of one is itself the answer to "did this iteration need a replan".
+
+    Every interpolated field that isn't a guaranteed-safe literal (task
+    ids, module names, and especially diagnosis/fix/objective -- real LLM
+    free text, see mace.metrics.failure_taxonomy's own docstring) is
+    escaped with rich.markup.escape() first: unescaped, a value containing
+    something that merely looks like a markup tag (e.g. "see [l1d_size]")
+    is silently corrupted or dropped by Rich's own markup parser instead
+    of printed as the literal text it actually is.
+    """
     tree = Tree(
-        f"[bold]{t['run_id']}[/bold] -- {t['core']} {t['mesh']} -- "
-        f"{t['objective']!r} -- status={t['status']}"
+        f"[bold]{escape(t['run_id'])}[/bold] -- {escape(t['core'])} {escape(t['mesh'])} -- "
+        f"{escape(repr(t['objective']))} -- status={escape(t['status'])}"
     )
     for it in t["iterations"]:
         iter_node = tree.add(
@@ -1057,18 +1106,21 @@ def _render_trace(console: Console, t: dict) -> None:
             mark = "[green]PASS[/green]" if task["passed"] else "[red]FAIL[/red]"
             detail = f"build={'OK' if task['build_success'] else 'FAILED'}"
             if task["run_verdict"]:
-                detail += f" verdict={task['run_verdict']}"
+                detail += f" verdict={escape(task['run_verdict'])}"
             if task["module"]:
-                detail += f" module={task['module']}"
-            plan_node.add(f"{task['task_id']} ({task['kind']}): {mark} -- {detail}")
+                detail += f" module={escape(task['module'])}"
+            plan_node.add(f"{escape(task['task_id'])} ({escape(task['kind'])}): {mark} -- {detail}")
         if it["failures"]:
             triage_node = iter_node.add(
                 f"[yellow]TRIAGE[/yellow] -- {len(it['failures'])} failure(s) diagnosed"
             )
             for f in it["failures"]:
                 rec = "[green]recovered[/green]" if f["recovered"] else "[red]not recovered[/red]"
-                fix_str = f" fix={f['fix']!r}" if f["fix"] else ""
-                triage_node.add(f"{f['task_id']}: diagnosis={f['diagnosis']!r}{fix_str} -- {rec}")
+                fix_str = f" fix={escape(repr(f['fix']))}" if f["fix"] else ""
+                triage_node.add(
+                    f"{escape(f['task_id'])}: diagnosis={escape(repr(f['diagnosis']))}"
+                    f"{fix_str} -- {rec}"
+                )
     console.print(tree)
 
 
@@ -1092,10 +1144,14 @@ def results(
     # and produced genuinely corrupted table/tree rendering under it.
     console = Console(width=100)
 
+    if trace and run_id is None:
+        console.print("[bold red]✗ ERROR: --trace needs --run-id[/bold red]")
+        raise typer.Exit(code=1)
+
     if run_id is not None and trace:
         t = trace_run(db, run_id)
         if t is None:
-            console.print(f"No recorded run with run_id={run_id!r}.")
+            console.print(f"No recorded run with run_id={escape(repr(run_id))}.")
             return
         _render_trace(console, t)
         return
@@ -1103,22 +1159,22 @@ def results(
     if run_id is not None:
         rows = failure_taxonomy(db, run_id)
         if not rows:
-            console.print(f"No recorded failures for run_id={run_id!r}.")
+            console.print(f"No recorded failures for run_id={escape(repr(run_id))}.")
             return
-        table = Table(title=f"Failure taxonomy -- run_id={run_id}")
+        table = Table(title=f"Failure taxonomy -- run_id={escape(run_id)}")
         table.add_column("diagnosis")
         table.add_column("total", justify="right")
         table.add_column("recovered", justify="right")
         for row in rows:
-            table.add_row(row["diagnosis"], str(row["total"]), str(row["recovered"]))
+            table.add_row(escape(row["diagnosis"]), str(row["total"]), str(row["recovered"]))
         console.print(table)
         return
 
     runs = all_runs(db)
     if not runs:
-        console.print(f"No runs recorded in {db_path}.")
+        console.print(f"No runs recorded in {escape(db_path)}.")
         return
-    table = Table(title=f"Runs -- {db_path}")
+    table = Table(title=f"Runs -- {escape(db_path)}")
     for col in ("run_id", "core", "mesh", "status", "tasks", "iterations", "wall_s", "usd"):
         table.add_column(col)
     for r in runs:

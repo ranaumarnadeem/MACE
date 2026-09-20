@@ -332,6 +332,62 @@ class TestResults:
         assert result.exit_code == 0
         assert "No recorded run" in result.output
 
+    def test_trace_without_run_id_is_a_clean_error(self, tmp_path):
+        """--trace with no --run-id used to silently fall through to the
+        cross-run table instead of erroring -- a typo/forgotten --run-id
+        got a plausible-looking but entirely different report with no
+        signal anything was wrong.
+        """
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "empty.db"
+        metrics.open_db(str(db_path), ray_placement=False)
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path), "--trace"])
+
+        assert result.exit_code == 1
+        assert "--trace needs --run-id" in result.output
+
+    def test_trace_escapes_bracket_shaped_diagnosis_text(self, tmp_path):
+        """diagnosis/fix/objective are real LLM free text (see
+        mace.metrics.failure_taxonomy's own docstring) -- unescaped, Rich's
+        markup parser silently deletes anything shaped like "[...]" instead
+        of printing it literally, or raises MarkupError outright.
+        """
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "runs.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        spec = MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1")
+        run_id = metrics.start_run(db, spec, run_id="r1")
+        metrics.record_iteration(db, run_id, 0, (), wall_s=0.0)
+        metrics.record_failure(
+            db, run_id, 0, "t1", "wrong value (see [l1d_size])",
+            fix="set [l1_size] correctly",
+        )
+
+        result = CliRunner().invoke(
+            app, ["results", "--db-path", str(db_path), "--run-id", run_id, "--trace"]
+        )
+
+        assert result.exit_code == 0
+        assert "[l1d_size]" in result.output
+        assert "[l1_size]" in result.output
+
+    def test_failure_taxonomy_table_escapes_bracket_shaped_diagnosis_text(self, tmp_path):
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "runs.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        spec = MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1")
+        run_id = metrics.start_run(db, spec, run_id="r1")
+        metrics.record_failure(db, run_id, 0, "t1", "l1d cache size mismatch [expected 32KB]")
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path), "--run-id", run_id])
+
+        assert result.exit_code == 0
+        assert "[expected 32KB]" in result.output
+
 
 class TestClusterCommands:
     """mace cluster up/down/status -- thin subprocess wrappers over chia
@@ -397,6 +453,23 @@ class TestClusterCommands:
 
         assert result.exit_code == 1
 
+    def test_missing_binary_is_a_clean_error_not_a_raw_traceback(self, monkeypatch):
+        """ray (or chia) missing from PATH entirely -- e.g. an unactivated
+        venv -- used to crash with a raw FileNotFoundError traceback
+        instead of chia's own ray_passthrough.py convention (friendly
+        message, exit 127) for the identical situation.
+        """
+        from typer.testing import CliRunner
+
+        def fake(cmd):
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
+
+        monkeypatch.setattr("mace.cli.shell.subprocess.run", fake)
+        result = CliRunner().invoke(app, ["cluster", "status"])
+
+        assert result.exit_code == 127
+        assert "'ray' was not found on PATH" in result.output
+
 
 class TestParseScriptLines:
     def test_strips_blank_lines_and_comments(self):
@@ -447,6 +520,27 @@ class TestRunScript:
         out = capsys.readouterr().out
         assert "ERROR" in out
         assert session.top_module == "ariane_top"  # execution continued past the error
+
+    def test_a_bracket_shaped_line_does_not_crash_or_get_mangled(self, capsys):
+        """run_script echoes each line through Console.print() before
+        running it -- a line merely containing a "[...]"-shaped substring
+        (a plausible real path like "notes[/legacy].txt") used to either
+        raise an uncaught rich.errors.MarkupError (aborting the whole
+        script before this or any later line ran) or get silently
+        corrupted in the printed echo, even though the real, unmangled
+        argument still reached onecmd.
+        """
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.run_script(["top_module notes[/legacy]", "set_core 1"])
+
+        out = capsys.readouterr().out
+        assert "notes[/legacy]" in out
+        assert session.top_module == "notes[/legacy]"
+        assert session.core_count == 1  # execution reached the line after it
 
 
 class TestShellScriptOption:
@@ -886,6 +980,19 @@ class TestDefault:
         assert "did you mean" not in out
         assert "unknown command" in out
 
+    def test_bracket_shaped_unknown_command_does_not_crash(self, capsys):
+        """A mistyped command that happens to contain a "[...]"-shaped
+        substring must not crash with an uncaught rich.errors.MarkupError
+        -- it's still just an unknown command."""
+        from mace.cli.shell import MaceShell
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.onecmd("frobnicate[legacy]")
+        out = capsys.readouterr().out
+
+        assert "unknown command" in out
+        assert "[legacy]" in out
+
 
 class TestDoHelp:
     def test_bare_help_shows_argument_syntax_not_just_descriptions(self, capsys):
@@ -901,6 +1008,44 @@ class TestDoHelp:
 
         assert "-verbose" in out  # run's usage
         assert "<N>" in out  # set_core's usage
+
+    def test_bare_help_does_not_swallow_bracketed_usage_text(self, capsys):
+        """read_verilog's own usage is "<file> [file2 ...]" -- unescaped,
+        Rich's markup parser silently deletes the "[file2 ...]" part
+        instead of printing it literally."""
+        from mace.cli.shell import MaceShell
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.do_help("")
+        out = capsys.readouterr().out
+
+        assert "[file2 ...]" in out
+
+    def test_help_for_one_command_does_not_swallow_bracketed_text(self, capsys):
+        from mace.cli.shell import MaceShell
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.do_help("read_verilog")
+        out = capsys.readouterr().out
+
+        assert "[file2 ...]" in out
+
+
+class TestPrintResult:
+    """_print_result renders every handle_*() message -- including the
+    interactive shell's do_top_module/do_read_verilog/etc, not just script
+    mode. A message that echoes back the user's own bracket-shaped
+    argument must print literally, not crash or get silently mangled."""
+
+    def test_bracket_shaped_top_module_name_does_not_crash(self, capsys):
+        from mace.cli.shell import MaceShell
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.onecmd("top_module notes[/legacy]")
+        out = capsys.readouterr().out
+
+        assert "notes[/legacy]" in out
+        assert shell.session.top_module == "notes[/legacy]"
 
 
 class TestFormatReport:
