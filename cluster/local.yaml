@@ -2,7 +2,9 @@
 # + GCP workers (hackathon compute credits landed on project mace-508004).
 #
 # Both node types are BARE — no Docker. openpiton_local already ran that way
-# all session (every acceptance test, the MCP tool, 143 tests). openpiton_gcp
+# all session (every acceptance test, the MCP tool, the full tier-0 suite --
+# see chia_openpiton/README.md's Status table for the current pass/fail, not
+# a count pinned here that would only go stale). openpiton_gcp
 # mirrors it: gcp_nodes' own default host setup installs git/conda for us
 # (skip_default_setup defaults to False), so setup_commands below only needs
 # the OpenPiton-specific pieces — same apt packages, RISC-V toolchain and
