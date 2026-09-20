@@ -293,12 +293,12 @@ program, not repeated success on the same one.}
 \end{center}
 
 \textbf{Discussion.} With the timeout bug corrected, baseline~(b)'s one-shot guess built but failed
-real hardware verification (186.5s, \code{verdict=fail}); baseline~(c)'s full loop passed the same
-objective the same day (741.7s, 4/4 tasks) -- roughly 4x the wall-clock cost, not "for free" as an
-earlier, buggy measurement suggested. One trial does not prove a luckier one-shot guess could never
-pass, but it is a concrete instance of the failure mode the loop exists to catch. We read this as
-\sys{}'s actual value proposition: not raw speed on an objective a single guess already solves, but
-having \emph{any} recovery mechanism at all when a first guess is wrong. Baseline~(c)'s own data
+real hardware verification (186.5s); a fresh, same-day baseline~(c) run passed the identical
+objective (741.7s, 4/4 tasks -- not the table's four pre-fix \texttt{barrier\_atomic.c} rows above)
+at roughly 4x the cost, not "for free" as an earlier, buggy measurement implied. This doesn't prove
+a luckier guess could never pass, but it demonstrates \sys{}'s actual value proposition: not raw
+speed on an objective a single guess already solves, but having \emph{any} recovery mechanism when
+a first guess is wrong. Baseline~(c)'s own data
 already shows the planner sometimes decomposes the same nominal objective into multiple dependent
 tasks (run~2, five tasks) rather than one; and \S\ref{sec:pico}'s PicoRV32 run and (a)'s 2x2 mesh
 are exactly the harder cases -- a novel core, an untested mesh shape -- where baseline~(b)'s
