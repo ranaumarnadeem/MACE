@@ -179,6 +179,66 @@ class TestEnvironment:
         assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
 
 
+class TestVerilatorVersionText:
+    """Memoized per (root, core): the real mace loop never calls configure()
+    (the only path that would otherwise cache this on a PitonConfig), so
+    build() re-derives it on every non-cache-hit build -- not worth a fresh
+    subprocess spawn every time. See the method's own docstring.
+    """
+
+    def test_memoizes_per_root_and_core(self, monkeypatch, tmp_path):
+        import chia_openpiton.openpiton_workspace as ws
+
+        monkeypatch.setattr(ws, "_VERILATOR_VERSION_CACHE", {})
+        calls = []
+
+        def fake_run(command, root, core, cwd, timeout_seconds, env=None):
+            calls.append((command, root, core))
+            return ("Verilator 5.052 2024-01-01\n", "", 0, 0.01)
+
+        monkeypatch.setattr(ws, "_run", fake_run)
+
+        first = ws.OpenPitonWorkspaceNode.verilator_version_text(str(tmp_path), "ariane")
+        second = ws.OpenPitonWorkspaceNode.verilator_version_text(str(tmp_path), "ariane")
+
+        assert first == second == "Verilator 5.052 2024-01-01\n"
+        assert len(calls) == 1  # the second call was served from the cache
+
+    def test_different_core_is_not_served_from_the_same_cache_entry(self, monkeypatch, tmp_path):
+        import chia_openpiton.openpiton_workspace as ws
+
+        monkeypatch.setattr(ws, "_VERILATOR_VERSION_CACHE", {})
+        seen_cores = []
+
+        def fake_run(command, root, core, cwd, timeout_seconds, env=None):
+            seen_cores.append(core)
+            return (f"Verilator for {core}\n", "", 0, 0.01)
+
+        monkeypatch.setattr(ws, "_run", fake_run)
+
+        ws.OpenPitonWorkspaceNode.verilator_version_text(str(tmp_path), "ariane")
+        ws.OpenPitonWorkspaceNode.verilator_version_text(str(tmp_path), "sparc")
+
+        assert seen_cores == ["ariane", "sparc"]
+
+    def test_a_failed_lookup_is_not_cached(self, monkeypatch, tmp_path):
+        import chia_openpiton.openpiton_workspace as ws
+
+        monkeypatch.setattr(ws, "_VERILATOR_VERSION_CACHE", {})
+        calls = []
+
+        def fake_run(command, root, core, cwd, timeout_seconds, env=None):
+            calls.append(1)
+            return ("", "verilator: command not found", 127, 0.01)
+
+        monkeypatch.setattr(ws, "_run", fake_run)
+
+        ws.OpenPitonWorkspaceNode.verilator_version_text(str(tmp_path), "ariane")
+        ws.OpenPitonWorkspaceNode.verilator_version_text(str(tmp_path), "ariane")
+
+        assert len(calls) == 2  # retried both times, nothing bad cached
+
+
 class TestBuildArgv:
     def test_mesh_core_and_network_reach_sims(self, node, sims_argv):
         node.build(PitonConfig(x_tiles=2, y_tiles=2, core="sparc"))

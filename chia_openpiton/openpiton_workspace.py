@@ -59,6 +59,9 @@ LOG_TAIL_BYTES = 8000
 # globs for it rather than assuming a fixed name for every sys.
 MODEL_BINARY = "obj_dir/Vcmp_top"
 
+# See OpenPitonWorkspaceNode.verilator_version_text's own docstring.
+_VERILATOR_VERSION_CACHE: dict[tuple[str, str], str] = {}
+
 
 def _find_model_binary(model_dir: str, sys: str) -> str:
     """The built Verilator binary under *model_dir*, or ``""`` if absent.
@@ -510,11 +513,28 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         build actually uses can differ from the one a plain shell finds. The
         ``--no-timing`` decision depends on this, and getting it from the wrong
         binary produces a build that fails on a flag mismatch.
+
+        Memoized per ``(root, core)``: this doesn't change within one
+        process's lifetime, but :meth:`build` re-derives it on every
+        non-cache-hit build whenever the config wasn't produced by
+        :meth:`configure` (the only path that populates
+        ``PitonConfig.verilator_version`` -- the real mace loop never calls
+        it) -- not worth a fresh subprocess spawn (a full ``bash -lc``
+        environment-sourcing shell) every time. Only a successful lookup is
+        cached; a failure is retried on the next call, matching this
+        function's own best-effort, never-raises posture.
         """
+        key = (root, core)
+        cached = _VERILATOR_VERSION_CACHE.get(key)
+        if cached is not None:
+            return cached
         stdout, stderr, rc, _ = _run(
             "verilator --version", root, core, root, timeout_seconds
         )
-        return stdout if rc == 0 else (stdout or stderr)
+        text = stdout if rc == 0 else (stdout or stderr)
+        if rc == 0:
+            _VERILATOR_VERSION_CACHE[key] = text
+        return text
 
     # -- build -----------------------------------------------------------------
 
