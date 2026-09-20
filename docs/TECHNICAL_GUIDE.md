@@ -794,11 +794,12 @@ noted rather than silently deleted, so you can see what actually happened.
 8. **`docs/api/openpiton.rst`** — only matters if actually filing a PR to
    upstream CHIA; the checklist for that is in
    [`chia_openpiton/README.md`](../chia_openpiton/README.md)'s last section.
-9. **The CLI's own gaps** — §12 has the details: `mace cluster up/down/status`
-   isn't wired in yet (§9's manual `chia up` sequence is still how that
-   happens), there's no non-interactive script-file mode, and `run`/`init`
-   only have tier-0 test coverage so far, not a real end-to-end pass through
-   `MaceShell` itself.
+9. **The CLI's own gaps** — §12 has the details: ~~`mace cluster up/down/status`
+   isn't wired in yet~~ — **done**: a thin subprocess wrapper over
+   `chia up`/`chia down`/`ray status` (§9's manual sequence still works too,
+   this is just the same commands behind the one CLI). Still open: no
+   non-interactive script-file mode, and `run`/`init` only have tier-0 test
+   coverage so far, not a real end-to-end pass through `MaceShell` itself.
 
 ## 12. The `mace` CLI
 
@@ -929,9 +930,6 @@ on the *stable* Verilator's `verilator_coverage`, only the broken one's).
 
 ### What's deliberately not built yet
 
-- **`mace cluster up/down/status`** (wrapping `chia up`/`chia down`) —
-  useful, not yet wired into the CLI; §9's manual `chia up cluster/local.yaml`
-  sequence is still how the cluster gets managed today.
 - **A non-interactive script mode** (Yosys's own `-c script.ys` convention —
   run a sequence of shell commands from a file, no interactive prompt). The
   shell's command handlers (`mace/cli/shell.py`'s `handle_*` functions) are
@@ -969,9 +967,10 @@ accumulate session state and drive the real loop, including real
 `on_iteration` progress (see above) — not a set of independent subcommands.
 `mace results` (a read-only cross-run table plus a per-run
 `--run-id`/failure-taxonomy view, over `mace.metrics.all_runs`/
-`failure_taxonomy`) has since been built too. The one remaining real gap is
-`mace cluster up/down/status` (see "What's deliberately not built yet"
-above).
+`failure_taxonomy`) and `mace cluster up/down/status` (a thin subprocess
+wrapper over `chia up`/`chia down`/`ray status`) have since been built too.
+The remaining real gap is a non-interactive script mode (see "What's
+deliberately not built yet" above).
 
 ## 13. Where to find more
 
