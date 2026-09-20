@@ -32,7 +32,13 @@ def parse_spec_file(text: str) -> dict:
             )
         else:
             overrides[key] = value
-    if "objective" not in overrides:
+    if not overrides:
+        # Only when NOTHING recognized was found -- a file with just
+        # `workloads:`/`core:` lines and no `objective:` is a genuine,
+        # reasonable structured spec, not the plain-English case this
+        # fallback exists for. Keying this off "objective" missing alone
+        # used to fire there too, polluting the LLM prompt with the raw
+        # `workloads: ...\ncore: ...` text as a garbled "objective".
         stripped = text.strip()
         if stripped:
             overrides["objective"] = stripped

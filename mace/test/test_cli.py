@@ -120,6 +120,15 @@ class TestParseSpecFile:
         text = "objective: x\nsome_random_line: y\n"
         assert parse_spec_file(text) == {"objective": "x"}
 
+    def test_structured_keys_with_no_objective_line_do_not_pollute_it(self):
+        """A file with only workloads:/core: lines is a genuine structured
+        spec, not the plain-English case the whole-file fallback exists
+        for -- it must not synthesize a garbled objective from the raw
+        `workloads: ...\\ncore: ...` text.
+        """
+        overrides = parse_spec_file("workloads: foo.c\ncore: ariane\n")
+        assert overrides == {"workloads": ("foo.c",), "core": "ariane"}
+
 
 class TestConfig:
     def test_write_and_load_round_trip(self, tmp_path):
