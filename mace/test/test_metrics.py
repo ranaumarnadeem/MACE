@@ -357,6 +357,58 @@ class TestAllRuns:
         assert metrics.all_runs(db) == []
 
 
+class TestTraceRun:
+    def test_unknown_run_id_returns_none(self, tmp_path):
+        db = open_test_db(tmp_path)
+        assert metrics.trace_run(db, "no-such-run") is None
+
+    def test_reconstructs_the_full_story_in_order(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec(objective="bring up 1x1", core="ariane"))
+
+        metrics.record_iteration(
+            db, run_id, 0,
+            (make_result("t1", False, kind="config"), make_result("t2", True, kind="workload")),
+            wall_s=10.0, usd=0.1,
+        )
+        metrics.record_failure(db, run_id, 0, "t1", "config_error", fix="raise l1d size", recovered=True)
+        metrics.record_iteration(db, run_id, 1, (make_result("t3", True, kind="config"),), wall_s=5.0, usd=0.05)
+        metrics.finish_run(db, run_id, "passed")
+
+        got = metrics.trace_run(db, run_id)
+
+        assert got["run_id"] == run_id
+        assert got["objective"] == "bring up 1x1"
+        assert got["core"] == "ariane"
+        assert got["mesh"] == "1x1"
+        assert got["status"] == "passed"
+        assert len(got["iterations"]) == 2
+
+        it0 = got["iterations"][0]
+        assert it0["iteration"] == 0
+        assert it0["wall_s"] == 10.0
+        assert it0["usd"] == 0.1
+        assert [t["task_id"] for t in it0["tasks"]] == ["t1", "t2"]
+        assert it0["tasks"][0]["passed"] is False
+        assert it0["tasks"][1]["passed"] is True
+        assert it0["failures"] == [
+            {"task_id": "t1", "diagnosis": "config_error", "fix": "raise l1d size", "recovered": True}
+        ]
+
+        it1 = got["iterations"][1]
+        assert it1["iteration"] == 1
+        assert [t["task_id"] for t in it1["tasks"]] == ["t3"]
+        assert it1["failures"] == []
+
+    def test_run_with_no_iterations_yet_has_an_empty_list(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+
+        got = metrics.trace_run(db, run_id)
+
+        assert got["iterations"] == []
+
+
 class TestModuleStatus:
     def test_one_unit_test_task_reports_its_module(self, tmp_path):
         db = open_test_db(tmp_path)

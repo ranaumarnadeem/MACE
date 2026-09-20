@@ -354,6 +354,66 @@ def all_runs(db: SQLiteNode) -> list[dict]:
     return [{**row, **summary(db, row["run_id"])} for row in runs]
 
 
+def trace_run(db: SQLiteNode, run_id: str) -> dict | None:
+    """The full plan -> dispatch -> triage -> replan story for one run,
+    reconstructed from the same tasks/failures/iterations/runs rows
+    start_run/record_iteration/record_failure already write -- no new
+    instrumentation, just a read path over data every run already
+    records. This is the loop's real novel contribution (the agentic
+    replan loop) made visible without hand-written SQL.
+
+    Returns ``None`` if run_id isn't recorded (get_post_mortem's own
+    missing-row convention). Otherwise
+    ``{run_id, objective, core, mesh, status, iterations}``, where each
+    iteration is ``{iteration, wall_s, usd, tasks, failures}`` -- tasks and
+    failures are each in real recorded order (``rowid``), not task_id or
+    diagnosis order, so the story reads the way it actually happened, one
+    replan at a time.
+    """
+    run = db.query_one(
+        "SELECT run_id, objective, core, x_tiles, y_tiles, status FROM runs WHERE run_id = ?",
+        (run_id,),
+    )
+    if run is None:
+        return None
+    iterations = db.query(
+        "SELECT iteration, wall_s, usd FROM iterations WHERE run_id = ? ORDER BY iteration",
+        (run_id,),
+    )
+    trace_iterations = []
+    for it in iterations:
+        tasks = db.query(
+            "SELECT task_id, kind, spec, passed, build_success, run_verdict, module "
+            "FROM tasks WHERE run_id = ? AND iteration = ? ORDER BY rowid",
+            (run_id, it["iteration"]),
+        )
+        failures = db.query(
+            "SELECT task_id, diagnosis, fix, recovered FROM failures "
+            "WHERE run_id = ? AND iteration = ? ORDER BY rowid",
+            (run_id, it["iteration"]),
+        )
+        trace_iterations.append(
+            {
+                "iteration": it["iteration"],
+                "wall_s": it["wall_s"],
+                "usd": it["usd"],
+                "tasks": [
+                    {**t, "passed": bool(t["passed"]), "build_success": bool(t["build_success"])}
+                    for t in tasks
+                ],
+                "failures": [{**f, "recovered": bool(f["recovered"])} for f in failures],
+            }
+        )
+    return {
+        "run_id": run["run_id"],
+        "objective": run["objective"],
+        "core": run["core"],
+        "mesh": f"{run['x_tiles']}x{run['y_tiles']}",
+        "status": run["status"],
+        "iterations": trace_iterations,
+    }
+
+
 def summary(db: SQLiteNode, run_id: str) -> dict:
     """The five metrics the proposal promises, for one run."""
     return {
