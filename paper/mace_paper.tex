@@ -43,8 +43,9 @@ iteration -- using real hardware runs throughout, with no simulated results anyw
 We report what worked, what did not, and precisely why: a genuine RTL-level finding while extending
 \sys{} to a third, never-before-simulated core (PicoRV32); a real dispatch failure against a
 dependency we do not control (CHIA's tailnet-relay task launching), first misdiagnosed as a
-scheduler bug and corrected once better evidence arrived; and where a one-shot LLM baseline already
-suffices versus where \sys{}'s iterate-until-verified loop is actually necessary.
+scheduler bug and corrected once better evidence arrived; and a one-shot LLM baseline that built
+successfully but failed real hardware verification, where only \sys{}'s iterate-until-verified loop
+reached a passing result on the same objective.
 \end{minipage}
 \end{center}
 \vspace{1.2em}
@@ -268,7 +269,7 @@ runs -- no simulated numbers appear in this paper.
 \toprule
 \textbf{Run} & \textbf{Wall time} & \textbf{Tasks} & \textbf{Verdict} \\
 \midrule
-(b) one-shot LLM                        & 229.1s      & 1 (LLM call) & pass \\
+(b) one-shot LLM                        & 186.5s      & 1 (LLM call) & fail \\
 (c) \sys{}, 4 runs, \texttt{barrier\_atomic.c} & 1835--2180s & 1--5         & pass (4/4) \\
 (c) \sys{}, 1 run, \texttt{producer\_consumer.c}\textsuperscript{*} & 2118.02s & 2 & pass \\
 \bottomrule
@@ -291,16 +292,18 @@ program, not repeated success on the same one.}
 \end{tabular}
 \end{center}
 
-\textbf{Discussion.} Baseline~(b) beating baseline~(c) on wall-clock for this specific, easy 1x1
-objective is a real finding and we do not hide it: a competent LLM guess needs no iteration to
-reach a proven default configuration. We read this as clarifying \sys{}'s value proposition rather
-than undermining it. The loop's advantage is not raw speed on an objective a single good guess
-already solves -- it is having \emph{any} recovery mechanism at all on objectives where a first
-guess can be wrong. Baseline~(c)'s own data already shows the planner sometimes decomposes the same
-nominal objective into multiple dependent tasks (run~2, five tasks) rather than one; and
-\S\ref{sec:pico}'s PicoRV32 run and (a)'s 2x2 mesh are exactly the harder cases -- a novel core, an
-untested mesh shape -- where baseline~(b)'s one-shot design has no mechanism to recover from an
-incorrect first answer at all. By construction, it simply fails.
+\textbf{Discussion.} With the timeout bug corrected, baseline~(b)'s one-shot guess built but failed
+real hardware verification (186.5s, \code{verdict=fail}); baseline~(c)'s full loop passed the same
+objective the same day (741.7s, 4/4 tasks) -- roughly 4x the wall-clock cost, not "for free" as an
+earlier, buggy measurement suggested. One trial does not prove a luckier one-shot guess could never
+pass, but it is a concrete instance of the failure mode the loop exists to catch. We read this as
+\sys{}'s actual value proposition: not raw speed on an objective a single guess already solves, but
+having \emph{any} recovery mechanism at all when a first guess is wrong. Baseline~(c)'s own data
+already shows the planner sometimes decomposes the same nominal objective into multiple dependent
+tasks (run~2, five tasks) rather than one; and \S\ref{sec:pico}'s PicoRV32 run and (a)'s 2x2 mesh
+are exactly the harder cases -- a novel core, an untested mesh shape -- where baseline~(b)'s
+one-shot design has no mechanism to recover from an incorrect first answer at all. By construction,
+it simply fails there too.
 
 One honest gap: the detect-failure~$\rightarrow$~diagnose~$\rightarrow$~replan~$\rightarrow$~pass cycle is
 proven at the mechanism level (a stateful stub that fails once, then passes) but never fired across seven real

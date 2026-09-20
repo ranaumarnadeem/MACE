@@ -165,10 +165,20 @@ proposes a configuration once, with no tools and no retry, applied directly
 with no verification loop) then baseline (c) (`examples/mace_end_to_end.py`
 — the full loop) back to back against the same checkout, same objective, for
 a clean comparison; each can also be run standalone. Real result from the
-most recent run: (b) built but the run itself timed out (`verdict=timeout`,
-failed, 178s total); (c) passed, 4/4 tasks, one iteration, 197.7s — the
-verification loop cost almost no extra wall-clock here and is the difference
-between passing and not. Manual mesh scaling (baseline (a)) has no dedicated
+most recent run (after fixing a bug where baseline (b) omitted
+`rtl_timeout`, silently simulating under OpenPiton's stock 50,000-cycle
+default instead of the 1,000,000-cycle budget every other script uses):
+(b) built successfully but failed real hardware verification
+(`verdict=fail`, 186.5s total) — the LLM's one-shot cache-geometry guess
+was functionally wrong, not just slow; (c) passed, 4/4 tasks, one
+iteration, 741.7s — roughly 4x baseline (b)'s wall-clock cost. Verification
+and retry caught a real functional failure the one-shot prompt missed, at a
+real wall-clock price, not the "almost free" result an earlier, buggy
+measurement suggested. One trial isn't proof a one-shot prompt can never
+solve this objective — LLM output varies run to run — but it's a concrete
+instance of the failure mode the loop exists to catch.
+
+Manual mesh scaling (baseline (a)) has no dedicated
 script; `scripts/local_2x2_build_test.py` is the closest thing, a hand-run
 multi-tile attempt with a full log of what happened, kept for its
 historical/diagnostic value rather than as a clean reusable baseline runner.

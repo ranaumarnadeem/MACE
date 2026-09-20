@@ -493,11 +493,15 @@ done yet as of this writing, because baseline/paper work took priority.
 - **(a) manual mesh scaling** — 1×1 proven (repeatedly), 2×2 real
   build-pass/run-hang (above), no 4×4 datapoint (above).
 - **(b) one-shot LLM, no tools, no iteration** — done,
-  `examples/baseline_one_shot_llm.py`, real result: 229.1s total, passed on
-  the first try (the LLM's guess happened to reach the same proven default
-  config MACE itself converges to).
-- **(c) full MACE loop** — done, reused the four real end-to-end runs
-  described above (same objective, so no new run was needed).
+  `examples/baseline_one_shot_llm.py`. The "229.1s, passed" number once
+  recorded here predates the rtl_timeout fix (§7's own item, and the same
+  bug the codebase review's baseline-comparison finding named) and is
+  stale -- see README.md's own baseline section for the current, real
+  result and framing.
+- **(c) full MACE loop** — done. A fresh same-day run under the current
+  code (§7's earlier four end-to-end runs predate the orchestrator
+  wall-time fix, so aren't directly comparable to this one) took 741.7s
+  and passed, 4/4 tasks, one iteration -- see README.md.
 
 The paper (`paper/mace_paper.tex` / `.pdf`) is drafted, typeset, and exactly 4
 pages, covering all of the above honestly — including (b) beating (c) on
