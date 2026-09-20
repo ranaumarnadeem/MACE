@@ -795,11 +795,12 @@ noted rather than silently deleted, so you can see what actually happened.
    upstream CHIA; the checklist for that is in
    [`chia_openpiton/README.md`](../chia_openpiton/README.md)'s last section.
 9. **The CLI's own gaps** — §12 has the details: ~~`mace cluster up/down/status`
-   isn't wired in yet~~ — **done**: a thin subprocess wrapper over
-   `chia up`/`chia down`/`ray status` (§9's manual sequence still works too,
-   this is just the same commands behind the one CLI). Still open: no
-   non-interactive script-file mode, and `run`/`init` only have tier-0 test
-   coverage so far, not a real end-to-end pass through `MaceShell` itself.
+   isn't wired in yet~~ and ~~no non-interactive script-file mode~~ — both
+   **done**: a thin subprocess wrapper over `chia up`/`chia down`/`ray status`
+   (§9's manual sequence still works too, this is just the same commands
+   behind the one CLI), and `shell --script`/`-c` (Yosys's own `-c script.ys`
+   convention). Still open: `run`/`init` only have tier-0 test coverage so
+   far, not a real end-to-end pass through `MaceShell` itself.
 
 ## 12. The `mace` CLI
 
@@ -930,11 +931,6 @@ on the *stable* Verilator's `verilator_coverage`, only the broken one's).
 
 ### What's deliberately not built yet
 
-- **A non-interactive script mode** (Yosys's own `-c script.ys` convention —
-  run a sequence of shell commands from a file, no interactive prompt). The
-  shell's command handlers (`mace/cli/shell.py`'s `handle_*` functions) are
-  already separated from the `cmd.Cmd` I/O loop specifically so this is a
-  small addition later, not a rewrite, if it turns out to be worth having.
 - **`chia job submit`-based dispatch** — the shell currently launches
   `ray.init(address="local", ...)` directly, the same pattern every other
   local script in this repo uses; it doesn't yet drive a real `chia up`
@@ -967,9 +963,10 @@ accumulate session state and drive the real loop, including real
 `on_iteration` progress (see above) — not a set of independent subcommands.
 `mace results` (a read-only cross-run table plus a per-run
 `--run-id`/failure-taxonomy view, over `mace.metrics.all_runs`/
-`failure_taxonomy`) and `mace cluster up/down/status` (a thin subprocess
-wrapper over `chia up`/`chia down`/`ray status`) have since been built too.
-The remaining real gap is a non-interactive script mode (see "What's
+`failure_taxonomy`), `mace cluster up/down/status` (a thin subprocess
+wrapper over `chia up`/`chia down`/`ray status`), and `shell --script`/`-c`
+(a non-interactive Yosys-`-c`-style mode) have since been built too. The
+remaining real gap is `chia job submit`-based dispatch (see "What's
 deliberately not built yet" above).
 
 ## 13. Where to find more
