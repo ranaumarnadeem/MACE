@@ -166,10 +166,19 @@ class TestModuleNameFromPath:
 class TestUnitTestEnvName:
     @pytest.mark.parametrize(
         "module_path,expected",
-        [("picorv32.v", "picorv32_ut"), ("/a/b/l15_pipeline.v.pyv", "l15_pipeline.v_ut")],
+        [("picorv32.v", "picorv32_ut"), ("/a/b/l15_pipeline.v.pyv", "a_b_l15_pipeline.v_ut")],
     )
     def test_derives_env_name_from_stem(self, module_path, expected):
         assert unit_test_env_name(module_path) == expected
+
+    def test_same_basename_in_different_directories_does_not_collide(self):
+        """The real bug this guards: two modules named e.g. decoder.v in
+        different directories must not scaffold (and then silently share)
+        the same environment.
+        """
+        a = unit_test_env_name("design/dirA/decoder.v")
+        b = unit_test_env_name("design/dirB/decoder.v")
+        assert a != b
 
 
 class TestScaffoldEnv:

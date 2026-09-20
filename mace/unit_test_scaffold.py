@@ -253,11 +253,23 @@ def unit_test_env_name(module_path: str) -> str:
     convention (``<module>_ut``), not ``pico_reset_ut``'s specific name --
     that one is hand-authored for one behavior, not module-generic.
 
-    Deliberately just ``Path.stem`` (unlike :func:`module_name_from_path`):
-    this only needs to be a valid, distinct scaffold directory name, not the
-    exact real Verilog module identifier, so a ``.v.pyv`` file's env name
-    keeps its middle ``.v`` (``l15_pipeline.v_ut``) rather than being
-    collapsed to match the real module name.
+    Includes ``module_path``'s parent directory (sanitized to
+    ``[A-Za-z0-9_]``), not just its bare filename stem: two different
+    modules sharing a filename in different directories -- a real RTL
+    pattern, generic names like ``decoder.v``/``fifo.v`` reused across
+    independent IP blocks -- would otherwise collide on one scaffolded env
+    name, and :func:`scaffold_env`'s idempotency check (keyed only on that
+    name) would then silently treat the second module's scaffold request as
+    a no-op against the *first* module's already-scaffolded environment.
+
+    Otherwise deliberately just the stem (unlike
+    :func:`module_name_from_path`): this only needs to be a valid, distinct
+    scaffold directory name, not the exact real Verilog module identifier,
+    so a ``.v.pyv`` file's env name keeps its middle ``.v`` rather than
+    being collapsed to match the real module name.
     """
-    stem = Path(module_path).stem
-    return f"{stem}_ut"
+    path = Path(module_path)
+    safe_dir = re.sub(r"[^A-Za-z0-9]+", "_", str(path.parent)).strip("_")
+    stem = path.stem
+    name = f"{safe_dir}_{stem}" if safe_dir else stem
+    return f"{name}_ut"

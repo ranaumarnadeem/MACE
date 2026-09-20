@@ -184,7 +184,7 @@ class TestUnitTestTask:
     to reconcile ports, build -- never run (see mace.loop._run_unit_test_step
     docstring for why)."""
 
-    def _scaffold(self, stub_piton_root, env_name="foo_ut"):
+    def _scaffold(self, stub_piton_root, env_name="design_foo_ut"):
         env_dir = stub_piton_root / "piton" / "verif" / "env" / env_name
         env_dir.mkdir(parents=True)
         return env_dir
@@ -207,7 +207,7 @@ class TestUnitTestTask:
         result = run_mace_step(str(stub_piton_root), make_spec(), task, llm)
 
         build_argv = sims_argv.lines()[0]
-        assert "-sys=foo_ut" in build_argv
+        assert "-sys=design_foo_ut" in build_argv
         assert result.build.success is True
 
     def test_never_runs_even_on_a_passing_build(self, stub_piton_root, monkeypatch):
@@ -247,10 +247,10 @@ class TestUnitTestTask:
         prompt_used = llm.calls[0][0]
         assert "clk" in prompt_used
         assert "done" in prompt_used
-        assert "foo_ut" in prompt_used
+        assert "design_foo_ut" in prompt_used
 
     def test_missing_module_file_does_not_crash_the_step(self, stub_piton_root, monkeypatch):
-        self._scaffold(stub_piton_root)
+        self._scaffold(stub_piton_root, env_name="nonexistent_foo_ut")
         monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
         llm = FakeLLM(responses=["reconciled the ports"])
         task = Task(id="t1", deps=(), kind="unit_test", spec="nonexistent/foo.v")
