@@ -504,11 +504,13 @@ done yet as of this writing, because baseline/paper work took priority.
   and passed, 4/4 tasks, one iteration -- see README.md.
 
 The paper (`paper/mace_paper.tex` / `.pdf`) is drafted, typeset, and exactly 4
-pages, covering all of the above honestly — including (b) beating (c) on
-wall-clock for this specific easy objective, discussed directly rather than
-hidden. Two things still worth doing before actual submission: the author
-byline is currently a placeholder ("MACE Team"), and there's no architecture
-figure (the pipeline is presented as text only).
+pages, covering all of the above honestly — including (b) failing real
+hardware verification while (c) passes at roughly 4x its wall-clock cost,
+discussed directly rather than hidden (see README.md's own baseline
+section for the real numbers this and the paper both reflect). The author
+byline is a real name (Rana Umar Nadeem), not a placeholder, and there's a
+real architecture figure (Figure 1, the pipeline diagram) -- both already
+done, contrary to what an earlier version of this note said.
 
 ## 8. Standing conventions — follow these, don't second-guess them
 
@@ -793,8 +795,9 @@ noted rather than silently deleted, so you can see what actually happened.
    for the exact script that produced finding (c).
 6. ~~The mystery file, `examples/run_barrier_atomic.py`~~ — **done**:
    committed, it's a real, useful manual driver for baseline (a).
-7. **Paper polish** — the architecture figure is done (Figure 1); the author
-   byline is still the placeholder "MACE Team" and needs real names.
+7. ~~**Paper polish**~~ — **done**: the architecture figure (Figure 1) and
+   the real author byline (Rana Umar Nadeem, not "MACE Team") are both
+   already in `paper/mace_paper.tex`.
 8. **`docs/api/openpiton.rst`** — only matters if actually filing a PR to
    upstream CHIA; the checklist for that is in
    [`chia_openpiton/README.md`](../chia_openpiton/README.md)'s last section.
