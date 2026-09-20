@@ -134,13 +134,20 @@ def run_mace_loop(
             status = "budget_exceeded"
             break
 
+        # Started before plan()'s own LLM round-trip, not just
+        # integrate_parallel's: the recorded wall_s (and therefore the
+        # execution_time_s the paper/README cite) must count real time the
+        # same way baseline (b) (examples/baseline_one_shot_llm.py) does --
+        # that script's timer starts before its own LLM call too. Starting
+        # this after plan() would silently exclude every Planner call's
+        # latency, biasing the comparison in this loop's favor.
+        iter_started = time.monotonic()
         try:
             tasks = plan(spec, llm, tools=tools, feedback=feedback)
         except PlanningError:
             status = "planning_failed"
             break
 
-        iter_started = time.monotonic()
         results = integrate_parallel(
             piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration
         )
