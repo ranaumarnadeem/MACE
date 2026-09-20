@@ -87,16 +87,42 @@ def run_doctor_checks() -> list[tuple[str, bool, str]]:
 def init(
     backend: str = typer.Option("opencode", help="LLM backend: opencode, claude, antigravity, vertex"),
     api_key: str = typer.Option(
-        None, prompt=True, hide_input=True, help="API key/credential for the chosen backend"
+        None,
+        help="API key/credential for the chosen backend; prompted for "
+        "interactively if omitted. Ignored for vertex, which authenticates "
+        "via Google ADC instead -- see below.",
     ),
     env_file: str = typer.Option(
         None, "--env-file", help="Where to write the .env file (default: ~/.mace/.env)"
     ),
 ) -> None:
     """Set up credentials and check the environment -- run this first."""
-    path = write_env_file(backend, api_key, Path(env_file) if env_file else DEFAULT_ENV_PATH)
-    env_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
-    typer.echo(f"Wrote {env_var} to {path} (owner-only permissions).")
+    if backend == "vertex":
+        # vertex authenticates via `gcloud auth application-default login`
+        # (ADC), which needs no key string anywhere -- unlike every other
+        # backend here. Prompting for one the same way would write a
+        # real-looking but never-read value (GOOGLE_APPLICATION_CREDENTIALS
+        # is a path to a service-account file, not a pasted secret, and ADC
+        # doesn't need that env var set at all) into a .env file that then
+        # silently does nothing -- a real live-user rough edge. No .env file
+        # is written for this backend.
+        adc_file = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+        typer.echo("backend=vertex authenticates via Google ADC, not a stored key/file.")
+        if adc_file.exists():
+            typer.echo(f"  [OK] Application Default Credentials found at {adc_file}")
+        else:
+            typer.echo(
+                f"  [MISSING] {adc_file} not found -- run this once:\n"
+                f"    gcloud auth application-default login"
+            )
+        run_command = "mace shell --piton-root /path/to/openpiton --backend vertex"
+    else:
+        if api_key is None:
+            api_key = typer.prompt("Api key", hide_input=True)
+        path = write_env_file(backend, api_key, Path(env_file) if env_file else DEFAULT_ENV_PATH)
+        env_var = BACKEND_ENV_VARS.get(backend, "MACE_LLM_API_KEY")
+        typer.echo(f"Wrote {env_var} to {path} (owner-only permissions).")
+        run_command = f"mace shell --piton-root /path/to/openpiton --api {path} --backend {backend}"
 
     typer.echo("\nEnvironment checks:")
     all_ok = True
@@ -105,10 +131,7 @@ def init(
         typer.echo(f"  [{mark}] {name}: {detail}")
         all_ok = all_ok and ok
     if all_ok:
-        typer.echo(
-            f"\nEverything looks ready. Run:\n"
-            f"  mace shell --piton-root /path/to/openpiton --api {path} --backend {backend}"
-        )
+        typer.echo(f"\nEverything looks ready. Run:\n  {run_command}")
     else:
         typer.echo(
             "\nSome tools are missing -- `read_verilog`/`run` may fail until "

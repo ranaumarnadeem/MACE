@@ -16,6 +16,7 @@ from mace.cli.config import apply_env_to_environment, load_env_file, write_env_f
 from mace.cli.session import KNOWN_MESH_OUTCOMES, Session, detect_core, mesh_for_core_count
 from mace.cli.spec_file import parse_spec_file
 from mace.cli.shell import (
+    app,
     build_spec_from_session,
     find_coverage_dat,
     format_report,
@@ -149,6 +150,43 @@ class TestConfig:
         import os
 
         assert os.environ["ANTHROPIC_API_KEY"] == "sk-x"
+
+
+class TestInit:
+    """backend=vertex authenticates via Google ADC, not a stored key -- it
+    must not prompt for/write one the way every other backend does. See
+    the `init` command's own comment for the live-user rough edge this
+    guards against.
+    """
+
+    def test_vertex_writes_no_env_file_and_points_at_adc(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        monkeypatch.setattr("mace.cli.shell.DEFAULT_ENV_PATH", tmp_path / ".env")
+        # Deterministic regardless of whether this machine happens to have
+        # real gcloud ADC configured -- tmp_path is guaranteed not to.
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        result = CliRunner().invoke(app, ["init", "--backend", "vertex"])
+
+        assert result.exit_code == 0
+        assert not (tmp_path / ".env").exists()
+        assert "Google ADC" in result.output
+        assert "gcloud auth application-default login" in result.output
+        assert "--backend vertex" in result.output
+        assert "--api" not in result.output  # vertex's own run command omits it
+
+    def test_non_vertex_backend_still_writes_the_env_file(self, tmp_path):
+        from typer.testing import CliRunner
+
+        env_file = tmp_path / ".env"
+        result = CliRunner().invoke(
+            app, ["init", "--backend", "opencode", "--api-key", "sk-test", "--env-file", str(env_file)]
+        )
+
+        assert result.exit_code == 0
+        assert env_file.exists()
+        assert load_env_file(env_file) == {"OPENCODE_API_KEY": "sk-test"}
+        assert f"--api {env_file}" in result.output
 
 
 class TestHandleReadVerilog:
