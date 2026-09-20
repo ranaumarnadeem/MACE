@@ -670,14 +670,22 @@ class MaceShell(cmd.Cmd):
             return
         table = Table(title="MACE shell commands", header_style="bold cyan", show_lines=False)
         table.add_column("command", style="bold")
+        table.add_column("usage", style="dim")
         table.add_column("description")
         for name in _HELP_ORDER:
             method = getattr(self, f"do_{name}", None)
             doc = (method.__doc__ or "").strip().split("\n")[0]
-            # Each docstring is "name <args> -- description"; show only the
-            # description half here, the table's own column already has the name.
-            desc = doc.split("--", 1)[1].strip() if "--" in doc else doc
-            table.add_row(name, desc)
+            # Each docstring is "name <args> -- description" -- split it into
+            # its own usage and description columns rather than showing only
+            # the description here and making a user run `help <command>`
+            # just to learn the argument syntax.
+            if "--" in doc:
+                before, desc = doc.split("--", 1)
+                usage = before[len(name):].strip() if before.startswith(name) else before.strip()
+                desc = desc.strip()
+            else:
+                usage, desc = "", doc
+            table.add_row(name, usage, desc)
         self.console.print(table)
 
     do_h = do_help

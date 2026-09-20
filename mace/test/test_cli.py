@@ -451,6 +451,22 @@ class TestDefault:
         assert "unknown command" in out
 
 
+class TestDoHelp:
+    def test_bare_help_shows_argument_syntax_not_just_descriptions(self, capsys):
+        """A user must not have to run `help <command>` individually just
+        to learn a command's argument syntax -- the bare listing shows it
+        too now, in its own column. See do_help's own comment.
+        """
+        from mace.cli.shell import MaceShell
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.do_help("")
+        out = capsys.readouterr().out
+
+        assert "-verbose" in out  # run's usage
+        assert "<N>" in out  # set_core's usage
+
+
 class TestFormatReport:
     def test_no_run_yet(self):
         text = format_report(Session(piton_root="/x"))
