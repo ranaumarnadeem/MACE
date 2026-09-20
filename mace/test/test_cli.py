@@ -79,6 +79,16 @@ class TestSession:
         s = Session(piton_root="/x")
         assert s.target_mesh is None
 
+    def test_target_mesh_raises_for_a_zero_core_count_not_silently_none(self):
+        """0 is a set (falsy) value, not an unset one -- it must reach
+        mesh_for_core_count's own validation, which rejects it, rather than
+        being treated the same as "never called set_core" (see
+        handle_set_core's own ValueError handling for why this matters).
+        """
+        s = Session(piton_root="/x", core_count=0)
+        with pytest.raises(ValueError, match="positive int"):
+            s.target_mesh
+
     def test_detected_core_updates_after_top_module(self):
         s = Session(piton_root="/x")
         s.top_module = "ariane_core"
@@ -218,6 +228,13 @@ class TestHandleSetCore:
     def test_non_integer_is_an_error(self):
         session = Session(piton_root="/x")
         assert handle_set_core(session, "four").startswith("ERROR")
+
+    def test_zero_is_a_clean_error_not_a_crash(self):
+        session = Session(piton_root="/x")
+        msg = handle_set_core(session, "0")
+        assert msg.startswith("ERROR")
+        assert session.core_count is None  # not left stuck at 0
+        assert session.target_mesh is None
 
 
 class TestBuildSpecFromSession:

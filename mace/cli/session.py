@@ -115,4 +115,8 @@ class Session:
 
     @property
     def target_mesh(self) -> tuple[int, int] | None:
-        return mesh_for_core_count(self.core_count) if self.core_count else None
+        # `is not None`, not truthiness: 0 is a genuinely invalid core count
+        # (mesh_for_core_count itself rejects it) and must reach that
+        # validation, not be silently treated the same as "never set" --
+        # see handle_set_core's own ValueError handling in shell.py.
+        return mesh_for_core_count(self.core_count) if self.core_count is not None else None
