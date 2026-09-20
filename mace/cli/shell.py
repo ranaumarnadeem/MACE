@@ -489,7 +489,11 @@ class MaceShell(cmd.Cmd):
         _print_result(self.console, handle_set_core(self.session, arg))
 
     def do_run(self, arg: str) -> None:
-        """run [-verbose] [-coverage] -- execute against the accumulated session state."""
+        """run [-verbose] [-coverage] -- execute against the accumulated session
+        state. -verbose is accepted for Yosys/OpenROAD-style familiarity but
+        has no effect: output is always verbose here (a standing project
+        decision, not a togglable default) -- see the note this command
+        prints if you pass it."""
         c = self.console
         # "logging should be verbose" is the project owner's own standing
         # instruction, not just an opt-in flag -- -verbose/--verbose are
@@ -506,6 +510,8 @@ class MaceShell(cmd.Cmd):
         if unknown:
             c.print(f"[bold red]✗ ERROR: unknown run option(s): {' '.join(unknown)}[/bold red]")
             return
+        if "-verbose" in tokens or "--verbose" in tokens:
+            c.print("[dim]-verbose has no effect: output here is always verbose.[/dim]")
         if "-coverage" in tokens or "--coverage" in tokens:
             self.session.coverage = True
 

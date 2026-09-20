@@ -361,6 +361,20 @@ class TestDoRun:
         assert still_running is False  # cmd.Cmd convention: False keeps the loop going
         assert session.top_module == "ariane_top"  # session state survived intact
 
+    def test_verbose_flag_is_acknowledged_not_silently_ignored(self, capsys):
+        """-verbose is accepted (for Yosys/OpenROAD familiarity) but has no
+        effect -- a user who types it should see that stated plainly, not
+        be left guessing whether it was understood.
+        """
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x", top_module="not_a_known_core")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.do_run("-verbose")
+
+        assert "has no effect" in capsys.readouterr().out
+
 
 class TestFormatReport:
     def test_no_run_yet(self):
