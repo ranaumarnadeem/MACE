@@ -86,12 +86,12 @@ def run_mace_loop(
     should not be silently swallowed the way a broken triage response is).
 
     Each iteration: :func:`~mace.planner.plan` produces a task DAG (informed
-    by the previous iteration's triage, if any), :func:`~mace.integrator.
-    integrate_parallel` executes it, and the iteration is recorded via
-    :mod:`mace.metrics`. If every task passed, the loop stops with
-    ``status="passed"``. Otherwise the first failure is triaged
-    (:func:`~mace.triage.triage`) and its diagnosis/fix become feedback for
-    the next :func:`~mace.planner.plan` call.
+    by every earlier iteration's triage in this run, if any), :func:`~mace.
+    integrator.integrate_parallel` executes it, and the iteration is
+    recorded via :mod:`mace.metrics`. If every task passed, the loop stops
+    with ``status="passed"``. Otherwise the first failure is triaged
+    (:func:`~mace.triage.triage`) and its diagnosis/fix are appended to the
+    feedback carried into every subsequent :func:`~mace.planner.plan` call.
 
     If the run does eventually pass, every failure recorded earlier in it
     is marked recovered (see :func:`~mace.metrics.mark_all_recovered` for
@@ -126,7 +126,7 @@ def run_mace_loop(
         return LoopResult(run_id=run_id, status="checksum_mismatch", iterations=())
 
     started = time.monotonic()
-    feedback = ""
+    feedback_history: list[str] = []
     iterations: list[tuple] = []
     diagnoses: list[tuple[str, Triage] | None] = []
     had_a_failure = False
@@ -161,7 +161,7 @@ def run_mace_loop(
             # favor.
             iter_started = time.monotonic()
             try:
-                tasks = plan(spec, llm, tools=tools, feedback=feedback)
+                tasks = plan(spec, llm, tools=tools, feedback="\n".join(feedback_history))
             except PlanningError:
                 status = "planning_failed"
                 break
@@ -200,7 +200,7 @@ def run_mace_loop(
                 diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
             diagnoses[-1] = (failed.task.id, diagnosis)
             record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
-            feedback = (
+            feedback_history.append(
                 f"Task {failed.task.id} ({failed.task.spec}) failed: "
                 f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
             )

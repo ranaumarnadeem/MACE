@@ -298,3 +298,36 @@ class TestStatusTransitions:
         assert seen_feedback[0] == ""  # nothing to feed back on the first call
         assert "rtl_suspect" in seen_feedback[1]
         assert "try a different mesh" in seen_feedback[1]
+
+    def test_a_third_plan_call_sees_every_earlier_iteration_s_diagnosis_not_just_the_latest(
+        self, tmp_path, monkeypatch
+    ):
+        seen_feedback = []
+        diagnoses = iter([
+            Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
+            Triage(diagnosis="build_timeout", fix="raise the sim wall clock"),
+        ])
+
+        def recording_plan(spec, llm, tools=(), feedback=""):
+            seen_feedback.append(feedback)
+            return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
+
+        def fail_fail_then_pass(
+            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None
+        ):
+            passed = iteration == 2  # third iteration is the one that finally passes
+            return (step_result("t1", passed=passed, verdict="pass" if passed else "fail"),)
+
+        monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", fail_fail_then_pass)
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): next(diagnoses))
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        run_mace_loop(
+            ("/fake/root",), make_spec(budget=Budget(max_iterations=3)), FakeLLM(responses=[]),
+            db=make_db(tmp_path),
+        )
+
+        assert len(seen_feedback) == 3
+        assert "rtl_suspect" in seen_feedback[2] and "try a different mesh" in seen_feedback[2]
+        assert "build_timeout" in seen_feedback[2] and "raise the sim wall clock" in seen_feedback[2]
