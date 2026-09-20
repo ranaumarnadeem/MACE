@@ -102,3 +102,19 @@ class TestTestbenchMismatchShortCircuit:
         result = triage(make_failed_result(build_success=False), llm)
         assert result.diagnosis == "rtl_suspect"
         assert len(llm.calls) == 1
+
+    def test_same_stderr_on_a_non_unit_test_task_still_goes_through_the_llm(self):
+        """%Error-PINNOTFOUND is a generic Verilator error, not unique to a
+        scaffolded unit-test testbench -- a config/workload task hitting the
+        same signature is a real RTL regression, not a testbench mismatch,
+        and there's no scaffolded testbench to blame it on.
+        """
+        result = self._pinnotfound_result()
+        result = StepResult(
+            task=Task(id=result.task.id, deps=(), kind="config", spec=result.task.spec),
+            query=result.query, build=result.build, run=result.run, passed=result.passed,
+        )
+        llm = FakeLLM(responses=["DIAGNOSIS: rtl_suspect\nFIX: investigate\n"])
+        diagnosed = triage(result, llm)
+        assert diagnosed.diagnosis == "rtl_suspect"
+        assert len(llm.calls) == 1

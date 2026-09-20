@@ -60,11 +60,16 @@ def build_prompt(result: StepResult) -> str:
 def triage(result: StepResult, llm, tools=()) -> Triage:
     """One LLM call, turned into a validated diagnosis.
 
-    Skips that call entirely when the build's own stderr already carries the
-    real, unambiguous signature of a testbench/DUT port mismatch (see
-    mace.agents.is_testbench_port_mismatch) -- there's nothing for an LLM to
-    diagnose that a mechanical check can't already say for certain, and it
-    saves the call. Every other failure still goes through the LLM, since
+    Skips that call entirely when the failed task is a ``unit_test`` and the
+    build's own stderr already carries the real, unambiguous signature of a
+    testbench/DUT port mismatch (see mace.agents.is_testbench_port_mismatch)
+    -- there's nothing for an LLM to diagnose that a mechanical check can't
+    already say for certain, and it saves the call. Gated on task kind
+    because %Error-PINNOTFOUND is a generic Verilator "port not found"
+    error, not unique to a scaffolded unit-test testbench: a ``config``/
+    ``workload`` task can hit the identical signature from a real RTL
+    regression, and there is no scaffolded testbench to blame it on in that
+    case. Every other failure still goes through the LLM, since
     ``test_bug``/``config_error``/``timeout``/``maxcycles``/``rtl_suspect``
     genuinely need judgment this module doesn't have.
 
@@ -74,7 +79,7 @@ def triage(result: StepResult, llm, tools=()) -> Triage:
             mace.planner.plan document.
     """
     build = result.build
-    if not build.success and is_testbench_port_mismatch(build.stderr):
+    if result.task.kind == "unit_test" and not build.success and is_testbench_port_mismatch(build.stderr):
         return Triage(
             diagnosis="testbench_mismatch",
             fix=(
