@@ -114,9 +114,12 @@ class TestStatusLog:
     def test_num_tiles(self):
         assert parse.num_tiles(self.STATUS) == 1
 
-    def test_multiword_status_survives(self):
-        """regreport's vocabulary includes multi-word statuses."""
-        assert parse.status_diag("Diag: t:0     MaxCycles Hit\n")[1] == "MaxCycles Hit"
+    def test_multiword_status_survives(self, fixtures):
+        """regreport's vocabulary includes multi-word statuses -- a real
+        captured MaxCycles transcript, not a hand-written string (this
+        suite's own stated preference, and run_maxcycles_status.log went
+        uncaptured-but-unused until now)."""
+        assert parse.status_diag(fixtures("run_maxcycles_status.log"))[1] == "MaxCycles Hit"
 
     def test_missing_fields_are_none(self):
         assert parse.cycles("nothing here") is None
