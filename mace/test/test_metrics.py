@@ -304,6 +304,59 @@ class TestSummary:
         }
 
 
+class TestFailureTaxonomy:
+    def test_groups_by_diagnosis_with_recovery_counts(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+
+        metrics.record_failure(db, run_id, 0, "a", "timeout", recovered=True)
+        metrics.record_failure(db, run_id, 1, "b", "timeout", recovered=False)
+        metrics.record_failure(db, run_id, 0, "c", "config_error", recovered=True)
+
+        got = metrics.failure_taxonomy(db, run_id)
+
+        assert got == [
+            {"diagnosis": "timeout", "total": 2, "recovered": 1},
+            {"diagnosis": "config_error", "total": 1, "recovered": 1},
+        ]
+
+    def test_no_run_id_covers_the_whole_db(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_a = metrics.start_run(db, make_spec())
+        run_b = metrics.start_run(db, make_spec())
+        metrics.record_failure(db, run_a, 0, "a", "timeout")
+        metrics.record_failure(db, run_b, 0, "b", "timeout")
+
+        got = metrics.failure_taxonomy(db)
+
+        assert got == [{"diagnosis": "timeout", "total": 2, "recovered": 0}]
+
+    def test_no_failures_is_an_empty_list(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        assert metrics.failure_taxonomy(db, run_id) == []
+
+
+class TestAllRuns:
+    def test_most_recent_run_first_with_its_summary_metrics(self, tmp_path):
+        db = open_test_db(tmp_path)
+        older = metrics.start_run(db, make_spec(objective="first"))
+        metrics.record_iteration(db, older, 0, (make_result("a", True),), wall_s=1.0, usd=0.1)
+        newer = metrics.start_run(db, make_spec(objective="second"))
+        metrics.record_iteration(db, newer, 0, (make_result("b", True),), wall_s=2.0, usd=0.2)
+
+        got = metrics.all_runs(db)
+
+        assert [r["run_id"] for r in got] == [newer, older]
+        assert got[0]["objective"] == "second"
+        assert got[0]["successful_tasks"] == 1
+        assert got[0]["execution_time_s"] == 2.0
+
+    def test_empty_db_is_an_empty_list(self, tmp_path):
+        db = open_test_db(tmp_path)
+        assert metrics.all_runs(db) == []
+
+
 class TestModuleStatus:
     def test_one_unit_test_task_reports_its_module(self, tmp_path):
         db = open_test_db(tmp_path)

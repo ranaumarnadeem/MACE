@@ -315,6 +315,45 @@ def module_status(db: SQLiteNode, run_id: str) -> list[dict]:
     return result
 
 
+def failure_taxonomy(db: SQLiteNode, run_id: str | None = None) -> list[dict]:
+    """Failure counts by diagnosis category, across one run or the whole db.
+
+    Answers whether triage's diagnosis categories (mace.agents.KNOWN_DIAGNOSES)
+    actually predict recovery, not just how many failures happened. diagnosis
+    is recorded as free text (KNOWN_DIAGNOSES is advisory, not enforced --
+    see record_failure's own docstring), so an unrecognized string gets its
+    own row here rather than being silently folded into an "other" bucket.
+    """
+    sql = "SELECT diagnosis, COUNT(*) AS total, SUM(recovered) AS recovered FROM failures"
+    if run_id is not None:
+        rows = db.query(sql + " WHERE run_id = ? GROUP BY diagnosis ORDER BY total DESC", (run_id,))
+    else:
+        rows = db.query(sql + " GROUP BY diagnosis ORDER BY total DESC", ())
+    return [
+        {"diagnosis": r["diagnosis"], "total": r["total"], "recovered": r["recovered"] or 0}
+        for r in rows
+    ]
+
+
+def all_runs(db: SQLiteNode) -> list[dict]:
+    """Every recorded run's identity plus its summary() metrics, most recent
+    first -- the cross-run view nothing here provided before: summary()
+    answers "how did run X do" one run at a time, this answers "how has
+    this db's whole history of runs gone" without hand-joining
+    runs/iterations/tasks/failures at every call site.
+
+    ``rowid DESC`` breaks a tie between two runs started in the same
+    wall-clock tick (module_status's own ORDER BY has the identical issue,
+    for the identical reason -- see its docstring).
+    """
+    runs = db.query(
+        "SELECT run_id, objective, core, x_tiles, y_tiles, started_at, finished_at, status "
+        "FROM runs ORDER BY started_at DESC, rowid DESC",
+        (),
+    )
+    return [{**row, **summary(db, row["run_id"])} for row in runs]
+
+
 def summary(db: SQLiteNode, run_id: str) -> dict:
     """The five metrics the proposal promises, for one run."""
     return {
