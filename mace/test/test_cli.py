@@ -159,6 +159,20 @@ class TestInit:
     guards against.
     """
 
+    def test_bare_init_defaults_to_vertex_matching_shell(self, tmp_path, monkeypatch):
+        """A first-time user running `mace init` then `mace shell` with no
+        --backend on either must land on the same (funded) backend both
+        times, not opencode on one and vertex on the other.
+        """
+        from typer.testing import CliRunner
+
+        monkeypatch.setattr("mace.cli.shell.DEFAULT_ENV_PATH", tmp_path / ".env")
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        result = CliRunner().invoke(app, ["init"])
+
+        assert result.exit_code == 0
+        assert "Google ADC" in result.output
+
     def test_vertex_writes_no_env_file_and_points_at_adc(self, tmp_path, monkeypatch):
         from typer.testing import CliRunner
 

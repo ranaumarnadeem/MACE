@@ -85,7 +85,11 @@ def run_doctor_checks() -> list[tuple[str, bool, str]]:
 
 @app.command()
 def init(
-    backend: str = typer.Option("opencode", help="LLM backend: opencode, claude, antigravity, vertex"),
+    # vertex, matching `shell`'s own default: this project's only funded
+    # backend, so a first-time user following bare defaults on both
+    # commands ends up configured for the one that actually works, not one
+    # documented as unfunded (opencode/claude/antigravity).
+    backend: str = typer.Option("vertex", help="LLM backend: vertex, opencode, claude, antigravity"),
     api_key: str = typer.Option(
         None,
         help="API key/credential for the chosen backend; prompted for "
