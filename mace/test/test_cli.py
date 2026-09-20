@@ -376,6 +376,32 @@ class TestDoRun:
         assert "has no effect" in capsys.readouterr().out
 
 
+class TestDefault:
+    """Unknown-command handling -- a generic closest-match suggestion on
+    top of the two hand-diagnosed cases (`init`, `mace`) already there.
+    """
+
+    def test_close_typo_suggests_the_real_command(self, capsys):
+        from mace.cli.shell import MaceShell
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.onecmd("exi")
+        out = capsys.readouterr().out
+
+        assert "did you mean" in out
+        assert "exit" in out
+
+    def test_unrelated_input_gets_no_false_suggestion(self, capsys):
+        from mace.cli.shell import MaceShell
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.onecmd("xyzzy_totally_unrelated")
+        out = capsys.readouterr().out
+
+        assert "did you mean" not in out
+        assert "unknown command" in out
+
+
 class TestFormatReport:
     def test_no_run_yet(self):
         text = format_report(Session(piton_root="/x"))

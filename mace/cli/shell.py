@@ -15,6 +15,7 @@ LLM call).
 from __future__ import annotations
 
 import cmd
+import difflib
 import os
 import shlex
 import shutil
@@ -695,6 +696,18 @@ class MaceShell(cmd.Cmd):
             self.console.print(
                 "[yellow]You're already inside the mace shell -- drop the `mace` prefix.[/yellow] "
                 "e.g. type [bold]run[/bold], not [dim]mace run[/dim]."
+            )
+            return
+        # Generic closest-match suggestion for anything else mistyped --
+        # difflib is nearly free against this shell's own small (~10)
+        # command vocabulary, and a real typo is a more common mistake than
+        # the two hand-diagnosed ones above.
+        commands = [name[len("do_"):] for name in self.get_names() if name.startswith("do_")]
+        close = difflib.get_close_matches(word, commands, n=1)
+        if close:
+            self.console.print(
+                f"[red]unknown command: {word!r}[/red] -- did you mean "
+                f"[bold]{close[0]}[/bold]? (type [cyan]help[/cyan] for the list)"
             )
             return
         self.console.print(f"[red]unknown command: {word or line!r}[/red] (type [cyan]help[/cyan] for the list)")
