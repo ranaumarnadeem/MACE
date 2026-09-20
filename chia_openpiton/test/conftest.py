@@ -62,6 +62,14 @@ def fixtures():
 #   FAKE_SIMS_VERDICT   pass|fail|timeout|maxcycles  -- which transcript to emit
 #   FAKE_SIMS_FAIL_BUILD=1                           -- die like a failed build
 #   FAKE_SIMS_SLEEP=<seconds>                        -- hang, to exercise timeouts
+#   FAKE_SIMS_BIG_SIM_LOG=1                          -- write a real sim.log with
+#                                                        the verdict line followed
+#                                                        by >LOG_TAIL_BYTES of
+#                                                        padding, reproducing a
+#                                                        verbose multi-tile run
+#                                                        where other tiles keep
+#                                                        logging after the
+#                                                        finishing tile's verdict
 #
 # The emitted strings are the real ones from OpenPiton's testbench monitors
 # (pc_cmp.v.pyv / monitor.v.pyv), including their inconsistent spacing.
@@ -112,11 +120,19 @@ case "$*" in
         ;;
     *_run*)
         case "${FAKE_SIMS_VERDICT:-pass}" in
-            pass)      echo "1234: Simulation -> PASS (HIT GOOD TRAP)" ;;
-            fail)      echo "1234 : Simulation -> FAIL(HIT BAD TRAP)" ;;
-            timeout)   echo "1234 : Simulation -> FAIL(TIMEOUT)" ;;
-            maxcycles) echo "1234 : Simulation -> (terminated by reaching max cycles = 1500000)" ;;
+            pass)      verdict_line="1234: Simulation -> PASS (HIT GOOD TRAP)" ;;
+            fail)      verdict_line="1234 : Simulation -> FAIL(HIT BAD TRAP)" ;;
+            timeout)   verdict_line="1234 : Simulation -> FAIL(TIMEOUT)" ;;
+            maxcycles) verdict_line="1234 : Simulation -> (terminated by reaching max cycles = 1500000)" ;;
         esac
+        if [ "$FAKE_SIMS_BIG_SIM_LOG" = "1" ]; then
+            {
+                echo "$verdict_line"
+                for i in $(seq 1 2000); do echo "tile 3: activity after tile 0's own verdict, line $i"; done
+            } > sim.log
+        else
+            echo "$verdict_line"
+        fi
         exit 0
         ;;
 esac

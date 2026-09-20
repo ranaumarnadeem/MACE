@@ -342,6 +342,22 @@ class TestRunVerdicts:
         b = node.run(cfg, "t.s")
         assert a.run_dir != b.run_dir
 
+    def test_verdict_survives_a_transcript_longer_than_the_shipped_tail(
+        self, node, cfg, monkeypatch
+    ):
+        """A verbose multi-tile run where other tiles keep logging past the
+        finishing tile's own verdict line must not push that line out of
+        what gets parsed -- only out of what gets shipped back. See
+        OpenPitonWorkspaceNode.run's own sim.log/status.log handling.
+        """
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        monkeypatch.setenv("FAKE_SIMS_BIG_SIM_LOG", "1")
+        node.build(cfg)
+        res = node.run(cfg, "princeton-test-test.s")
+        assert res.verdict == "pass"
+        assert res.success is True
+        assert len(res.sim_log_tail) <= 8000  # still shipped small, just parsed whole
+
 
 class TestWorkspaceFiles:
     def test_put_file_writes_under_the_root(self, node):

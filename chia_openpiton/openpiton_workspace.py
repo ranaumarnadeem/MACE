@@ -234,6 +234,23 @@ def _read_if_present(path: str, limit: int = LOG_TAIL_BYTES) -> str:
         return ""
 
 
+def _read_full_if_present(path: str) -> str:
+    """Like :func:`_read_if_present`, but the whole file, untruncated -- for
+    parsing (verdict/sim time/cycles), which must see the real end of a long
+    transcript. A verbose manycore run where other tiles keep logging after
+    the finishing tile's own PASS/FAIL line can push that line out of an
+    arbitrary byte-count tail, misreporting a real pass as unclassified.
+    Truncate separately, with :func:`_tail`, only what actually gets shipped
+    back in the returned dataclass -- the same order :func:`build` already
+    parses in (full text first, tail last).
+    """
+    try:
+        with open(path, errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
 def _resolve_under(base_dir: str, relpath: str) -> str:
     """Absolute path of *relpath* under *base_dir*; ValueError on escape."""
     base_dir = os.path.abspath(base_dir)
@@ -702,8 +719,8 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             timeout_seconds,
         )
 
-        sim_log = _read_if_present(os.path.join(run_dir, "sim.log")) or stdout
-        status_log = _read_if_present(os.path.join(run_dir, "status.log"))
+        sim_log = _read_full_if_present(os.path.join(run_dir, "sim.log")) or stdout
+        status_log = _read_full_if_present(os.path.join(run_dir, "status.log"))
         verdict = parse.sim_verdict(sim_log)
         if verdict is None and rc == -1:
             verdict = "timeout"
@@ -720,7 +737,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             exec_cycles=parse.exec_cycles(status_log),
             wall_time_s=wall,
             sim_log_tail=_tail(sim_log),
-            status_log=status_log,
+            status_log=_tail(status_log),
             fake_uart=_read_if_present(os.path.join(run_dir, "fake_uart.log")),
             stdout=_tail(stdout),
             stderr=_tail(stderr),
