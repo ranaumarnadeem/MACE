@@ -121,7 +121,7 @@ def run_mace_loop(
     started = time.monotonic()
     feedback = ""
     iterations: list[tuple] = []
-    diagnoses: list[Triage | None] = []
+    diagnoses: list[tuple[str, Triage] | None] = []
     had_a_failure = False
     total_usd = 0.0
     status = "budget_exceeded"
@@ -169,7 +169,7 @@ def run_mace_loop(
             diagnosis = triage(failed, llm, tools=tools)
         except TriageError:
             diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
-        diagnoses[-1] = diagnosis
+        diagnoses[-1] = (failed.task.id, diagnosis)
         record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
         feedback = (
             f"Task {failed.task.id} ({failed.task.spec}) failed: "

@@ -60,9 +60,24 @@ class TestBuildPrompt:
     def test_includes_a_diagnosis_when_one_is_aligned_to_that_iteration(self):
         spec = make_spec()
         diagnosis = Triage(diagnosis="rtl_suspect", fix="try a different mesh")
-        prompt = build_prompt(spec, ((make_result(),),), (diagnosis,), "budget_exceeded")
+        prompt = build_prompt(spec, ((make_result(),),), (("t1", diagnosis),), "budget_exceeded")
         assert "rtl_suspect" in prompt
         assert "try a different mesh" in prompt
+
+    def test_diagnosis_is_not_attached_to_a_different_task_in_the_same_iteration(self):
+        """Only the first failure in a level is ever triaged (see
+        mace.orchestrator's own docstring) -- a passing task, or a second,
+        undiagnosed failure, sharing that iteration must not be misreported
+        as having this diagnosis too.
+        """
+        spec = make_spec()
+        diagnosis = Triage(diagnosis="rtl_suspect", fix="try a different mesh")
+        iterations = ((make_result("t1"), make_result("t2", verdict="fail")),)
+        prompt = build_prompt(spec, iterations, (("t1", diagnosis),), "budget_exceeded")
+
+        assert prompt.count("triaged as: rtl_suspect") == 1
+        # ... and it's attached between t1's own line and t2's, not t2's.
+        assert prompt.index("task t1") < prompt.index("triaged as:") < prompt.index("task t2")
 
     def test_no_tasks_ever_ran_is_stated_plainly(self):
         spec = make_spec()

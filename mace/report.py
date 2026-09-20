@@ -74,20 +74,27 @@ def _describe_task(iteration: int, result: StepResult, diagnosis: Triage | None)
 def build_prompt(
     spec: MaceSpec,
     iterations: tuple[tuple[StepResult, ...], ...],
-    diagnoses: tuple[Triage | None, ...],
+    diagnoses: tuple[tuple[str, Triage] | None, ...],
     stop_reason: str,
 ) -> str:
     """The post-mortem prompt for a run that never passed.
 
-    *diagnoses* is one entry per iteration in *iterations* (``None`` where
-    that iteration had nothing to triage) -- the same alignment
-    mace.orchestrator.run_mace_loop keeps internally between its own
-    ``iterations`` and ``diagnoses`` lists.
+    *diagnoses* is one entry per iteration in *iterations*: ``(task_id,
+    Triage)`` for the one task mace.orchestrator.run_mace_loop actually
+    triaged that iteration, or ``None`` where it had nothing to triage --
+    the same alignment run_mace_loop keeps internally between its own
+    ``iterations`` and ``diagnoses`` lists. Only that one task's line gets
+    the diagnosis attached; only the first failure in a level is ever
+    triaged (see mace.orchestrator's own docstring), so every other result
+    in the same iteration -- a passing task, or a second, undiagnosed
+    failure -- would otherwise be misreported as having this diagnosis too.
     """
     lines = []
-    for i, (level_results, diagnosis) in enumerate(zip(iterations, diagnoses)):
+    for i, (level_results, diagnosed) in enumerate(zip(iterations, diagnoses)):
+        diagnosed_task_id, diagnosis = diagnosed if diagnosed is not None else (None, None)
         for result in level_results:
-            lines.append(_describe_task(i, result, diagnosis))
+            per_task_diagnosis = diagnosis if result.task.id == diagnosed_task_id else None
+            lines.append(_describe_task(i, result, per_task_diagnosis))
     history = "\n".join(lines) if lines else "(no tasks ever ran)"
     return _PROMPT_TEMPLATE.format(
         objective=spec.objective,
@@ -102,7 +109,7 @@ def build_prompt(
 def generate_post_mortem(
     spec: MaceSpec,
     iterations: tuple[tuple[StepResult, ...], ...],
-    diagnoses: tuple[Triage | None, ...],
+    diagnoses: tuple[tuple[str, Triage] | None, ...],
     stop_reason: str,
     llm,
     tools=(),
