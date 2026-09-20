@@ -419,7 +419,14 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 OpenPiton's ``manycore.config``.
             address_map: Full replacement text for the simulation device map
                 (``piton/verif/env/manycore/devices_ariane.xml``). None leaves
-                the checkout untouched.
+                the checkout untouched. Written immediately, into this
+                checkout's one shared copy of that file -- not scoped by the
+                config this call is about to return. Call :meth:`build` for
+                this config immediately after, before any other
+                ``configure(address_map=...)`` call against the *same*
+                checkout: :meth:`build` re-checks the checkout still matches
+                what it computed and raises rather than silently building
+                (and permanently caching) against a different config's map.
             extra_flags: Any further sims flags, appended verbatim.
             sys: ``-sys=`` value. ``"manycore"`` (default) is the full-chip
                 mesh; any other name is a registered OpenPiton unit-test
@@ -545,11 +552,37 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             served from disk instead of invoking ``sims`` again.
 
         Raises:
-            ValueError: On an unknown ``sim_type`` or an invalid root.
+            ValueError: On an unknown ``sim_type``, an invalid root, or (for a
+                config with a recorded ``address_map`` diff) a checkout whose
+                ``piton/verif/env/manycore`` no longer matches it -- see
+                :meth:`configure`'s own docstring on why that can happen.
         """
         root = _require_root(piton_root)
         if sim_type not in SIM_TYPES:
             raise ValueError(f"sim_type must be one of {sorted(SIM_TYPES)}, got {sim_type!r}")
+
+        if config.diff:
+            # configure(address_map=...) writes straight into this checkout's
+            # single shared piton/verif/env/manycore -- not scoped by
+            # build_id. A second configure() call for a different config
+            # against the same checkout overwrites it before this build ever
+            # runs, so re-check now rather than silently compiling (and
+            # permanently caching under *this* build_id) whatever the file
+            # currently holds, which may no longer be what this config's own
+            # diff -- and therefore its build_id -- was computed from.
+            current_diff = OpenPitonWorkspaceNode._git(
+                root, ["diff", "--", "piton/verif/env/manycore"], timeout_seconds
+            )
+            if current_diff != config.diff:
+                raise ValueError(
+                    f"checkout at {root!r} no longer matches build_id "
+                    f"{config.build_id!r}'s recorded file edits -- another "
+                    f"configure() call has changed piton/verif/env/manycore "
+                    f"since this config was created. Call configure() again "
+                    f"immediately before build() for this config, with no "
+                    f"other configure() call against the same checkout in "
+                    f"between."
+                )
 
         model_dir = os.path.join(root, "build", config.sys, config.build_id)
         binary = _find_model_binary(model_dir, config.sys)

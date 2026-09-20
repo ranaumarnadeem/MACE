@@ -307,6 +307,50 @@ class TestBuildReuse:
         assert second.reused is False
 
 
+class TestBuildDetectsStaleAddressMap:
+    """configure(address_map=...) writes straight into this checkout's one
+    shared piton/verif/env/manycore -- not scoped by build_id. build() must
+    refuse rather than silently compile (and permanently cache) against a
+    different config's map if the checkout changed since this config was
+    created -- see configure()'s and build()'s own docstrings.
+    """
+
+    def test_raises_when_the_checkout_diff_no_longer_matches(self, node, monkeypatch):
+        cfg = PitonConfig(core="sparc", diff="+ old map contents")
+        monkeypatch.setattr(
+            OpenPitonWorkspaceNode,
+            "_git",
+            lambda root, args, timeout_seconds=60: "+ a different map, from a later configure() call",
+        )
+        with pytest.raises(ValueError, match="no longer matches"):
+            node.build(cfg)
+
+    def test_proceeds_when_the_checkout_diff_still_matches(self, node, monkeypatch):
+        cfg = PitonConfig(
+            core="sparc", source_rev="deadbeef", verilator_version="Verilator 4.014 2019-01-01",
+            diff="+ same map contents",
+        )
+        monkeypatch.setattr(
+            OpenPitonWorkspaceNode,
+            "_git",
+            lambda root, args, timeout_seconds=60: "+ same map contents",
+        )
+        art = node.build(cfg)
+        assert art.success is True
+
+    def test_a_config_with_no_recorded_diff_skips_the_check_entirely(self, node, cfg, monkeypatch):
+        """The overwhelmingly common case (no address_map ever used): no
+        _git call should even happen for this check."""
+
+        def fail_if_called(*a, **kw):
+            raise AssertionError("_git should not be called when config.diff is empty")
+
+        monkeypatch.setattr(OpenPitonWorkspaceNode, "_git", fail_if_called)
+        assert cfg.diff == ""
+        art = node.build(cfg)
+        assert art.success is True
+
+
 class TestRunVerdicts:
     @pytest.mark.parametrize(
         "verdict,expected_success",
