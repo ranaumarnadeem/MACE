@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import pytest
 from chia.base.llm_call import QueryResult
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import metrics
@@ -175,6 +176,37 @@ class TestRecordIteration:
 
         count = db.query_value("SELECT COUNT(*) FROM tasks WHERE run_id = ?", (run_id,))
         assert count == 1
+
+    def test_a_mid_loop_exception_leaves_no_partial_iteration_or_task_rows(self, tmp_path, monkeypatch):
+        """Before record_iteration wrapped its writes in db.transaction(), the
+        iteration row and each task row were committed by their own
+        db.execute() call -- a crash partway through the per-task loop left
+        iterations.num_tasks permanently out of sync with the task rows that
+        actually landed. Injecting a failure while building the second
+        task's row must now leave the whole batch, iteration row included,
+        unwritten."""
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        results = (
+            make_result("a", True, kind="unit_test", spec="picorv32.v"),
+            make_result("b", True, kind="unit_test", spec="l15_pipeline.v.pyv"),
+        )
+        real_module_name_from_path = metrics.module_name_from_path
+        calls = {"n": 0}
+
+        def flaky(spec):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("boom")
+            return real_module_name_from_path(spec)
+
+        monkeypatch.setattr("mace.metrics.module_name_from_path", flaky)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            metrics.record_iteration(db, run_id, 0, results, wall_s=1.0)
+
+        assert db.query_one("SELECT * FROM iterations WHERE run_id = ?", (run_id,)) is None
+        assert db.query("SELECT * FROM tasks WHERE run_id = ?", (run_id,)) == []
 
 
 class TestFailures:

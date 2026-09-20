@@ -110,7 +110,7 @@ def open_db(db_path: str, *, ray_placement: bool = True) -> SQLiteNode:
         if "duplicate column" not in str(e).lower():
             raise
     # Same retrofit as caches above, for module (added when unit_test tasks
-    # started recording which module they target -- see _record_task).
+    # started recording which module they target -- see _task_op).
     try:
         node.execute("ALTER TABLE tasks ADD COLUMN module TEXT")
     except Exception as e:
@@ -153,20 +153,28 @@ def record_iteration(
     wall_s: float,
     usd: float = 0.0,
 ) -> None:
-    """One row for the iteration, plus one row per task it ran."""
+    """One row for the iteration, plus one row per task it ran -- all inside
+    one db.transaction() so a mid-loop exception can't commit some task rows
+    while leaving the iteration's num_tasks (or the rest of the tasks)
+    unwritten; see SQLiteNode.transaction (BEGIN IMMEDIATE ... COMMIT,
+    rolling back the whole batch on any error)."""
     num_passed = sum(1 for r in results if r.passed)
-    db.execute(
-        "INSERT OR REPLACE INTO iterations "
-        "(run_id, iteration, num_tasks, num_passed, wall_s, usd) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (run_id, iteration, len(results), num_passed, wall_s, usd),
-    )
-    for result in results:
-        _record_task(db, run_id, iteration, result)
+    ops = [
+        (
+            "INSERT OR REPLACE INTO iterations "
+            "(run_id, iteration, num_tasks, num_passed, wall_s, usd) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (run_id, iteration, len(results), num_passed, wall_s, usd),
+        )
+    ]
+    ops.extend(_task_op(run_id, iteration, result) for result in results)
+    db.transaction(ops)
 
 
-def _record_task(db: SQLiteNode, run_id: str, iteration: int, result: StepResult) -> None:
-    """One task row, recording the cache geometry the build *actually* used
+def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tuple]:
+    """Build one task row's (sql, params) for record_iteration's transaction.
+
+    Records the cache geometry the build *actually* used
     (``result.build.config.caches``), not what the task's own spec text
     asked for -- the two can disagree (a Planner-requested override that
     never reached the build is exactly the failure mode this column exists
@@ -175,7 +183,7 @@ def _record_task(db: SQLiteNode, run_id: str, iteration: int, result: StepResult
     """
     wall_s = result.build.wall_time_s + (result.run.wall_time_s if result.run else 0.0)
     module = module_name_from_path(result.task.spec) if result.task.kind == "unit_test" else None
-    db.execute(
+    return (
         "INSERT OR REPLACE INTO tasks "
         "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
