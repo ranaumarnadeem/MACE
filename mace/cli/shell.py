@@ -34,6 +34,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.tree import Tree
 
 from chia.database.sqlite_node import SQLiteNode
 from chia_openpiton.parse import coverage_summary
@@ -56,6 +57,7 @@ from mace.metrics import (
     open_db,
     record_post_mortem,
     summary,
+    trace_run,
 )
 from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec, PostMortem
@@ -1036,18 +1038,67 @@ def cluster_status() -> None:
     _run_chia(["ray", "status"])
 
 
+def _render_trace(console: Console, t: dict) -> None:
+    """The plan -> dispatch -> triage story for one run as a tree: each
+    iteration is a replan cycle, its tasks are what got dispatched, and a
+    TRIAGE branch appears only when something needed diagnosing -- absence
+    of one is itself the answer to "did this iteration need a replan"."""
+    tree = Tree(
+        f"[bold]{t['run_id']}[/bold] -- {t['core']} {t['mesh']} -- "
+        f"{t['objective']!r} -- status={t['status']}"
+    )
+    for it in t["iterations"]:
+        iter_node = tree.add(
+            f"[bold]Iteration {it['iteration']}[/bold] "
+            f"({it['wall_s']:.1f}s, ${it['usd']:.4f})"
+        )
+        plan_node = iter_node.add(f"PLAN -- {len(it['tasks'])} task(s) dispatched")
+        for task in it["tasks"]:
+            mark = "[green]PASS[/green]" if task["passed"] else "[red]FAIL[/red]"
+            detail = f"build={'OK' if task['build_success'] else 'FAILED'}"
+            if task["run_verdict"]:
+                detail += f" verdict={task['run_verdict']}"
+            if task["module"]:
+                detail += f" module={task['module']}"
+            plan_node.add(f"{task['task_id']} ({task['kind']}): {mark} -- {detail}")
+        if it["failures"]:
+            triage_node = iter_node.add(
+                f"[yellow]TRIAGE[/yellow] -- {len(it['failures'])} failure(s) diagnosed"
+            )
+            for f in it["failures"]:
+                rec = "[green]recovered[/green]" if f["recovered"] else "[red]not recovered[/red]"
+                fix_str = f" fix={f['fix']!r}" if f["fix"] else ""
+                triage_node.add(f"{f['task_id']}: diagnosis={f['diagnosis']!r}{fix_str} -- {rec}")
+    console.print(tree)
+
+
 @app.command()
 def results(
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
     run_id: str = typer.Option(
         None, help="Show this run's failure taxonomy instead of the cross-run table"
     ),
+    trace: bool = typer.Option(
+        False, "--trace", help="With --run-id, show the full plan/dispatch/triage story "
+        "instead of the failure taxonomy"
+    ),
 ) -> None:
     """Read-only report over the metrics database. No Ray, no session -- just
-    mace.metrics.all_runs()/failure_taxonomy() formatted, so a demo doesn't
-    need a live shell to show what past runs did."""
+    mace.metrics.all_runs()/failure_taxonomy()/trace_run() formatted, so a
+    demo doesn't need a live shell to show what past runs did."""
     db = open_db(os.path.abspath(db_path), ray_placement=False)
-    console = Console()
+    # width=100: same fix as MaceShell's own Console -- terminal-size
+    # auto-detection is unreliable off a real tty (piped/captured output)
+    # and produced genuinely corrupted table/tree rendering under it.
+    console = Console(width=100)
+
+    if run_id is not None and trace:
+        t = trace_run(db, run_id)
+        if t is None:
+            console.print(f"No recorded run with run_id={run_id!r}.")
+            return
+        _render_trace(console, t)
+        return
 
     if run_id is not None:
         rows = failure_taxonomy(db, run_id)

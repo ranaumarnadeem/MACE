@@ -275,6 +275,63 @@ class TestResults:
         assert result.exit_code == 0
         assert "No recorded failures" in result.output
 
+    def test_trace_shows_the_plan_dispatch_triage_story(self, tmp_path):
+        from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "runs.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        spec = MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1")
+        run_id = metrics.start_run(db, spec, run_id="r1")
+
+        def step(task_id, passed, kind="config", verdict=None):
+            build = PitonBuildArtifact(
+                success=passed, returncode=0, config=PitonConfig(), sim_type="vlt",
+                model_dir="/x", binary_path="/x/V", wall_time_s=1.0,
+            )
+            run = None
+            if verdict is not None:
+                run = PitonRunResult(
+                    success=passed, returncode=0, test="x.c", sim_type="vlt",
+                    run_dir="/x", verdict=verdict,
+                )
+            task = Task(id=task_id, deps=(), kind=kind, spec="x.v")
+            return StepResult(task=task, query=None, build=build, run=run, passed=passed)
+
+        metrics.record_iteration(
+            db, run_id, 0,
+            (step("t1", False), step("t2", True, kind="workload", verdict="pass")),
+            wall_s=10.0, usd=0.1,
+        )
+        metrics.record_failure(db, run_id, 0, "t1", "config_error", fix="raise l1d size", recovered=True)
+        metrics.record_iteration(db, run_id, 1, (step("t3", True),), wall_s=5.0, usd=0.05)
+        metrics.finish_run(db, run_id, "passed")
+
+        result = CliRunner().invoke(
+            app, ["results", "--db-path", str(db_path), "--run-id", run_id, "--trace"]
+        )
+
+        assert result.exit_code == 0
+        assert "Iteration 0" in result.output
+        assert "Iteration 1" in result.output
+        assert "t1 (config)" in result.output
+        assert "TRIAGE" in result.output
+        assert "config_error" in result.output
+        assert "t3" in result.output
+
+    def test_trace_with_unknown_run_id_says_so(self, tmp_path):
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "empty.db"
+        metrics.open_db(str(db_path), ray_placement=False)
+
+        result = CliRunner().invoke(
+            app, ["results", "--db-path", str(db_path), "--run-id", "no-such-run", "--trace"]
+        )
+
+        assert result.exit_code == 0
+        assert "No recorded run" in result.output
+
 
 class TestClusterCommands:
     """mace cluster up/down/status -- thin subprocess wrappers over chia
