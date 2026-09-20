@@ -958,18 +958,18 @@ shell's actual `run` command end-to-end (needs a real or stubbed Ray
 dispatch through `MaceShell` itself, not just its handler functions) and the
 `init` command's doctor checks against a real missing-toolchain case.
 
-### Suggested build order (smallest slice first, same discipline as Phase 1/2)
+### Suggested build order — superseded
 
-1. `mace doctor` — no side effects, easiest to get fully tested, immediately
-   useful on its own.
-2. `mace configure` / `build` / `run` — thin wrappers around already-tested
-   adapter calls; the risk here is in the CLI plumbing, not the underlying
-   logic.
-3. `mace loop` — wraps `run_mace_loop`, with a Rich progress display driven
-   by polling `mace.metrics` (or, better, by adding real iteration
-   callbacks to the loop itself — a small, real enhancement to `mace/`).
-4. `mace cluster up|down|status` — wraps `chia up`/`chia down`/`ray status`.
-5. `mace results` — a formatted reader over `mace.metrics.summary()`.
+This originally planned a `mace doctor` / `configure` / `build` / `run` /
+`loop` sequence of standalone subcommands, in that order. What actually got
+built took a different, now-complete shape instead: one `mace init` (folding
+in doctor-style checks, see above) plus one `mace shell` REPL whose
+`read_verilog`/`top_module`/`set_core`/`run`/`write_report` commands
+accumulate session state and drive the real loop, including real
+`on_iteration` progress (see above) — not a set of independent subcommands.
+The remaining real gaps are `mace cluster up/down/status` (see "What's
+deliberately not built yet" above) and a `mace results` reader over
+`mace.metrics.summary()`, which nothing here has built yet.
 
 ## 13. Where to find more
 
