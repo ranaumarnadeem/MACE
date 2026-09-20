@@ -23,6 +23,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import readline  # not available on native Windows without WSL/a shim
+except ImportError:
+    readline = None
+
 import ray
 import typer
 from rich.console import Console
@@ -33,6 +38,7 @@ from chia.database.sqlite_node import SQLiteNode
 from chia_openpiton.parse import coverage_summary
 from mace.cli.config import (
     BACKEND_ENV_VARS,
+    CONFIG_DIR,
     DEFAULT_ENV_PATH,
     apply_env_to_environment,
     load_env_file,
@@ -381,6 +387,11 @@ _ASSESSMENT_STYLE = {
     "inconclusive": "cyan",
 }
 
+# readline history, persisted across shell restarts (MaceShell.preloop/
+# postloop) -- next to the other ~/.mace/ state (.env), not lost the moment
+# the process exits the way cmd.Cmd's own in-session-only history is.
+HISTORY_FILE = CONFIG_DIR / ".shell_history"
+
 # (command, one-line description) for the custom `help` table -- pulled from
 # each do_* method's own docstring at call time (see do_help), listed here
 # only for display order. Deliberately excludes cmd.Cmd's own EOF/quit
@@ -478,6 +489,27 @@ class MaceShell(cmd.Cmd):
         except Exception as e:  # noqa: BLE001
             self.console.print(f"[bold red]✗ ERROR: {type(e).__name__}: {e}[/bold red]")
             return False
+
+    def preloop(self) -> None:
+        # cmd.Cmd's own hook, called once before cmdloop's own input loop
+        # starts. Loads readline history from a previous session, if any --
+        # readline already gives up/down-arrow recall within one session on
+        # its own; this is what makes it survive a restart.
+        if readline is not None:
+            try:
+                readline.read_history_file(HISTORY_FILE)
+            except OSError:
+                pass  # first run, or an unreadable/missing history file
+
+    def postloop(self) -> None:
+        # Counterpart to preloop, called once as cmdloop's own input loop
+        # ends (exit/EOF/an uncaught exception propagating past onecmd).
+        if readline is not None:
+            try:
+                HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+                readline.write_history_file(HISTORY_FILE)
+            except OSError:
+                pass
 
     def do_read_verilog(self, arg: str) -> None:
         """read_verilog <file> [file2 ...] -- register RTL source files for the target core."""

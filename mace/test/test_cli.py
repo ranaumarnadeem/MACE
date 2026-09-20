@@ -425,6 +425,69 @@ class TestPrompt:
         assert shell.prompt == "\033[1;36mmace> \033[0m"
 
 
+class TestHistoryPersistence:
+    """cmd.Cmd's own readline history is in-session only -- preloop/postloop
+    persist it across shell restarts, next to ~/.mace/.env.
+    """
+
+    def _fake_readline(self, calls, raise_on_read=False):
+        def read_history_file(path):
+            if raise_on_read:
+                raise OSError("no such file")
+            calls.append(("read", path))
+
+        return type(
+            "FakeReadline",
+            (),
+            {
+                "read_history_file": staticmethod(read_history_file),
+                "write_history_file": staticmethod(lambda path: calls.append(("write", path))),
+            },
+        )
+
+    def test_preloop_reads_the_history_file(self, monkeypatch, tmp_path):
+        from mace.cli.shell import MaceShell
+
+        history_path = tmp_path / ".shell_history"
+        calls = []
+        monkeypatch.setattr("mace.cli.shell.HISTORY_FILE", history_path)
+        monkeypatch.setattr("mace.cli.shell.readline", self._fake_readline(calls))
+
+        MaceShell(Session(piton_root="/x"), llm=None, db=None).preloop()
+
+        assert calls == [("read", history_path)]
+
+    def test_postloop_writes_the_history_file_creating_its_parent(self, monkeypatch, tmp_path):
+        from mace.cli.shell import MaceShell
+
+        history_path = tmp_path / "not-yet-created" / ".shell_history"
+        calls = []
+        monkeypatch.setattr("mace.cli.shell.HISTORY_FILE", history_path)
+        monkeypatch.setattr("mace.cli.shell.readline", self._fake_readline(calls))
+
+        MaceShell(Session(piton_root="/x"), llm=None, db=None).postloop()
+
+        assert calls == [("write", history_path)]
+        assert history_path.parent.is_dir()
+
+    def test_preloop_tolerates_a_missing_history_file(self, monkeypatch, tmp_path):
+        from mace.cli.shell import MaceShell
+
+        monkeypatch.setattr("mace.cli.shell.HISTORY_FILE", tmp_path / "nope" / ".shell_history")
+        monkeypatch.setattr("mace.cli.shell.readline", self._fake_readline([], raise_on_read=True))
+
+        MaceShell(Session(piton_root="/x"), llm=None, db=None).preloop()  # must not raise
+
+    def test_no_readline_module_is_a_silent_no_op(self, monkeypatch):
+        from mace.cli.shell import MaceShell
+
+        monkeypatch.setattr("mace.cli.shell.readline", None)
+
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+        shell.preloop()
+        shell.postloop()  # neither raises
+
+
 class TestDefault:
     """Unknown-command handling -- a generic closest-match suggestion on
     top of the two hand-diagnosed cases (`init`, `mace`) already there.
