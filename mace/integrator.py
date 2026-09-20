@@ -29,6 +29,23 @@ from mace.spec import MaceSpec, StepResult, Task
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 
+def open_nodes(piton_roots: tuple[str, ...]) -> list:
+    """One ``OpenPitonWorkspaceNode`` per checkout in *piton_roots*, order
+    preserved. A thin wrapper over the constructor -- exists so a caller
+    managing nodes' lifecycle itself across multiple :func:`integrate_parallel`
+    calls against the same checkouts (mace.orchestrator.run_mace_loop, across
+    its replan iterations) has one seam to call and monkeypatch, instead of
+    reaching into chia_openpiton directly.
+    """
+    return [OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120) for root in piton_roots]
+
+
+def close_nodes(nodes: list) -> None:
+    """Counterpart to :func:`open_nodes`."""
+    for node in nodes:
+        node.close()
+
+
 def topological_levels(tasks: tuple[Task, ...]) -> tuple[tuple[Task, ...], ...]:
     """*tasks* grouped into levels: level N depends only on levels < N.
 
@@ -102,6 +119,7 @@ def integrate_parallel(
     run_id: str | None = None,
     iteration: int = 0,
     on_task_progress=None,
+    nodes: list | None = None,
 ) -> tuple[StepResult, ...]:
     """Apply *tasks* across *piton_roots* in parallel, one level at a time.
 
@@ -141,10 +159,24 @@ def integrate_parallel(
     every task entering that stage together, since a batch dispatches (and
     is only resolved) as one group -- see this function's own docstring on
     why that's the real unit of "in flight" here, not a single task.
+
+    ``nodes``, if given, are already-constructed ``OpenPitonWorkspaceNode``
+    instances (one per checkout, matching *piton_roots*' order) to dispatch
+    against directly -- this function then neither constructs nor closes
+    them, leaving their lifecycle to the caller. This is for a caller
+    running *multiple* calls against the same checkouts (mace.orchestrator.
+    run_mace_loop, across its replan iterations): building nodes once
+    outside that loop avoids paying a fresh Ray placement-group acquire/
+    release cycle on every iteration for checkouts that never actually
+    change. Omitted (the default, ``None``), this function builds and
+    closes its own nodes from *piton_roots*, exactly as before -- the right
+    default for a single call.
     """
-    root_dir = str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root
-    nodes = [OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120) for root in piton_roots]
+    owns_nodes = nodes is None
+    if owns_nodes:
+        nodes = open_nodes(piton_roots)
     try:
+        root_dir = str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root
         results: list[StepResult] = []
         for level in topological_levels(tasks):
             level_results = _run_level(
@@ -155,8 +187,8 @@ def integrate_parallel(
                 break
         return tuple(results)
     finally:
-        for node in nodes:
-            node.close()
+        if owns_nodes:
+            close_nodes(nodes)
 
 
 def _run_level(

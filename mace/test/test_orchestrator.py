@@ -16,12 +16,26 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import metrics
 from mace.orchestrator import run_mace_loop
 from mace.report import ReportError
 from mace.spec import Budget, MaceSpec, StepResult, Task, Triage
 from mace.test.conftest import FakeLLM
+
+
+@pytest.fixture(autouse=True)
+def _stub_node_lifecycle(monkeypatch):
+    """run_mace_loop builds real OpenPitonWorkspaceNode instances via
+    mace.integrator.open_nodes to reuse across replan iterations -- these
+    tests fake out integrate_parallel entirely and use a fake, nonexistent
+    piton_roots, so open_nodes must not try to construct a real one either.
+    close_nodes on the resulting empty list is a no-op, so it needs no
+    separate stub.
+    """
+    monkeypatch.setattr("mace.orchestrator.open_nodes", lambda piton_roots: [])
 
 
 def _no_post_mortem(*args, **kwargs):
@@ -91,7 +105,8 @@ class TestIterationWallTimeIncludesPlanning:
             return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
 
         def fake_integrate_parallel(
-            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None
+            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None,
+            nodes=None,
         ):
             return (step_result(tasks[0].id),)
 
@@ -116,7 +131,8 @@ class TestOnTaskProgressIsThreadedThrough:
         received = {}
 
         def capturing_integrate_parallel(
-            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None
+            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None,
+            nodes=None,
         ):
             received["on_task_progress"] = on_task_progress
             return (step_result(tasks[0].id),)
@@ -136,13 +152,75 @@ class TestOnTaskProgressIsThreadedThrough:
         assert received["on_task_progress"] is sentinel
 
 
+class TestNodeLifecycleAcrossIterations:
+    def test_nodes_are_opened_once_and_closed_once_across_multiple_iterations(
+        self, tmp_path, monkeypatch
+    ):
+        """Checkouts must not be re-acquired (a real Ray placement-group
+        cycle) on every replan iteration -- piton_roots never changes
+        within one run. See run_mace_loop's own comment on this.
+        """
+        open_calls = []
+        close_calls = []
+
+        def counting_open_nodes(piton_roots):
+            open_calls.append(piton_roots)
+            return ["node-stub"]
+
+        monkeypatch.setattr("mace.orchestrator.open_nodes", counting_open_nodes)
+        monkeypatch.setattr("mace.orchestrator.close_nodes", lambda nodes: close_calls.append(nodes))
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)] * 3),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
+                step_result("t1", passed=False, verdict="fail"),
+            ),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.triage",
+            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
+        )
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        run_mace_loop(
+            ("/fake/root",), make_spec(budget=Budget(max_iterations=3)), FakeLLM(responses=[]),
+            db=make_db(tmp_path),
+        )
+
+        assert len(open_calls) == 1  # not once per iteration
+        assert len(close_calls) == 1  # closed exactly once, after the loop
+
+    def test_planning_failure_before_any_iteration_never_opens_a_node(self, tmp_path, monkeypatch):
+        """verify_checksums' own guarantee -- no checkout touched before a
+        real task is about to run -- must extend to node construction too.
+        """
+        from mace.planner import PlanningError
+
+        open_calls = []
+        monkeypatch.setattr(
+            "mace.orchestrator.open_nodes", lambda piton_roots: open_calls.append(piton_roots)
+        )
+
+        def raising_plan(spec, llm, tools=(), feedback=""):
+            raise PlanningError("no TASK: lines in the planner's response")
+
+        monkeypatch.setattr("mace.orchestrator.plan", raising_plan)
+
+        run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db=make_db(tmp_path))
+
+        assert open_calls == []
+
+
 class TestStatusTransitions:
     def test_all_tasks_passing_stops_with_passed(self, tmp_path, monkeypatch):
         db = make_db(tmp_path)
         monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]))
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
                 step_result("t1"),
             ),
         )
@@ -172,7 +250,7 @@ class TestStatusTransitions:
         )
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
                 step_result("t1", passed=False, verdict="fail"),
             ),
         )
@@ -202,7 +280,7 @@ class TestStatusTransitions:
         monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
                 step_result("t1", passed=False, verdict="fail"),
             ),
         )

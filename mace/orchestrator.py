@@ -33,7 +33,7 @@ import time
 
 from chia.database.sqlite_node import SQLiteNode
 
-from mace.integrator import integrate_parallel
+from mace.integrator import close_nodes, integrate_parallel, open_nodes
 from mace.llm import extract_cost_usd
 from mace.metrics import (
     finish_run,
@@ -133,63 +133,80 @@ def run_mace_loop(
     total_usd = 0.0
     status = "budget_exceeded"
 
-    for iteration in range(spec.budget.max_iterations):
-        if time.monotonic() - started > spec.budget.max_wall_s:
-            status = "budget_exceeded"
-            break
-        if total_usd > spec.budget.max_usd:
-            status = "budget_exceeded"
-            break
+    # Built on first use, inside the loop below (not here): a run that
+    # fails at the planning stage before ever reaching integrate_parallel
+    # must still touch no checkout, matching verify_checksums' own
+    # before-any-checkout-or-LLM-call guarantee above. Built at most once,
+    # then reused across every iteration and closed exactly once after the
+    # loop -- iterations of the same run share the same, never-changing
+    # piton_roots, so re-acquiring (and tearing down) a real Ray placement
+    # group per checkout on every single replan iteration is pure waste.
+    nodes: list | None = None
+    try:
+        for iteration in range(spec.budget.max_iterations):
+            if time.monotonic() - started > spec.budget.max_wall_s:
+                status = "budget_exceeded"
+                break
+            if total_usd > spec.budget.max_usd:
+                status = "budget_exceeded"
+                break
 
-        # Started before plan()'s own LLM round-trip, not just
-        # integrate_parallel's: the recorded wall_s (and therefore the
-        # execution_time_s the paper/README cite) must count real time the
-        # same way baseline (b) (examples/baseline_one_shot_llm.py) does --
-        # that script's timer starts before its own LLM call too. Starting
-        # this after plan() would silently exclude every Planner call's
-        # latency, biasing the comparison in this loop's favor.
-        iter_started = time.monotonic()
-        try:
-            tasks = plan(spec, llm, tools=tools, feedback=feedback)
-        except PlanningError:
-            status = "planning_failed"
-            break
+            # Started before plan()'s own LLM round-trip, not just
+            # integrate_parallel's: the recorded wall_s (and therefore the
+            # execution_time_s the paper/README cite) must count real time
+            # the same way baseline (b) (examples/baseline_one_shot_llm.py)
+            # does -- that script's timer starts before its own LLM call
+            # too. Starting this after plan() would silently exclude every
+            # Planner call's latency, biasing the comparison in this loop's
+            # favor.
+            iter_started = time.monotonic()
+            try:
+                tasks = plan(spec, llm, tools=tools, feedback=feedback)
+            except PlanningError:
+                status = "planning_failed"
+                break
 
-        results = integrate_parallel(
-            piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
-            on_task_progress=on_task_progress,
-        )
-        iter_wall_s = time.monotonic() - iter_started
-        iter_usd = sum(extract_cost_usd(r.query) for r in results)
-        total_usd += iter_usd
-        iterations.append(results)
-        diagnoses.append(None)  # overwritten below if this level gets triaged
-        record_iteration(db, run_id, iteration, results, iter_wall_s, usd=iter_usd)
-        if on_iteration is not None:
-            on_iteration(iteration, results)
+            if nodes is None:
+                nodes = open_nodes(piton_roots)
+            results = integrate_parallel(
+                piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
+                on_task_progress=on_task_progress, nodes=nodes,
+            )
+            iter_wall_s = time.monotonic() - iter_started
+            iter_usd = sum(extract_cost_usd(r.query) for r in results)
+            total_usd += iter_usd
+            iterations.append(results)
+            diagnoses.append(None)  # overwritten below if this level gets triaged
+            record_iteration(db, run_id, iteration, results, iter_wall_s, usd=iter_usd)
+            if on_iteration is not None:
+                on_iteration(iteration, results)
 
-        if results and all(r.passed for r in results):
-            status = "passed"
-            break
+            if results and all(r.passed for r in results):
+                status = "passed"
+                break
 
-        failed = next((r for r in results if not r.passed), None)
-        if failed is None:
-            # integrate_parallel returned nothing to run at all -- no task
-            # DAG produced any work, so there's nothing to triage either.
-            status = "failed"
-            break
+            failed = next((r for r in results if not r.passed), None)
+            if failed is None:
+                # integrate_parallel returned nothing to run at all -- no
+                # task DAG produced any work, so there's nothing to triage
+                # either.
+                status = "failed"
+                break
 
-        had_a_failure = True
-        try:
-            diagnosis = triage(failed, llm, tools=tools)
-        except TriageError:
-            diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
-        diagnoses[-1] = (failed.task.id, diagnosis)
-        record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
-        feedback = (
-            f"Task {failed.task.id} ({failed.task.spec}) failed: "
-            f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
-        )
+            had_a_failure = True
+            try:
+                diagnosis = triage(failed, llm, tools=tools)
+            except TriageError:
+                diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
+            diagnoses[-1] = (failed.task.id, diagnosis)
+            record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
+            feedback = (
+                f"Task {failed.task.id} ({failed.task.spec}) failed: "
+                f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
+            )
+    finally:
+        if nodes is not None:
+            close_nodes(nodes)
 
     post_mortem = None
     if status in _POST_MORTEM_STATUSES and iterations:
