@@ -48,7 +48,7 @@ conda create -n chia_env -c conda-forge --override-channels python=3.10.19
 conda activate chia_env
 
 git clone https://github.com/ucb-bar/chia.git
-pip install -e ./chia          # not on PyPI at the revision we build against
+pip install -e ./chia          # not on PyPI; tracks CHIA's main branch, no pin
 
 pip install -e ".[test]"       # this repo
 pytest chia_openpiton/test mace/test -q \
@@ -82,8 +82,8 @@ nix develop   # first run creates .venv and tells you the two pip installs above
 
 `chia` still installs the normal way inside that shell (`pip install -e
 /path/to/chia`) — it's intentionally not part of the Nix closure, since
-it isn't on PyPI at the revision this project builds against (see
-`pyproject.toml`'s own comment). Verified end to end: a real `nix
+it isn't on PyPI, and we track CHIA's main branch rather than a pinned
+commit (see `pyproject.toml`'s own comment). Verified end to end: a real `nix
 develop` builds cleanly and the resulting `riscv64-unknown-elf-gcc`
 actually compiles and links RV64 code.
 
