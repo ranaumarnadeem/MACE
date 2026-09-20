@@ -369,6 +369,24 @@ class TestWorkspaceFiles:
         with pytest.raises(ValueError, match="escapes base dir"):
             node.put_file("../../etc/passwd", "x")
 
+    def test_collect_pattern_cannot_escape_base_dir(self, node, stub_piton_root):
+        """A glob pattern with `..` components must not read files outside
+        base_dir -- base_dir is a confinement boundary, not just where the
+        glob starts. Reachable today from an LLM-facing tool call
+        (chia_openpiton.tools.CheckoutTools.collect's `pattern` argument).
+        """
+        secret = stub_piton_root / "secret.txt"
+        secret.write_text("do not ship this")
+        run_dir = stub_piton_root / "build" / "runs" / "1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "sim.log").write_text("ok")
+
+        got = node.collect(str(run_dir), ("../../../secret.txt",))
+
+        assert got.files == {}
+        assert "secret.txt" not in got.files
+        assert not any("secret" in name for name in got.listing)
+
     def test_collect_caps_large_files(self, node, stub_piton_root):
         target = stub_piton_root / "build" / "big.log"
         target.write_text("x" * 5000)

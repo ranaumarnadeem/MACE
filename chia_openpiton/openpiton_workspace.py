@@ -817,13 +817,17 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         Args:
             piton_root: OpenPiton checkout root on the worker.
             base_dir: Directory to glob under (absolute, or relative to the root).
-            patterns: Globs relative to *base_dir*; ``**`` is recursive.
+            patterns: Globs relative to *base_dir*; ``**`` is recursive. A
+                pattern containing ``..`` components that would resolve
+                outside *base_dir* (e.g. ``../../../../etc/passwd``) matches
+                nothing -- *base_dir* is the confinement boundary, not just
+                the glob's starting point.
             max_bytes_per_file: Files over this size are recorded in ``skipped``
                 rather than shipped -- protects against a glob matching a model
                 binary or a multi-megabyte waveform.
         """
         root = _require_root(piton_root)
-        base = base_dir if os.path.isabs(base_dir) else _resolve_under(root, base_dir)
+        base = os.path.normpath(base_dir if os.path.isabs(base_dir) else _resolve_under(root, base_dir))
         files: dict[str, str] = {}
         skipped: dict[str, int] = {}
         listing: dict[str, int] = {}
@@ -831,6 +835,12 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         for pattern in patterns:
             for path in _glob.glob(os.path.join(base, pattern), recursive=True):
                 if not os.path.isfile(path):
+                    continue
+                path = os.path.normpath(path)
+                if path != base and not path.startswith(base + os.sep):
+                    logger.warning(
+                        "collect: pattern %r matched outside base_dir %r -- skipped", pattern, base
+                    )
                     continue
                 rel = os.path.relpath(path, base)
                 if rel in files or rel in skipped:
