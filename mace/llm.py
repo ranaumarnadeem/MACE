@@ -24,6 +24,30 @@ class UnknownLLMBackendError(ValueError):
     """MACE_LLM (or the backend argument) named something not recognized."""
 
 
+# This project's only funded backend -- confirmed reachable on its GCP
+# project as of 2026-09-19. Only vertex gets a hardcoded default: forcing
+# it onto opencode/claude/antigravity fed a vertex-only model id straight
+# into their constructors regardless of --backend (a real regression --
+# see default_model_for_backend's docstring).
+DEFAULT_VERTEX_MODEL = "gemini-2.5-flash"
+
+
+def default_model_for_backend(model: str | None, backend: str) -> str | None:
+    """*model* if given; otherwise :data:`DEFAULT_VERTEX_MODEL` for
+    ``backend == "vertex"``, or ``None`` for any other backend so it falls
+    back to its own default instead.
+
+    Every call site that wants a zero-flag default for vertex used to
+    default its own ``--model``/``model`` value to ``DEFAULT_VERTEX_MODEL``
+    unconditionally, which then got forced onto every backend regardless of
+    which one was actually selected. Centralized here so the
+    backend-conditional part of the logic exists in exactly one place.
+    """
+    if model is not None:
+        return model
+    return DEFAULT_VERTEX_MODEL if backend == "vertex" else None
+
+
 def extract_cost_usd(query: QueryResult) -> float:
     """Best-effort $ cost of one LLM call, from whatever its backend reports.
 

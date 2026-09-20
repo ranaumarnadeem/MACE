@@ -32,7 +32,7 @@ import ray
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
-from mace.llm import extract_cost_usd, make_llm
+from mace.llm import default_model_for_backend, extract_cost_usd, make_llm
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 _PROMPT_TEMPLATE = """\
@@ -96,7 +96,11 @@ def main() -> int:
     ap.add_argument("--piton-root", required=True)
     ap.add_argument("--core", default="ariane", choices=("ariane", "sparc"))
     ap.add_argument("--backend", default="vertex", help="LLM backend -- vertex is this project's only funded one")
-    ap.add_argument("--model", default="gemini-2.5-flash")
+    ap.add_argument(
+        "--model", default=None,
+        help="Defaults to gemini-2.5-flash for --backend vertex; other backends use "
+        "their own default model unless one is given explicitly here.",
+    )
     ap.add_argument("--project", default="mace-508004")
     ap.add_argument(
         "--objective",
@@ -104,6 +108,7 @@ def main() -> int:
     )
     ap.add_argument("--workload", default="barrier_atomic.c")
     args = ap.parse_args()
+    args.model = default_model_for_backend(args.model, args.backend)
 
     piton_root = os.path.abspath(args.piton_root)
     os.environ.setdefault("GOOGLE_CLOUD_PROJECT", args.project)
@@ -111,7 +116,7 @@ def main() -> int:
     # avoids silently attaching to a stale torn-down cluster's marker.
     ray.init(address="local", resources={"openpiton": 1, f"{args.backend}_creds": 1})
 
-    llm = make_llm(args.backend, model=args.model)
+    llm = make_llm(args.backend, **({"model": args.model} if args.model else {}))
 
     print("asking the LLM for a config, once, no tools...", flush=True)
     started = time.monotonic()

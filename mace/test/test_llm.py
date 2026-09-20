@@ -13,7 +13,13 @@ from __future__ import annotations
 import pytest
 
 from chia.base.llm_call import LLMCallBase, QueryResult
-from mace.llm import UnknownLLMBackendError, extract_cost_usd, make_llm
+from mace.llm import (
+    DEFAULT_VERTEX_MODEL,
+    UnknownLLMBackendError,
+    default_model_for_backend,
+    extract_cost_usd,
+    make_llm,
+)
 
 
 class TestBackendSelection:
@@ -61,6 +67,23 @@ class TestModelSelection:
         monkeypatch.delenv("MACE_LLM_MODEL", raising=False)
         with pytest.raises(TypeError):
             make_llm("vertex")
+
+
+class TestDefaultModelForBackend:
+    """A zero-flag vertex default must never leak onto another backend --
+    see the function's own docstring for the regression this guards.
+    """
+
+    def test_no_model_defaults_to_the_funded_model_for_vertex(self):
+        assert default_model_for_backend(None, "vertex") == DEFAULT_VERTEX_MODEL
+
+    @pytest.mark.parametrize("backend", ["opencode", "claude", "antigravity"])
+    def test_no_model_stays_none_for_every_other_backend(self, backend):
+        assert default_model_for_backend(None, backend) is None
+
+    def test_explicit_model_is_never_overridden(self):
+        assert default_model_for_backend("small-pickle", "vertex") == "small-pickle"
+        assert default_model_for_backend("small-pickle", "opencode") == "small-pickle"
 
 
 class TestEachBackendConstructs:

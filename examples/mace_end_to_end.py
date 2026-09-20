@@ -28,7 +28,7 @@ import os
 
 import ray
 
-from mace.llm import make_llm
+from mace.llm import default_model_for_backend, make_llm
 from mace.metrics import open_db, summary
 from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec
@@ -40,7 +40,11 @@ def main() -> int:
     ap.add_argument("--piton-root-2", default=None, help="Second checkout, for fan-out")
     ap.add_argument("--core", default="ariane", choices=("ariane", "sparc", "pico"))
     ap.add_argument("--backend", default="vertex", help="LLM backend -- vertex is this project's only funded one")
-    ap.add_argument("--model", default="gemini-2.5-flash")
+    ap.add_argument(
+        "--model", default=None,
+        help="Defaults to gemini-2.5-flash for --backend vertex; other backends use "
+        "their own default model unless one is given explicitly here.",
+    )
     ap.add_argument("--project", default="mace-508004")
     ap.add_argument("--workload", default="barrier_atomic.c")
     ap.add_argument(
@@ -50,6 +54,7 @@ def main() -> int:
     ap.add_argument("--max-iterations", type=int, default=3)
     ap.add_argument("--db-path", default=os.path.abspath("runs/mace_end_to_end.db"))
     args = ap.parse_args()
+    args.model = default_model_for_backend(args.model, args.backend)
 
     piton_roots = tuple(
         os.path.abspath(p) for p in (args.piton_root, args.piton_root_2) if p
@@ -72,7 +77,7 @@ def main() -> int:
         target_mesh=(1, 1),
         budget=Budget(max_iterations=args.max_iterations),
     )
-    llm = make_llm(args.backend, model=args.model)
+    llm = make_llm(args.backend, **({"model": args.model} if args.model else {}))
     db = open_db(args.db_path, ray_placement=False)
 
     result = run_mace_loop(piton_roots, spec, llm, db)

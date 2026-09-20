@@ -39,7 +39,7 @@ from mace.cli.config import (
 )
 from mace.cli.session import KNOWN_MESH_OUTCOMES, Session
 from mace.cli.spec_file import parse_spec_file
-from mace.llm import make_llm
+from mace.llm import default_model_for_backend, make_llm
 from mace.metrics import get_post_mortem, module_status, open_db, record_post_mortem, summary
 from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec, PostMortem
@@ -678,9 +678,11 @@ def shell(
         "see mace.llm's own docstring).",
     ),
     model: str = typer.Option(
-        "gemini-2.5-flash", "--model",
-        help="Model name (sets MACE_LLM_MODEL). Confirmed reachable on this "
-        "project's GCP project as of 2026-09-19; required for vertex.",
+        None, "--model",
+        help="Model name (sets MACE_LLM_MODEL). Defaults to gemini-2.5-flash "
+        "(confirmed reachable on this project's GCP project as of 2026-09-19) "
+        "when backend=vertex and no model is given; other backends use their "
+        "own default model unless one is given explicitly here.",
     ),
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
 ) -> None:
@@ -715,6 +717,7 @@ def shell(
         )
         raise typer.Exit(code=1)
 
+    model = default_model_for_backend(model, backend)
     if model:
         os.environ["MACE_LLM_MODEL"] = model
     elif backend == "vertex" and "MACE_LLM_MODEL" not in os.environ:
