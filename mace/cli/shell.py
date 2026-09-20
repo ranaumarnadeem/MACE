@@ -147,7 +147,8 @@ def init(
     else:
         typer.echo(
             "\nSome tools are missing -- `read_verilog`/`run` may fail until "
-            "they're on PATH. See docs/TECHNICAL_GUIDE.md section 9 for setup."
+            "they're on PATH. See docs/TECHNICAL_GUIDE.md section 9 for setup.\n"
+            f"Run:\n  {run_command}"
         )
 
 
