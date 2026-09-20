@@ -48,7 +48,15 @@ from mace.cli.config import (
 from mace.cli.session import KNOWN_MESH_OUTCOMES, Session
 from mace.cli.spec_file import parse_spec_file
 from mace.llm import default_model_for_backend, make_llm
-from mace.metrics import get_post_mortem, module_status, open_db, record_post_mortem, summary
+from mace.metrics import (
+    all_runs,
+    failure_taxonomy,
+    get_post_mortem,
+    module_status,
+    open_db,
+    record_post_mortem,
+    summary,
+)
 from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec, PostMortem
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT
@@ -923,6 +931,62 @@ def shell(
         MaceShell(session, llm, db).cmdloop()
     finally:
         ray.shutdown()
+
+
+@app.command()
+def results(
+    db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
+    run_id: str = typer.Option(
+        None, help="Show this run's failure taxonomy instead of the cross-run table"
+    ),
+) -> None:
+    """Read-only report over the metrics database. No Ray, no session -- just
+    mace.metrics.all_runs()/failure_taxonomy() formatted, so a demo doesn't
+    need a live shell to show what past runs did."""
+    db = open_db(os.path.abspath(db_path), ray_placement=False)
+    console = Console()
+
+    if run_id is not None:
+        rows = failure_taxonomy(db, run_id)
+        if not rows:
+            console.print(f"No recorded failures for run_id={run_id!r}.")
+            return
+        table = Table(title=f"Failure taxonomy -- run_id={run_id}")
+        table.add_column("diagnosis")
+        table.add_column("total", justify="right")
+        table.add_column("recovered", justify="right")
+        for row in rows:
+            table.add_row(row["diagnosis"], str(row["total"]), str(row["recovered"]))
+        console.print(table)
+        return
+
+    runs = all_runs(db)
+    if not runs:
+        console.print(f"No runs recorded in {db_path}.")
+        return
+    table = Table(title=f"Runs -- {db_path}")
+    for col in ("run_id", "core", "mesh", "status", "tasks", "iterations", "wall_s", "usd"):
+        table.add_column(col)
+    for r in runs:
+        table.add_row(
+            r["run_id"],
+            r["core"],
+            f"{r['x_tiles']}x{r['y_tiles']}",
+            r["status"],
+            str(r["successful_tasks"]),
+            str(r["iterations"]),
+            f"{r['execution_time_s']:.1f}",
+            f"{r['compute_usd']:.4f}",
+        )
+    console.print(table)
+
+    passed = sum(1 for r in runs if r["status"] == "passed")
+    total_cost = sum(r["compute_usd"] for r in runs)
+    total_wall = sum(r["execution_time_s"] for r in runs)
+    console.print(
+        f"\n{passed}/{len(runs)} runs passed -- {total_wall:.1f}s total execution "
+        f"time, ${total_cost:.4f} total compute cost."
+    )
 
 
 def main() -> None:

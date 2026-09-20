@@ -967,9 +967,11 @@ in doctor-style checks, see above) plus one `mace shell` REPL whose
 `read_verilog`/`top_module`/`set_core`/`run`/`write_report` commands
 accumulate session state and drive the real loop, including real
 `on_iteration` progress (see above) — not a set of independent subcommands.
-The remaining real gaps are `mace cluster up/down/status` (see "What's
-deliberately not built yet" above) and a `mace results` reader over
-`mace.metrics.summary()`, which nothing here has built yet.
+`mace results` (a read-only cross-run table plus a per-run
+`--run-id`/failure-taxonomy view, over `mace.metrics.all_runs`/
+`failure_taxonomy`) has since been built too. The one remaining real gap is
+`mace cluster up/down/status` (see "What's deliberately not built yet"
+above).
 
 ## 13. Where to find more
 

@@ -220,6 +220,61 @@ class TestInit:
         assert f"--api {env_file}" in result.output
 
 
+class TestResults:
+    """`mace results` -- a read-only report over the metrics db, no Ray or
+    live session needed (see mace.metrics.all_runs/failure_taxonomy)."""
+
+    def test_no_runs_recorded_says_so(self, tmp_path):
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "empty.db"
+        metrics.open_db(str(db_path), ray_placement=False)
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path)])
+
+        assert result.exit_code == 0
+        assert "No runs recorded" in result.output
+
+    def test_lists_recorded_runs_with_their_summary_metrics(self, tmp_path):
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "runs.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1"))
+        metrics.finish_run(db, run_id, "passed")
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path)])
+
+        assert result.exit_code == 0
+        assert run_id in result.output
+        assert "passed" in result.output
+
+    def test_run_id_shows_failure_taxonomy_instead_of_the_runs_table(self, tmp_path):
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "runs.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1"))
+        metrics.record_failure(db, run_id, 0, "a", "timeout", recovered=True)
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path), "--run-id", run_id])
+
+        assert result.exit_code == 0
+        assert "timeout" in result.output
+
+    def test_run_id_with_no_recorded_failures_says_so(self, tmp_path):
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "runs.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1"))
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path), "--run-id", run_id])
+
+        assert result.exit_code == 0
+        assert "No recorded failures" in result.output
+
+
 class TestHandleReadVerilog:
     def test_registers_existing_files(self, tmp_path):
         f = tmp_path / "core.v"
