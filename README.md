@@ -51,7 +51,8 @@ git clone https://github.com/ucb-bar/chia.git
 pip install -e ./chia          # not on PyPI at the revision we build against
 
 pip install -e ".[test]"       # this repo
-pytest chia_openpiton/test -q  # tier 0: no Ray, no OpenPiton needed
+pytest chia_openpiton/test mace/test -q \
+    --ignore=chia_openpiton/test/cluster --ignore=mace/test/cluster  # tier 0: no Ray, no OpenPiton needed
 ```
 
 To actually build and simulate RTL (anything beyond tier-0 tests), you also
