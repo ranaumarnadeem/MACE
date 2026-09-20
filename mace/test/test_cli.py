@@ -26,6 +26,7 @@ from mace.cli.shell import (
     handle_set_core,
     handle_top_module,
     no_adapter_post_mortem,
+    parse_script_lines,
     resolve_verilator_coverage,
 )
 from mace.spec import LoopResult, MaceSpec, PostMortem, StepResult, Task
@@ -338,6 +339,81 @@ class TestClusterCommands:
         result = CliRunner().invoke(app, ["cluster", "status"])
 
         assert result.exit_code == 1
+
+
+class TestParseScriptLines:
+    def test_strips_blank_lines_and_comments(self):
+        text = "read_verilog a.v\n\n# a comment\n  top_module a_top  \n# another\nrun\n"
+        assert parse_script_lines(text) == ["read_verilog a.v", "top_module a_top", "run"]
+
+    def test_empty_text_is_an_empty_list(self):
+        assert parse_script_lines("") == []
+
+    def test_whitespace_only_line_is_dropped(self):
+        assert parse_script_lines("run\n   \nexit\n") == ["run", "exit"]
+
+
+class TestRunScript:
+    """MaceShell.run_script -- the non-interactive `-c script.mace`
+    counterpart to cmdloop(), run through onecmd() the same way an
+    interactive session's typed commands are."""
+
+    def test_runs_each_line_in_order(self):
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.run_script(["top_module ariane_top", "set_core 1"])
+
+        assert session.top_module == "ariane_top"
+        assert session.core_count == 1
+
+    def test_stops_early_on_exit(self):
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.run_script(["top_module ariane_top", "exit", "top_module sparc_top"])
+
+        assert session.top_module == "ariane_top"  # the line after exit never ran
+
+    def test_an_error_in_one_line_does_not_abort_the_rest(self, capsys):
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.run_script(["read_verilog /no/such/file.v", "top_module ariane_top"])
+
+        out = capsys.readouterr().out
+        assert "ERROR" in out
+        assert session.top_module == "ariane_top"  # execution continued past the error
+
+
+class TestShellScriptOption:
+    def test_missing_script_file_fails_fast_before_ray_init(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        env_file = tmp_path / ".env"
+        write_env_file("opencode", "sk-test", env_file)
+
+        def fail_if_called(*a, **k):
+            raise AssertionError("ray.init must not be reached when the script file is missing")
+
+        monkeypatch.setattr("mace.cli.shell.ray.init", fail_if_called)
+
+        result = CliRunner().invoke(
+            app,
+            [
+                "shell", "--piton-root", "/x", "--backend", "opencode", "--api", str(env_file),
+                "--script", str(tmp_path / "does_not_exist.mace"),
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Can't read script file" in result.output
 
 
 class TestHandleReadVerilog:

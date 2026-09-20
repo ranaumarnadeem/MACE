@@ -463,6 +463,20 @@ def _print_result(console: Console, msg: str) -> None:
         console.print(f"[green]✓[/green] {msg}")
 
 
+def parse_script_lines(text: str) -> list[str]:
+    """Executable command lines from a script file's text -- blank lines and
+    full-line ``#`` comments are dropped, matching Yosys's own
+    ``-c script.ys`` convention (see MaceShell.run_script). cmd.Cmd's own
+    line dispatch has no comment syntax -- a literal ``#`` line left in
+    would hit `default()` as an "unknown command" instead of being ignored.
+    """
+    return [
+        line
+        for line in (raw.strip() for raw in text.splitlines())
+        if line and not line.startswith("#")
+    ]
+
+
 def _print_post_mortem(console: Console, pm: PostMortem) -> None:
     style = _ASSESSMENT_STYLE.get(pm.assessment, "white")
     body = f"[bold]{pm.assessment}[/bold]\n\n{pm.explanation}"
@@ -845,6 +859,23 @@ class MaceShell(cmd.Cmd):
     def emptyline(self) -> None:
         pass  # cmd.Cmd's default re-runs the last command on a blank line -- surprising here
 
+    def run_script(self, lines: list[str]) -> None:
+        """Non-interactive counterpart to cmdloop() -- run each line through
+        onecmd() in order, exactly like a typed interactive session, just
+        read from a file instead of stdin (Yosys's own ``-c script.ys``
+        convention). Stops early only if a command signals STOP (exit/EOF),
+        matching cmd.Cmd's own convention; any other error is reported and
+        execution continues to the next line, the same as onecmd's own
+        interactive error handling already does.
+        """
+        for line in lines:
+            self.console.print(f"{self.prompt}{line}")
+            line = self.precmd(line)
+            stop = self.onecmd(line)
+            stop = self.postcmd(stop, line)
+            if stop:
+                break
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -877,6 +908,12 @@ def shell(
         "own default model unless one is given explicitly here.",
     ),
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
+    script: str = typer.Option(
+        None, "--script", "-c",
+        help="Run commands from this file non-interactively instead of starting the "
+        "REPL (Yosys's own -c convention; blank lines and full-line # comments are "
+        "skipped -- see MaceShell.run_script).",
+    ),
 ) -> None:
     """Start the interactive shell (read_verilog, top_module, read_spec, set_core, run, write_report)."""
     # --api is mandatory for a literal-API-key backend, not auto-loaded from a
@@ -922,13 +959,27 @@ def shell(
         # project, reachable via the Vertex REST API) rather than guessed.
         os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "mace-508004")
 
+    script_lines = None
+    if script is not None:
+        # Fail fast, before touching Ray or the LLM backend -- same
+        # convention --api's own missing-file check follows above.
+        try:
+            script_lines = parse_script_lines(Path(script).read_text())
+        except OSError as e:
+            typer.echo(f"Can't read script file {script!r}: {e}")
+            raise typer.Exit(code=1)
+
     ray.init(address="local", resources={"openpiton": 1, f"{backend}_creds": 1})
     llm = make_llm(backend)
     db = open_db(os.path.abspath(db_path), ray_placement=False)
     session = Session(piton_root=piton_root)
 
     try:
-        MaceShell(session, llm, db).cmdloop()
+        shell_obj = MaceShell(session, llm, db)
+        if script_lines is not None:
+            shell_obj.run_script(script_lines)
+        else:
+            shell_obj.cmdloop()
     finally:
         ray.shutdown()
 
