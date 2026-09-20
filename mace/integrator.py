@@ -37,9 +37,16 @@ def topological_levels(tasks: tuple[Task, ...]) -> tuple[tuple[Task, ...], ...]:
     Deterministic: within a level, relative order in *tasks* is preserved.
 
     Raises:
-        ValueError: a dep id that isn't any task's id, or a dependency cycle.
+        ValueError: a duplicate task id, a dep id that isn't any task's id,
+            or a dependency cycle.
     """
     by_id = {t.id: t for t in tasks}
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for t in tasks:
+        (dupes if t.id in seen else seen).add(t.id)
+    if dupes:
+        raise ValueError(f"duplicate task ids: {', '.join(sorted(dupes))}")
     for t in tasks:
         for d in t.deps:
             if d not in by_id:

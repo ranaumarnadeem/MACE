@@ -63,6 +63,10 @@ class TestTopologicalOrder:
         with pytest.raises(ValueError, match="cycle"):
             topological_order((a, b))
 
+    def test_duplicate_id_raises(self):
+        with pytest.raises(ValueError, match="duplicate task ids"):
+            topological_order((task("a"), task("a")))
+
 
 class TestTopologicalLevels:
     def test_empty_is_empty(self):
@@ -92,6 +96,10 @@ class TestTopologicalLevels:
         b = task("b", deps=("a",))
         with pytest.raises(ValueError, match="cycle"):
             topological_levels((a, b))
+
+    def test_duplicate_id_raises(self):
+        with pytest.raises(ValueError, match="duplicate task ids"):
+            topological_levels((task("a"), task("a", deps=("b",)), task("b")))
 
     def test_flattening_levels_matches_topological_order(self):
         a = task("a")
