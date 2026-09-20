@@ -1,6 +1,9 @@
 # CHIA worker image for OpenPiton: CHIA's own base (Ray 2.54.0 + Python
 # 3.10.19 + chia already installed, Ubuntu 22.04.5) plus everything OpenPiton's
-# Ariane flow needs to configure/build/run.
+# Ariane flow needs to configure/build/run. Pinned to CHIA's v1.0.1 release tag
+# (the version whose pyproject.toml/ChiaDockerfile match the versions named
+# above) rather than :latest, so this file's own stated facts can't silently
+# go stale under it -- bump both together when picking up a new CHIA release.
 #
 # Deliberately does NOT COPY an OpenPiton checkout in — the agent edits RTL
 # source, so that state should be synced per-run (CHIA's `file_mounts` in
@@ -32,7 +35,7 @@
 # both v4 (this image) and v5 (this project's WSL dev host) build OpenPiton's
 # Ariane tile correctly.
 
-FROM ghcr.io/ucb-bar/chia:latest
+FROM ghcr.io/ucb-bar/chia:v1.0.1
 
 ARG RISCV_TOOLCHAIN_URL=https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2026.08.27/riscv64-elf-ubuntu-22.04-gcc.tar.xz
 
