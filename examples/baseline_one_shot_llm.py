@@ -94,7 +94,7 @@ def parse_config(text: str, core: str) -> PitonConfig:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--piton-root", required=True)
-    ap.add_argument("--core", default="ariane", choices=("ariane", "sparc"))
+    ap.add_argument("--core", default="ariane", choices=("ariane", "sparc", "pico"))
     ap.add_argument("--backend", default="vertex", help="LLM backend -- vertex is this project's only funded one")
     ap.add_argument(
         "--model", default=None,
