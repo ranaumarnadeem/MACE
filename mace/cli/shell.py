@@ -933,6 +933,58 @@ def shell(
         ray.shutdown()
 
 
+cluster_app = typer.Typer(
+    help="Thin wrapper over chia up/down and ray status -- see "
+    "docs/TECHNICAL_GUIDE.md section 9 for what these actually do."
+)
+app.add_typer(cluster_app, name="cluster")
+
+
+def _run_chia(cmd: list[str]) -> None:
+    """Shell out and exit with the child's own exit code -- a pass-through,
+    not a reimplementation, so chia up/down's own prompts, errors, and exit
+    codes are exactly what the user sees, not a MACE-specific paraphrase of
+    them."""
+    result = subprocess.run(cmd)
+    raise typer.Exit(code=result.returncode)
+
+
+@cluster_app.command("up")
+def cluster_up(
+    config_file: str = typer.Argument(..., help="Cluster YAML config, e.g. cluster/local.yaml"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip chia up's interactive confirmation"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without provisioning anything"),
+) -> None:
+    """Bring up a cluster. Cloud nodes are real, billed compute -- read
+    docs/TECHNICAL_GUIDE.md section 9.3 before running this against GCP."""
+    cmd = ["chia", "up", config_file]
+    if yes:
+        cmd.append("--yes")
+    if dry_run:
+        cmd.append("--dry-run")
+    _run_chia(cmd)
+
+
+@cluster_app.command("down")
+def cluster_down(
+    config_file: str = typer.Argument(..., help="Cluster YAML config, e.g. cluster/local.yaml"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip chia down's interactive confirmation"),
+) -> None:
+    """Tear down a cluster. Always verify afterward (e.g. `gcloud compute
+    instances list`) -- never assume a teardown succeeded."""
+    cmd = ["chia", "down", config_file]
+    if yes:
+        cmd.append("--yes")
+    _run_chia(cmd)
+
+
+@cluster_app.command("status")
+def cluster_status() -> None:
+    """Proxy to `ray status` for whatever cluster this machine is currently
+    connected to (chia promotes this exact command -- see chia.cli.main)."""
+    _run_chia(["ray", "status"])
+
+
 @app.command()
 def results(
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),

@@ -275,6 +275,71 @@ class TestResults:
         assert "No recorded failures" in result.output
 
 
+class TestClusterCommands:
+    """mace cluster up/down/status -- thin subprocess wrappers over chia
+    up/chia down/ray status. Every test fakes subprocess.run so no real
+    chia/ray process -- and no real, billed GCP compute -- is ever touched
+    by running this test suite."""
+
+    def _fake_run(self, monkeypatch, returncode=0):
+        from types import SimpleNamespace
+
+        calls = []
+
+        def fake(cmd):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=returncode)
+
+        monkeypatch.setattr("mace.cli.shell.subprocess.run", fake)
+        return calls
+
+    def test_up_shells_out_to_chia_up_with_the_config_file(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        calls = self._fake_run(monkeypatch)
+        result = CliRunner().invoke(app, ["cluster", "up", "cluster/local.yaml"])
+
+        assert result.exit_code == 0
+        assert calls == [["chia", "up", "cluster/local.yaml"]]
+
+    def test_up_forwards_yes_and_dry_run(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        calls = self._fake_run(monkeypatch)
+        result = CliRunner().invoke(
+            app, ["cluster", "up", "cluster/local.yaml", "--yes", "--dry-run"]
+        )
+
+        assert result.exit_code == 0
+        assert calls == [["chia", "up", "cluster/local.yaml", "--yes", "--dry-run"]]
+
+    def test_down_shells_out_to_chia_down(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        calls = self._fake_run(monkeypatch)
+        result = CliRunner().invoke(app, ["cluster", "down", "cluster/local.yaml", "-y"])
+
+        assert result.exit_code == 0
+        assert calls == [["chia", "down", "cluster/local.yaml", "--yes"]]
+
+    def test_status_proxies_to_ray_status(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        calls = self._fake_run(monkeypatch)
+        result = CliRunner().invoke(app, ["cluster", "status"])
+
+        assert result.exit_code == 0
+        assert calls == [["ray", "status"]]
+
+    def test_nonzero_child_exit_code_propagates(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        self._fake_run(monkeypatch, returncode=1)
+        result = CliRunner().invoke(app, ["cluster", "status"])
+
+        assert result.exit_code == 1
+
+
 class TestHandleReadVerilog:
     def test_registers_existing_files(self, tmp_path):
         f = tmp_path / "core.v"
