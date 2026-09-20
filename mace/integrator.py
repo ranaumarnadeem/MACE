@@ -187,42 +187,63 @@ def _run_batch(
     geometry than its batch-mates -- e.g. one task deliberately building an
     undersized L1D to probe a gate workload, another building the mesh's
     normal default in the same level.
+
+    A ``unit_test``-kind task is run locally instead, via
+    mace.loop.run_mace_step against its slot's own checkout (scaffold,
+    reconcile, build -- never run; see run_mace_step's own docstring) --
+    exactly like mace.integrator.integrate's serial path, and never through
+    the remote pipeline below. ``task.spec`` for a unit_test task is a bare
+    RTL path, not an edit instruction, and _config_for_task builds the full
+    manycore mesh spec.core describes, not the scaffolded single-module
+    ``PitonConfig(sys=env_name)`` run_mace_step._run_unit_test_step builds
+    -- dispatching it through the remote prompt/build/run calls below would
+    silently build and run the wrong thing.
     """
-    configs = [_config_for_task(spec, task) for task in batch]
+    results: list[StepResult | None] = [None] * len(batch)
+    remote_indices = [i for i, task in enumerate(batch) if task.kind != "unit_test"]
+    for i, (node, task) in enumerate(zip(nodes, batch)):
+        if task.kind == "unit_test":
+            results[i] = run_mace_step(node.piton_root, spec, task, llm, tools=tools)
+
+    if not remote_indices:
+        return results
+
+    remote_batch = [batch[i] for i in remote_indices]
+    remote_nodes = [nodes[i] for i in remote_indices]
+    configs = [_config_for_task(spec, task) for task in remote_batch]
 
     def _tag(task_id: str, phase: str) -> str | None:
         return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None
 
     prompt_refs = [
         llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
-        for task in batch
+        for task in remote_batch
     ]
     queries = [get(ref) for ref in prompt_refs]
 
     build_refs = [
         node.build.chia_remote(config, _chia_tag=_tag(task.id, "build"))
-        for node, config, task in zip(nodes, configs, batch)
+        for node, config, task in zip(remote_nodes, configs, remote_batch)
     ]
     builds = [get(ref) for ref in build_refs]
 
     run_refs = {
-        i: nodes[i].run.chia_remote(
-            configs[i],
+        j: remote_nodes[j].run.chia_remote(
+            configs[j],
             spec.workloads[0],
             asm_diag_root=asm_diag_root,
             rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
-            _chia_tag=_tag(batch[i].id, "run"),
+            _chia_tag=_tag(remote_batch[j].id, "run"),
         )
-        for i, build in enumerate(builds)
+        for j, build in enumerate(builds)
         if build.success
     }
-    runs = {i: get(ref) for i, ref in run_refs.items()}
+    runs = {j: get(ref) for j, ref in run_refs.items()}
 
-    results: list[StepResult] = []
-    for i, task in enumerate(batch):
-        run = runs.get(i)
+    for j, task in enumerate(remote_batch):
+        run = runs.get(j)
         passed = run.success if run is not None else False
-        results.append(
-            StepResult(task=task, query=queries[i], build=builds[i], run=run, passed=passed)
+        results[remote_indices[j]] = StepResult(
+            task=task, query=queries[j], build=builds[j], run=run, passed=passed
         )
     return results

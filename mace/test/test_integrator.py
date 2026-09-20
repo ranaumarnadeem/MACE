@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from mace.integrator import integrate, topological_levels, topological_order
+from mace.integrator import _run_batch, integrate, topological_levels, topological_order
 from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM
+from mace.workloads import WORKLOADS_DIR
 
 
 def task(id, deps=(), kind="workload", spec="hello_world.c"):
@@ -158,3 +159,50 @@ class TestIntegrate:
 
     def test_empty_task_list_produces_no_results(self, stub_piton_root):
         assert integrate(str(stub_piton_root), make_spec(), (), FakeLLM(responses=[])) == ()
+
+
+class _NodeStub:
+    """Just enough of OpenPitonWorkspaceNode for _run_batch's local
+    unit_test path: a real ``piton_root`` attribute, no remote methods --
+    deliberately, so a test can prove a unit_test-only batch never touches
+    them (the whole point of the fix under test).
+    """
+
+    def __init__(self, piton_root):
+        self.piton_root = str(piton_root)
+
+
+class TestRunBatchUnitTestDispatch:
+    """A unit_test-kind task in integrate_parallel's batch must go through
+    mace.loop.run_mace_step (scaffold, build, never run) against its own
+    checkout, exactly like integrate()'s serial path -- not the remote
+    manycore prompt/build/run pipeline, which would treat the task's spec
+    (a bare RTL path) as an edit instruction and build the full mesh
+    instead of the scaffolded single-module env. See _run_batch's own
+    docstring for the bug this guards.
+    """
+
+    def _rtl_module(self, stub_piton_root, rel_path="design/foo.v"):
+        rtl = stub_piton_root / rel_path
+        rtl.parent.mkdir(parents=True, exist_ok=True)
+        rtl.write_text("module foo (\n  input clk,\n  output reg done\n);\nendmodule\n")
+        return rel_path
+
+    def test_runs_locally_never_touching_the_remote_pipeline(self, stub_piton_root, monkeypatch):
+        env_dir = stub_piton_root / "piton" / "verif" / "env" / "design_foo_ut"
+        env_dir.mkdir(parents=True)
+        rel_path = self._rtl_module(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        unit_task = task("t1", kind="unit_test", spec=rel_path)
+        node = _NodeStub(stub_piton_root)  # no .prompt/.build/.run -- must stay untouched
+
+        results = _run_batch(
+            [node], make_spec(), [unit_task], llm, (), str(WORKLOADS_DIR), None, 0
+        )
+
+        assert len(results) == 1
+        assert results[0].task is unit_task
+        assert results[0].build.success is True
+        assert results[0].run is None  # unit_test is gated on build only, never run
+        assert results[0].passed is True
