@@ -166,7 +166,14 @@ def handle_read_verilog(session: Session, arg: str) -> str:
     """
     if not arg.strip():
         return "ERROR: read_verilog needs at least one file"
-    files = [Path(f) for f in shlex.split(arg)]
+    try:
+        tokens = shlex.split(arg)
+    except ValueError as e:
+        # An unterminated quote (read_verilog "foo.v) -- caught here so it
+        # gets this module's own clean ERROR: message, not the shell's
+        # generic exception handler's raw "ValueError: ..." text.
+        return f"ERROR: {e}"
+    files = [Path(f) for f in tokens]
     missing = [f for f in files if not f.exists()]
     if missing:
         return "ERROR: file(s) not found: " + ", ".join(str(f) for f in missing)
@@ -574,7 +581,14 @@ class MaceShell(cmd.Cmd):
         # sticks for future `run`s too (matching set_core's own
         # accumulates-until-changed convention), and actually changes what
         # gets built (chia_openpiton.state_def.COVERAGE_LINE_FLAG).
-        tokens = shlex.split(arg) if arg.strip() else []
+        try:
+            tokens = shlex.split(arg) if arg.strip() else []
+        except ValueError as e:
+            # An unterminated quote -- caught here so it gets this command's
+            # own clean ERROR: message, not the shell's generic exception
+            # handler's raw "ValueError: ..." text.
+            c.print(f"[bold red]✗ ERROR: {e}[/bold red]")
+            return
         recognized = {"-verbose", "--verbose", "-coverage", "--coverage"}
         unknown = [t for t in tokens if t not in recognized]
         if unknown:

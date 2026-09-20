@@ -241,6 +241,11 @@ class TestHandleReadVerilog:
         session = Session(piton_root="/x")
         assert handle_read_verilog(session, "").startswith("ERROR")
 
+    def test_unterminated_quote_is_a_clean_error_not_a_raw_valueerror(self):
+        session = Session(piton_root="/x")
+        msg = handle_read_verilog(session, '"foo.v')
+        assert msg.startswith("ERROR")
+
     def test_success_message_does_not_claim_the_files_get_built(self, tmp_path):
         # session.verilog_files is validated-only -- build_spec_from_session
         # never reads it -- so the message must not imply `run` will use these
@@ -456,6 +461,22 @@ class TestDoRun:
         shell.do_run("-bogus")
 
         assert "unknown run option" in capsys.readouterr().out
+
+    def test_unterminated_quote_is_a_clean_error_not_a_raw_valueerror(self, capsys):
+        """shlex.split raises a bare ValueError on an unterminated quote --
+        previously uncaught here, so it fell through to onecmd's generic
+        handler and printed an inconsistent raw "ValueError: ..." message
+        instead of this command's own clean ERROR: style.
+        """
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x", top_module="not_a_known_core")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.do_run('"unterminated')
+
+        out = capsys.readouterr().out
+        assert "ERROR" in out
 
 
 class TestPrompt:
