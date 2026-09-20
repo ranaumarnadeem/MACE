@@ -488,6 +488,49 @@ class TestHistoryPersistence:
         shell.postloop()  # neither raises
 
 
+class TestPathCompletion:
+    def test_completes_matching_files(self, tmp_path):
+        from mace.cli.shell import _complete_path
+
+        (tmp_path / "core_a.v").write_text("")
+        (tmp_path / "core_b.v").write_text("")
+        (tmp_path / "other.txt").write_text("")
+
+        matches = _complete_path(str(tmp_path / "core"))
+
+        assert sorted(matches) == sorted(
+            [str(tmp_path / "core_a.v"), str(tmp_path / "core_b.v")]
+        )
+
+    def test_directories_get_a_trailing_separator(self, tmp_path):
+        import os
+
+        from mace.cli.shell import _complete_path
+
+        (tmp_path / "subdir").mkdir()
+
+        matches = _complete_path(str(tmp_path / "sub"))
+
+        assert matches == [str(tmp_path / "subdir") + os.sep]
+
+    def test_no_matches_is_an_empty_list_not_an_error(self, tmp_path):
+        from mace.cli.shell import _complete_path
+
+        assert _complete_path(str(tmp_path / "nope_does_not_exist")) == []
+
+    def test_read_verilog_read_spec_and_write_report_all_wire_up_the_completer(
+        self, monkeypatch
+    ):
+        from mace.cli.shell import MaceShell
+
+        monkeypatch.setattr("mace.cli.shell._complete_path", lambda text: [f"{text}-match"])
+        shell = MaceShell(Session(piton_root="/x"), llm=None, db=None)
+
+        assert shell.complete_read_verilog("foo", "read_verilog foo", 13, 16) == ["foo-match"]
+        assert shell.complete_read_spec("foo", "read_spec foo", 10, 13) == ["foo-match"]
+        assert shell.complete_write_report("foo", "write_report foo", 13, 16) == ["foo-match"]
+
+
 class TestDefault:
     """Unknown-command handling -- a generic closest-match suggestion on
     top of the two hand-diagnosed cases (`init`, `mace`) already there.

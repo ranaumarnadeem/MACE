@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import cmd
 import difflib
+import glob as _glob
 import os
 import shlex
 import shutil
@@ -408,6 +409,21 @@ _HELP_ORDER = (
 )
 
 
+def _complete_path(text: str) -> list[str]:
+    """Filesystem completions for *text*, the partial path already typed --
+    a directory gets a trailing separator so tab-completion can keep
+    descending into it, matching a real shell's own convention. Best-effort:
+    an unreadable path segment just yields no completions rather than
+    raising into readline's own completer, which cmd.Cmd has no clean way
+    to recover from mid-keystroke.
+    """
+    try:
+        matches = _glob.glob(text + "*")
+    except OSError:
+        return []
+    return [m + os.sep if os.path.isdir(m) else m for m in matches]
+
+
 def _print_result(console: Console, msg: str) -> None:
     """Render a handle_*() result: red for an ERROR:-prefixed message, a
     green check for everything else."""
@@ -515,6 +531,9 @@ class MaceShell(cmd.Cmd):
         """read_verilog <file> [file2 ...] -- register RTL source files for the target core."""
         _print_result(self.console, handle_read_verilog(self.session, arg))
 
+    def complete_read_verilog(self, text, line, begidx, endidx):
+        return _complete_path(text)
+
     def do_top_module(self, arg: str) -> None:
         """top_module <name> -- declare the design's top-level module."""
         _print_result(self.console, handle_top_module(self.session, arg))
@@ -522,6 +541,9 @@ class MaceShell(cmd.Cmd):
     def do_read_spec(self, arg: str) -> None:
         """read_spec <file.txt> -- read the objective (and optionally workloads/core) from a text file."""
         _print_result(self.console, handle_read_spec(self.session, arg))
+
+    def complete_read_spec(self, text, line, begidx, endidx):
+        return _complete_path(text)
 
     def do_set_core(self, arg: str) -> None:
         """set_core <N> -- target N total tiles (MACE picks a mesh shape and tells you what's known about it)."""
@@ -690,6 +712,9 @@ class MaceShell(cmd.Cmd):
         text = format_report(self.session, self.db)
         Path(target).write_text(text)
         self.console.print(f"[green]✓[/green] wrote {target}")
+
+    def complete_write_report(self, text, line, begidx, endidx):
+        return _complete_path(text)
 
     def do_help(self, arg: str) -> None:
         """help [command] -- list commands, or show one command's full docstring."""
