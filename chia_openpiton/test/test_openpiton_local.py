@@ -511,6 +511,23 @@ class TestRunVerdicts:
         b = node.run(cfg, "t.s")
         assert a.run_dir != b.run_dir
 
+    def test_run_dirs_still_differ_when_two_runs_land_in_the_same_millisecond(
+        self, node, cfg, monkeypatch
+    ):
+        """Regression test: run_dir's suffix used to be
+        int(time.time() * 1000) % 100000, unique only for 100s -- two runs
+        of the same test within that window collided on one directory, and
+        makedirs(exist_ok=True) never caught it. Freeze time.time() so both
+        calls land in the identical millisecond, which the old scheme could
+        not tell apart at all."""
+        import chia_openpiton.openpiton_workspace as ws
+
+        monkeypatch.setattr(ws.time, "time", lambda: 1700000000.0)
+        node.build(cfg)
+        a = node.run(cfg, "t.s")
+        b = node.run(cfg, "t.s")
+        assert a.run_dir != b.run_dir
+
     def test_verdict_survives_a_transcript_longer_than_the_shipped_tail(
         self, node, cfg, monkeypatch
     ):

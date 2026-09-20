@@ -31,6 +31,7 @@ import shlex
 import signal
 import subprocess
 import time
+import uuid
 
 from chia.base.ChiaFunction import ChiaFunction
 from chia.base.colocated import ColocatedNode
@@ -62,6 +63,12 @@ MODEL_BINARY = "obj_dir/Vcmp_top"
 
 # See OpenPitonWorkspaceNode.verilator_version_text's own docstring.
 _VERILATOR_VERSION_CACHE: dict[tuple[str, str], str] = {}
+
+# Appended to stderr only by _run's own TimeoutExpired branch -- never by its
+# OSError branch, which also returns rc=-1 but for a real launch failure (e.g.
+# exhausted file descriptors), not a timeout. run() greps for this marker
+# rather than trusting rc==-1 alone, so a launch failure isn't mislabeled.
+_TIMEOUT_MARKER = "sims timed out after"
 
 
 def _find_model_binary(model_dir: str, sys: str) -> str:
@@ -211,6 +218,9 @@ def _run(
             env=merged,
         )
     except OSError as e:
+        # Shares rc=-1 with the real TimeoutExpired branch below, but this is
+        # a launch failure (e.g. exhausted file descriptors) -- stderr here is
+        # just str(e), never _TIMEOUT_MARKER, which is how run() tells them apart.
         logger.error("could not launch: %s", e)
         return "", str(e), -1, time.time() - started
 
@@ -223,7 +233,7 @@ def _run(
         except (ProcessLookupError, PermissionError):
             pass
         stdout, stderr = proc.communicate()
-        stderr = (stderr or "") + f"\nsims timed out after {timeout_seconds}s"
+        stderr = (stderr or "") + f"\n{_TIMEOUT_MARKER} {timeout_seconds}s"
         rc = -1
     except KeyboardInterrupt:
         try:
@@ -763,7 +773,14 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
         model_dir = os.path.join(root, "build", config.sys, config.build_id)
         safe_test = test.replace("/", "_")
-        run_dir = os.path.join(model_dir, "runs", f"{safe_test}-{int(time.time() * 1000) % 100000}")
+        # Full ms timestamp (not truncated mod anything short) plus a uuid4
+        # suffix: two run() calls for the same test within the same
+        # millisecond -- easy in one process -- must still land in different
+        # run_dirs, since makedirs(exist_ok=True) would otherwise silently
+        # share (and intermix) the two runs' sim.log/status.log.
+        run_dir = os.path.join(
+            model_dir, "runs", f"{safe_test}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+        )
         os.makedirs(run_dir, exist_ok=True)
 
         argv = [*config.sims_flags(), f"-build_id={config.build_id}"]
@@ -803,7 +820,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         sim_log = _read_full_if_present(os.path.join(run_dir, "sim.log")) or stdout
         status_log = _read_full_if_present(os.path.join(run_dir, "status.log"))
         verdict = parse.sim_verdict(sim_log)
-        if verdict is None and rc == -1:
+        if verdict is None and rc == -1 and _TIMEOUT_MARKER in stderr:
             verdict = "timeout"
 
         return PitonRunResult(
