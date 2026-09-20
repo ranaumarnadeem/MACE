@@ -811,7 +811,7 @@ session, and `run` acts on everything gathered so far.
 
 ```
 mace init --backend opencode --api-key <key>              # once: writes ~/.mace/.env + a doctor-style env check
-mace shell --piton-root /path/to/openpiton --api ~/.mace/.env   # starts the interactive session
+mace shell --piton-root /path/to/openpiton --api ~/.mace/.env --backend opencode   # starts the interactive session
 
 mace> read_verilog my_core.v my_core_pkg.v
 mace> top_module my_core_top

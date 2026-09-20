@@ -98,7 +98,7 @@ modeled on Yosys/OpenROAD's own command style:
 
 ```bash
 mace init --backend opencode --api-key <key>   # once: writes ~/.mace/.env + a real env check
-mace shell --piton-root /path/to/openpiton --api ~/.mace/.env
+mace shell --piton-root /path/to/openpiton --api ~/.mace/.env --backend opencode
 ```
 
 Google Vertex/Gemini works too, and needs no `--api` file at all if
