@@ -241,6 +241,18 @@ class TestHandleReadVerilog:
         session = Session(piton_root="/x")
         assert handle_read_verilog(session, "").startswith("ERROR")
 
+    def test_success_message_does_not_claim_the_files_get_built(self, tmp_path):
+        # session.verilog_files is validated-only -- build_spec_from_session
+        # never reads it -- so the message must not imply `run` will use these
+        # files, the way "read N file(s)" (Yosys/OpenROAD phrasing) would.
+        f = tmp_path / "core.v"
+        f.write_text("module core; endmodule\n")
+        session = Session(piton_root="/x")
+
+        msg = handle_read_verilog(session, str(f))
+
+        assert "not wired into the build" in msg
+
 
 class TestHandleTopModule:
     def test_known_core_name_reports_the_match(self):

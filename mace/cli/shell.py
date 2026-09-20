@@ -157,7 +157,13 @@ def init(
 
 
 def handle_read_verilog(session: Session, arg: str) -> str:
-    """`read_verilog <file> [file2 ...]` -- register RTL source files."""
+    """`read_verilog <file> [file2 ...]` -- check that RTL source files exist.
+
+    This is validation only: chia_openpiton's build has no "extra source
+    files" concept for build_spec_from_session/run to feed these into, so
+    unlike Yosys/OpenROAD's own read_verilog, nothing here actually adds
+    these files to what `run` builds.
+    """
     if not arg.strip():
         return "ERROR: read_verilog needs at least one file"
     files = [Path(f) for f in shlex.split(arg)]
@@ -165,7 +171,10 @@ def handle_read_verilog(session: Session, arg: str) -> str:
     if missing:
         return "ERROR: file(s) not found: " + ", ".join(str(f) for f in missing)
     session.verilog_files = tuple(files)
-    return f"read {len(files)} file(s): " + ", ".join(f.name for f in files)
+    return (
+        f"found {len(files)} file(s) (validated only, not wired into the build): "
+        + ", ".join(f.name for f in files)
+    )
 
 
 def handle_top_module(session: Session, arg: str) -> str:
@@ -528,7 +537,7 @@ class MaceShell(cmd.Cmd):
                 pass
 
     def do_read_verilog(self, arg: str) -> None:
-        """read_verilog <file> [file2 ...] -- register RTL source files for the target core."""
+        """read_verilog <file> [file2 ...] -- check that RTL source files exist (validation only; run doesn't build them)."""
         _print_result(self.console, handle_read_verilog(self.session, arg))
 
     def complete_read_verilog(self, text, line, begidx, endidx):

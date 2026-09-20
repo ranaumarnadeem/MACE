@@ -99,6 +99,9 @@ class Session:
     `mace run` invocation) before `run` executes."""
 
     piton_root: str
+    # Set by read_verilog after it confirms each path exists -- validation
+    # only. Nothing downstream (build_spec_from_session, MaceSpec, the
+    # actual build) consumes this; see handle_read_verilog's own docstring.
     verilog_files: tuple[Path, ...] = ()
     top_module: str | None = None
     objective: str | None = None
