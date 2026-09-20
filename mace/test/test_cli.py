@@ -288,6 +288,27 @@ class TestDoRun:
         assert session.last_coverage is None
         assert session.last_result.status == "no_adapter"
 
+    def test_ctrl_c_during_run_returns_to_the_prompt_not_the_os(self, monkeypatch):
+        """Ctrl-C during a long build/simulate must return to the shell
+        prompt with the session intact, not kill the whole process -- see
+        MaceShell.onecmd's own comment on why Exception alone doesn't catch
+        this (KeyboardInterrupt is a BaseException).
+        """
+        from mace.cli.shell import MaceShell
+
+        def raising_run_mace_loop(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr("mace.cli.shell.run_mace_loop", raising_run_mace_loop)
+
+        session = Session(piton_root="/x", top_module="ariane_top")
+        shell = MaceShell(session, llm=None, db=None)
+
+        still_running = shell.onecmd("run")
+
+        assert still_running is False  # cmd.Cmd convention: False keeps the loop going
+        assert session.top_module == "ariane_top"  # session state survived intact
+
 
 class TestFormatReport:
     def test_no_run_yet(self):

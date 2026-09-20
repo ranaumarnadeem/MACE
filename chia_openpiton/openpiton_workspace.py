@@ -178,14 +178,19 @@ def _run(
     timeout_seconds: int,
     env: dict[str, str] | None = None,
 ) -> tuple[str, str, int, float]:
-    """Run one OpenPiton command; never raises.
+    """Run one OpenPiton command; never raises except ``KeyboardInterrupt``.
 
     Returns ``(stdout, stderr, returncode, wall_seconds)`` with
     ``returncode == -1`` on timeout, partial output preserved and a marker
     appended to stderr. ``start_new_session`` puts the whole tool tree in one
     process group so a timeout can kill every descendant -- without it a killed
     shell leaves grandchildren (verilator, g++) holding the pipes open and the
-    call stalls in cleanup.
+    call stalls in cleanup. The same process-group kill runs on a
+    ``KeyboardInterrupt`` (Ctrl-C): ``start_new_session`` also means this
+    subprocess tree never receives the terminal's own SIGINT, so without this
+    it would keep running, orphaned, after Python itself has already moved
+    on. That case is re-raised, not swallowed -- deciding what to tell the
+    user belongs to the caller (see mace.cli.shell's own handling).
     """
     full = _env_prefix(piton_root, core) + f"cd {shlex.quote(cwd)} && {command}"
     merged = {**os.environ, **(env or {})}
@@ -216,6 +221,13 @@ def _run(
         stdout, stderr = proc.communicate()
         stderr = (stderr or "") + f"\nsims timed out after {timeout_seconds}s"
         rc = -1
+    except KeyboardInterrupt:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        proc.communicate()
+        raise
     wall = time.time() - started
     if rc != 0:
         logger.error("command failed (rc=%s); stderr tail: %s", rc, (stderr or "")[-500:])

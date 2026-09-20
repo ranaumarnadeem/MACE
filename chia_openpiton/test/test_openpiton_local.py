@@ -244,6 +244,35 @@ class TestBuildResult:
         assert art.success is False
         assert "timed out" in art.stderr
 
+    def test_keyboard_interrupt_kills_the_process_group_and_propagates(self, node, cfg, monkeypatch):
+        """Ctrl-C during a build must not leave sims/Verilator running
+        orphaned in the background: start_new_session means the child is in
+        its own process group and never sees the terminal's own SIGINT, so
+        _run must kill it itself -- see _run's own docstring.
+        """
+        import subprocess as subprocess_module
+
+        killed_pids = []
+        real_communicate = subprocess_module.Popen.communicate
+        calls = {"n": 0}
+
+        def fake_communicate(self, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise KeyboardInterrupt()
+            return real_communicate(self, *a, **kw)
+
+        monkeypatch.setattr(subprocess_module.Popen, "communicate", fake_communicate)
+        monkeypatch.setattr(
+            "chia_openpiton.openpiton_workspace.os.killpg",
+            lambda pid, sig: killed_pids.append(pid),
+        )
+
+        with pytest.raises(KeyboardInterrupt):
+            node.build(cfg)
+
+        assert killed_pids  # the process group was actually targeted for a kill
+
     def test_cache_key_is_carried_on_the_artifact(self, node, cfg):
         assert node.build(cfg).cache_key == cfg.key
 

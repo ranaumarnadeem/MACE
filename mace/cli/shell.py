@@ -430,6 +430,17 @@ class MaceShell(cmd.Cmd):
         # string already renders, so the shell (and the session) survives.
         try:
             return super().onecmd(line)
+        except KeyboardInterrupt:
+            # Ctrl-C during a long `run` (a real build/simulate can take
+            # minutes) must return to the prompt, not kill the whole shell
+            # and lose every bit of accumulated session state -- exactly
+            # the case a user would want to interrupt. Exception alone
+            # doesn't catch this: KeyboardInterrupt is a BaseException.
+            # chia_openpiton._run already kills the underlying sims/
+            # Verilator process group itself before this propagates, so
+            # nothing is left running orphaned in the background.
+            self.console.print("\n[bold yellow]✗ interrupted -- back to the prompt[/bold yellow]")
+            return False
         except Exception as e:  # noqa: BLE001
             self.console.print(f"[bold red]✗ ERROR: {type(e).__name__}: {e}[/bold red]")
             return False
