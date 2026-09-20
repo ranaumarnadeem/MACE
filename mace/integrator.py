@@ -21,6 +21,8 @@ Two appliers, for two settled design decisions:
 
 from __future__ import annotations
 
+import concurrent.futures
+
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from mace.loop import _config_for_task, run_mace_step
@@ -31,13 +33,30 @@ from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 def open_nodes(piton_roots: tuple[str, ...]) -> list:
     """One ``OpenPitonWorkspaceNode`` per checkout in *piton_roots*, order
-    preserved. A thin wrapper over the constructor -- exists so a caller
-    managing nodes' lifecycle itself across multiple :func:`integrate_parallel`
-    calls against the same checkouts (mace.orchestrator.run_mace_loop, across
-    its replan iterations) has one seam to call and monkeypatch, instead of
-    reaching into chia_openpiton directly.
+    preserved (matching *piton_roots*' own order, regardless of which
+    finishes constructing first). A thin wrapper over the constructor --
+    exists so a caller managing nodes' lifecycle itself across multiple
+    :func:`integrate_parallel` calls against the same checkouts
+    (mace.orchestrator.run_mace_loop, across its replan iterations) has one
+    seam to call and monkeypatch, instead of reaching into chia_openpiton
+    directly.
+
+    Constructed concurrently, not sequentially: each one can block for up
+    to its own ``pg_ready_timeout_s`` (120s) waiting on a real Ray
+    placement group, independently of every other checkout's, so K
+    checkouts should cost close to the slowest single one, not the sum of
+    all of them. Not validated against a live multi-checkout Ray cluster
+    in the environment this was written in (no cluster was available) --
+    confirm on a real ``--piton-root-2`` run before fully trusting the
+    speedup claim, though the underlying pattern (independent blocking I/O
+    calls off the main thread) is a standard, low-risk one.
     """
-    return [OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120) for root in piton_roots]
+    if not piton_roots:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(piton_roots)) as pool:
+        return list(
+            pool.map(lambda root: OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120), piton_roots)
+        )
 
 
 def close_nodes(nodes: list) -> None:

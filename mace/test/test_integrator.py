@@ -6,9 +6,11 @@ Run:
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
-from mace.integrator import _run_batch, integrate, topological_levels, topological_order
+from mace.integrator import _run_batch, integrate, open_nodes, topological_levels, topological_order
 from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM
 from mace.workloads import WORKLOADS_DIR
@@ -159,6 +161,41 @@ class TestIntegrate:
 
     def test_empty_task_list_produces_no_results(self, stub_piton_root):
         assert integrate(str(stub_piton_root), make_spec(), (), FakeLLM(responses=[])) == ()
+
+
+class TestOpenNodes:
+    def test_empty_piton_roots_returns_empty_list(self):
+        assert open_nodes(()) == []
+
+    def test_preserves_the_order_of_piton_roots(self, monkeypatch):
+        import mace.integrator as integrator_module
+
+        class _FakeNode:
+            def __init__(self, root, pg_ready_timeout_s=120):
+                self.root = root
+
+        monkeypatch.setattr(integrator_module, "OpenPitonWorkspaceNode", _FakeNode)
+
+        nodes = open_nodes(("/a", "/b", "/c"))
+
+        assert [n.root for n in nodes] == ["/a", "/b", "/c"]
+
+    def test_constructs_concurrently_not_sequentially(self, monkeypatch):
+        import mace.integrator as integrator_module
+
+        class _SlowFakeNode:
+            def __init__(self, root, pg_ready_timeout_s=120):
+                time.sleep(0.2)
+                self.root = root
+
+        monkeypatch.setattr(integrator_module, "OpenPitonWorkspaceNode", _SlowFakeNode)
+
+        started = time.monotonic()
+        open_nodes(("/a", "/b", "/c"))
+        elapsed = time.monotonic() - started
+
+        # Sequential would take ~0.6s; concurrent should be close to ~0.2s.
+        assert elapsed < 0.45
 
 
 class _NodeStub:
