@@ -349,6 +349,26 @@ class TestModuleStatus:
         assert statuses[0]["task_id"] == "a2"
         assert statuses[0]["passed"] is True
 
+    def test_two_tasks_for_the_same_module_in_one_iteration_break_ties_deterministically(
+        self, tmp_path
+    ):
+        """ORDER BY iteration DESC alone leaves two same-iteration rows for
+        the same module to SQLite's unspecified tie order -- the secondary
+        rowid DESC key must make "whichever was written last" the real,
+        repeatable rule, not an accident of storage order.
+        """
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        first = make_result("a", False, kind="unit_test", spec="picorv32.v", verdict="fail")
+        second = make_result("a2", True, kind="unit_test", spec="picorv32.v")
+
+        metrics.record_iteration(db, run_id, 0, (first, second), wall_s=1.0)
+
+        statuses = metrics.module_status(db, run_id)
+        assert len(statuses) == 1
+        assert statuses[0]["task_id"] == "a2"
+        assert statuses[0]["passed"] is True
+
     def test_different_modules_are_both_reported(self, tmp_path):
         db = open_test_db(tmp_path)
         run_id = metrics.start_run(db, make_spec())

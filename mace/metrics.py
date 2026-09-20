@@ -284,12 +284,16 @@ def module_status(db: SQLiteNode, run_id: str) -> list[dict]:
     triage) or under different task ids (a replanned DAG isn't guaranteed to
     reuse the same task id), so this keeps only the highest-iteration row
     per module -- that's the module's current, most-informative status, not
-    its whole history.
+    its whole history. ``rowid DESC`` breaks a tie between two rows for the
+    same module in the SAME iteration (two unit_test tasks targeting it at
+    once) deterministically, favoring whichever was written last --
+    ``ORDER BY iteration DESC`` alone leaves that case to SQLite's
+    unspecified tie order.
     """
     rows = db.query(
         "SELECT module, task_id, iteration, passed, build_success, run_verdict "
         "FROM tasks WHERE run_id = ? AND kind = 'unit_test' AND module IS NOT NULL "
-        "ORDER BY iteration DESC",
+        "ORDER BY iteration DESC, rowid DESC",
         (run_id,),
     )
     seen: set[str] = set()
