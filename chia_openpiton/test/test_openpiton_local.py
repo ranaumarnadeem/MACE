@@ -239,6 +239,42 @@ class TestVerilatorVersionText:
         assert len(calls) == 2  # retried both times, nothing bad cached
 
 
+class TestConfigure:
+    def test_probes_run_concurrently_and_populate_the_config(self, node, monkeypatch):
+        """configure()'s four probes (two git rev-parses, a git diff, a
+        verilator --version) are independent -- dispatched concurrently so
+        this costs close to the slowest single one, not the sum of all
+        four. See configure()'s own comment.
+        """
+        import time as time_module
+
+        from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
+
+        delay = 0.15
+
+        def slow_git(root, args, timeout_seconds=60):
+            time_module.sleep(delay)
+            return "-".join(args)[:20]
+
+        def slow_version(root, core="ariane", timeout_seconds=120):
+            time_module.sleep(delay)
+            return "Verilator 5.052"
+
+        monkeypatch.setattr(OpenPitonWorkspaceNode, "_git", slow_git)
+        monkeypatch.setattr(OpenPitonWorkspaceNode, "verilator_version_text", slow_version)
+
+        started = time_module.monotonic()
+        cfg = node.configure(core="sparc")
+        elapsed = time_module.monotonic() - started
+
+        assert cfg.verilator_version == "Verilator 5.052"
+        assert cfg.source_rev  # populated from the (fake) git call
+        assert cfg.ariane_rev
+        assert cfg.diff
+        # Sequential would take ~4*delay; concurrent should be close to ~delay.
+        assert elapsed < delay * 2.5
+
+
 class TestBuildArgv:
     def test_mesh_core_and_network_reach_sims(self, node, sims_argv):
         node.build(PitonConfig(x_tiles=2, y_tiles=2, core="sparc"))

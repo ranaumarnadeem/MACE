@@ -23,6 +23,7 @@ Constructing a node binds that root, so instance calls omit it:
 
 from __future__ import annotations
 
+import concurrent.futures
 import glob as _glob
 import logging
 import os
@@ -467,16 +468,31 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 f.write(address_map)
             logger.info("wrote %d chars to %s", len(address_map), target)
 
-        source_rev = OpenPitonWorkspaceNode._git(root, ["rev-parse", "HEAD"], timeout_seconds)
-        ariane_rev = OpenPitonWorkspaceNode._git(
-            root,
-            ["rev-parse", "HEAD:piton/design/chip/tile/ariane"],
-            timeout_seconds,
-        )
-        diff = OpenPitonWorkspaceNode._git(
-            root, ["diff", "--", "piton/verif/env/manycore"], timeout_seconds
-        )
-        version = OpenPitonWorkspaceNode.verilator_version_text(root, core, timeout_seconds)
+        # Four independent subprocess spawns (three git queries, one
+        # verilator --version shell), none depending on another's result --
+        # dispatched concurrently so this costs close to the slowest single
+        # one, not the sum of all four. Must run after the address_map
+        # write above, though: diff needs to see that write to report it.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            source_rev_ref = pool.submit(
+                OpenPitonWorkspaceNode._git, root, ["rev-parse", "HEAD"], timeout_seconds
+            )
+            ariane_rev_ref = pool.submit(
+                OpenPitonWorkspaceNode._git,
+                root,
+                ["rev-parse", "HEAD:piton/design/chip/tile/ariane"],
+                timeout_seconds,
+            )
+            diff_ref = pool.submit(
+                OpenPitonWorkspaceNode._git, root, ["diff", "--", "piton/verif/env/manycore"], timeout_seconds
+            )
+            version_ref = pool.submit(
+                OpenPitonWorkspaceNode.verilator_version_text, root, core, timeout_seconds
+            )
+            source_rev = source_rev_ref.result()
+            ariane_rev = ariane_rev_ref.result()
+            diff = diff_ref.result()
+            version = version_ref.result()
 
         return PitonConfig(
             sys=sys,
