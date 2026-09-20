@@ -115,6 +115,14 @@ class TestParseTasks:
         tasks = parse_tasks(text)
         assert [t.id for t in tasks] == ["t1", "t2"]
 
+    def test_blank_task_line_does_not_swallow_the_next_task_line(self):
+        """A TASK line left blank must not consume the next TASK line --
+        including its own tag -- as its spec field.
+        """
+        text = "TASK:\nTASK: t2 | deps= | kind=workload | hello_world.c\n"
+        tasks = parse_tasks(text)
+        assert [t.id for t in tasks] == ["t2"]
+
     def test_unknown_kind_is_skipped(self):
         text = "TASK: t1 | deps= | kind=rebuild | x_tiles=1\n"
         assert parse_tasks(text) == ()
@@ -195,6 +203,12 @@ class TestParseDiagnosis:
 
     def test_no_diagnosis_returns_none(self):
         assert parse_diagnosis("Still investigating, no conclusion yet.") is None
+
+    def test_blank_tag_line_does_not_swallow_the_next_line(self):
+        """A tag left blank on its own line must not consume the next
+        line -- including that line's own tag -- as its value.
+        """
+        assert parse_diagnosis("DIAGNOSIS:\nFIX: raise rtl_timeout") is None
 
     def test_known_diagnoses_are_not_enforced_by_the_parser(self):
         """Taxonomy membership is the caller's call, not the parser's -- see

@@ -46,8 +46,16 @@ KNOWN_ASSESSMENTS: frozenset[str] = frozenset(
 
 
 def _footer_lines(text: str, tag: str) -> list[str]:
-    """Every ``<tag>: ...`` line body in ``text``, in file order."""
-    return re.findall(rf"(?im)^\s*{tag}:\s*(.+)$", text)
+    """Every ``<tag>: ...`` line body in ``text``, in file order.
+
+    The whitespace between the colon and the value is deliberately
+    ``[ \\t]*``, not ``\\s*``: ``\\s`` matches ``\\n`` too, so with no value
+    on the tag's own line ``\\s*`` would cross the line break and swallow
+    the *entire next line* -- including that line's own tag -- as this
+    line's value. A truly empty tag line is dropped instead (no match),
+    matching this module's existing fail-open convention.
+    """
+    return re.findall(rf"(?im)^\s*{tag}:[ \t]*(.+)$", text)
 
 
 def parse_tasks(text: str) -> tuple[Task, ...]:
