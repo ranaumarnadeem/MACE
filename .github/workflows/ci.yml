@@ -38,4 +38,6 @@ jobs:
           "
 
       - name: Tier-0 tests
-        run: pytest chia_openpiton/test -q
+        run: >
+          pytest chia_openpiton/test mace/test -q
+          --ignore=chia_openpiton/test/cluster --ignore=mace/test/cluster
