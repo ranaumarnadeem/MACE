@@ -374,6 +374,18 @@ cache-capacity extremes, not a failed test design — see §11 item 5 for
 where a fifth attempt would need to look (mesh/NoC parameters, not cache
 geometry, since that lever now looks exhausted).
 
+**Update, as of 2026-09-20 -- both counts above are now stale, since this is
+a live, appended-to local database, not a fixed artifact:**
+`runs/mace_end_to_end.db` has 14 runs total (7 more since the above was
+written) -- 8 `passed`, 4 stuck `running`, 1 `failed`, 1 `budget_exceeded` --
+and the `failures` table is no longer empty (3 rows, all from the
+`budget_exceeded` run: `missing_toolchain` / "the risc-v gnu toolchain is
+not installed or its executables are not accessible via the build
+environment's path", none `recovered`). This is a real infrastructure
+failure, not a real hardware RTL one, so it does **not** close the "one
+honest gap" above -- but the specific "completely empty" claim itself is no
+longer accurate and should not be quoted as current.
+
 ### The PicoRV32 extension (§7 in the paper)
 
 Motivated by a bigger ask — could MACE take arbitrary core RTL and a spec and
@@ -393,9 +405,23 @@ existing cores. The genuinely novel part: OpenPiton's own CI **builds**
 PicoRV32 under Verilator but has **never run it** — the run job is commented
 out and targets a nonexistent stage. This project's build passes cleanly (57
 seconds — structurally lighter than Ariane's, since pico's config doesn't
-pull in the bootrom/device-tree chain that fixes 2–4 above exist for). The
-run reaches verdict `maxcycles` — see the next section for why this is a real
-finding, not a bug to fix here.
+pull in the bootrom/device-tree chain that fixes 2–4 above exist for).
+
+**Update, superseding the rest of this section as originally written:** the
+run initially reached verdict `maxcycles` (see below for why that read as a
+real finding, not an environment bug) -- but unlike 2×2 Ariane, this one
+*was* chased to a waveform-level root cause, and pico now genuinely
+**passes** (`Simulation -> PASS (HIT GOOD TRAP)`), a first for this core
+under any simulator, by anyone. Three real, independently waveform-verified
+bugs, all fixed: picorv32's own `resetn`/`booted` self-boot gate
+(`scripts/patch_openpiton.sh` fix 6 -- it was waiting forever for an
+interrupt nothing in a bare config ever sends), the manycore monitor's
+`active_thread` tracking for pico's tile (fix 7 in the same script), and a
+real-silicon BIST self-clear race silently discarding pico's first, very
+early memory writes. See README.md's "What's proven, honestly" section for
+the current, authoritative summary (this doc's own narrative below was
+written before this was resolved, and is kept for its RTL-investigation
+methodology, not its conclusion).
 
 **Note for whoever touches the loop driver next:** `examples/mace_end_to_end.py`'s
 own `--core` argparse choices are still hardcoded to `("ariane", "sparc")` —
@@ -722,10 +748,14 @@ noted rather than silently deleted, so you can see what actually happened.
    `-j1` into Verilator's own generated build-step `make` invocation (not
    just the environment) would likely get an actual 4×4 pass/fail verdict,
    strengthening baseline (a). Not yet attempted.
-3. **Waveform-level tracing of the 2×2/pico hangs** — genuinely open, and
-   genuinely deeper work than anything else in this project so far. Start
-   from the exact divergence point described in §7: boot/reset/IOB completes
-   identically to a passing run, then the core never traps.
+3. ~~Waveform-level tracing of the 2×2/pico hangs~~ — **pico half done**:
+   waveform tracing found and fixed three real bugs (picorv32's own
+   `resetn`/`booted` self-boot gate, the manycore monitor's `active_thread`
+   tracking for pico, a real-silicon BIST self-clear race); pico now
+   genuinely passes. **2×2 Ariane is still genuinely open** and is the
+   deeper remaining work here. Start from the exact divergence point
+   described in §7: boot/reset/IOB completes identically to a passing run,
+   then the core never traps.
 4. ~~`examples/mace_end_to_end.py`'s `--core` choices don't include `"pico"`~~
    — **done**: `--core=pico` and a `--workload` flag are both now exposed
    (the gate workload used to be silently hardcoded to `barrier_atomic.c`
@@ -741,10 +771,15 @@ noted rather than silently deleted, so you can see what actually happened.
    planning agent's own task description explicitly predicted would fail —
    verified via the real `sims` invocation (not the agent's self-report) to
    have actually been used — and it passed anyway. The `failures` table in
-   `runs/mace_end_to_end.db` is confirmed completely empty across all seven
-   real runs. Our read: this isn't a broken test design, it's a genuine
-   finding that this RTL's coherence protocol doesn't functionally depend on
-   L1D capacity for these access patterns, at least down to one cache line.
+   `runs/mace_end_to_end.db` was confirmed completely empty across all seven
+   real runs as of when this was written -- **stale as of 2026-09-20**: the
+   db is a live, appended-to local file, now at 14 runs with 3 failure rows
+   (all a `budget_exceeded` run's real toolchain/environment failures, not a
+   hardware RTL one -- see §7's own update note for the current numbers).
+   Our read on the original seven: this isn't a broken test design, it's a
+   genuine finding that this RTL's coherence protocol doesn't functionally
+   depend on L1D capacity for these access patterns, at least down to one
+   cache line.
    If you want to close this gap, going more extreme than a 1-line
    direct-mapped cache risks testing "is a malformed parameter rejected"
    rather than genuine coherence robustness — a fundamentally different,
