@@ -544,6 +544,15 @@ class MaceShell(cmd.Cmd):
             f"[bold]Workloads:[/bold] {', '.join(spec.workloads)}"
         )
 
+        def on_task_progress(task_ids, stage):
+            # Real-time in-flight feedback: on_iteration below only fires
+            # once an ENTIRE iteration (every level, every batch) is done,
+            # so without this a multi-minute build/run leaves the user
+            # staring at a silent terminal with no way to tell "working"
+            # from "stuck". Fires right before each dispatch that can
+            # genuinely take a while -- see integrate_parallel's docstring.
+            c.print(f"[dim cyan]  {stage} {', '.join(task_ids)}...[/dim cyan]")
+
         def on_iteration(iteration, results):
             # A "config" task builds one assembled-chip Verilator simulation
             # and stops there; a "workload" task builds and runs one gate
@@ -603,7 +612,8 @@ class MaceShell(cmd.Cmd):
                         c.print(f"  [dim]never reached run -- build failed, see stderr above[/dim]")
 
         result = run_mace_loop(
-            (self.session.piton_root,), spec, self.llm, self.db, on_iteration=on_iteration
+            (self.session.piton_root,), spec, self.llm, self.db,
+            on_iteration=on_iteration, on_task_progress=on_task_progress,
         )
         self.session.last_result = result
         status_style = "green" if result.status == "passed" else "red"

@@ -206,3 +206,24 @@ class TestRunBatchUnitTestDispatch:
         assert results[0].build.success is True
         assert results[0].run is None  # unit_test is gated on build only, never run
         assert results[0].passed is True
+
+    def test_on_task_progress_fires_before_the_local_build(self, stub_piton_root, monkeypatch):
+        """Real-time in-flight feedback: a caller must be told this task is
+        building BEFORE the (potentially slow) call, not only see it after
+        the fact via the finished result.
+        """
+        env_dir = stub_piton_root / "piton" / "verif" / "env" / "design_foo_ut"
+        env_dir.mkdir(parents=True)
+        rel_path = self._rtl_module(stub_piton_root)
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        unit_task = task("t1", kind="unit_test", spec=rel_path)
+        node = _NodeStub(stub_piton_root)
+        events = []
+
+        _run_batch(
+            [node], make_spec(), [unit_task], llm, (), str(WORKLOADS_DIR), None, 0,
+            on_task_progress=lambda task_ids, stage: events.append((task_ids, stage)),
+        )
+
+        assert events == [(("t1",), "building")]

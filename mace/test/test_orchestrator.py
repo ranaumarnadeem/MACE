@@ -90,7 +90,9 @@ class TestIterationWallTimeIncludesPlanning:
             time.sleep(planner_delay_s)
             return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
 
-        def fake_integrate_parallel(piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0):
+        def fake_integrate_parallel(
+            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None
+        ):
             return (step_result(tasks[0].id),)
 
         monkeypatch.setattr("mace.orchestrator.plan", slow_plan)
@@ -106,13 +108,43 @@ class TestIterationWallTimeIncludesPlanning:
         assert recorded_wall_s >= planner_delay_s
 
 
+class TestOnTaskProgressIsThreadedThrough:
+    def test_reaches_integrate_parallel_as_given(self, tmp_path, monkeypatch):
+        """run_mace_loop must pass its own on_task_progress straight through
+        to integrate_parallel, the only place that can actually call it.
+        """
+        received = {}
+
+        def capturing_integrate_parallel(
+            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None
+        ):
+            received["on_task_progress"] = on_task_progress
+            return (step_result(tasks[0].id),)
+
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]),
+        )
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", capturing_integrate_parallel)
+
+        sentinel = lambda task_ids, stage: None  # noqa: E731
+        run_mace_loop(
+            ("/fake/root",), make_spec(), FakeLLM(responses=[]), make_db(tmp_path),
+            on_task_progress=sentinel,
+        )
+
+        assert received["on_task_progress"] is sentinel
+
+
 class TestStatusTransitions:
     def test_all_tasks_passing_stops_with_passed(self, tmp_path, monkeypatch):
         db = make_db(tmp_path)
         monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]))
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0: (step_result("t1"),),
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None: (
+                step_result("t1"),
+            ),
         )
 
         result = run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
@@ -140,7 +172,7 @@ class TestStatusTransitions:
         )
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None: (
                 step_result("t1", passed=False, verdict="fail"),
             ),
         )
@@ -170,7 +202,7 @@ class TestStatusTransitions:
         monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None: (
                 step_result("t1", passed=False, verdict="fail"),
             ),
         )

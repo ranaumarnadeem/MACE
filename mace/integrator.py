@@ -101,6 +101,7 @@ def integrate_parallel(
     asm_diag_root: str | None = None,
     run_id: str | None = None,
     iteration: int = 0,
+    on_task_progress=None,
 ) -> tuple[StepResult, ...]:
     """Apply *tasks* across *piton_roots* in parallel, one level at a time.
 
@@ -130,13 +131,25 @@ def integrate_parallel(
     be tagged at all). Omitting ``run_id`` (the default) dispatches
     untagged, exactly as before -- tagging alone does nothing without a
     caller that has also called mace.replay.enable_caching/enable_replay.
+
+    ``on_task_progress``, if given, is called as ``on_task_progress(task_ids,
+    stage)`` (``stage`` one of ``"prompting"``, ``"building"``, ``"running"``)
+    right *before* each dispatch that can genuinely take a while --
+    real-time in-flight feedback for a caller (chiefly ``mace.cli``) that
+    would otherwise see nothing at all until a whole batch (a build/run can
+    take minutes) or, worse, a whole iteration finishes. ``task_ids`` is
+    every task entering that stage together, since a batch dispatches (and
+    is only resolved) as one group -- see this function's own docstring on
+    why that's the real unit of "in flight" here, not a single task.
     """
     root_dir = str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root
     nodes = [OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120) for root in piton_roots]
     try:
         results: list[StepResult] = []
         for level in topological_levels(tasks):
-            level_results = _run_level(nodes, spec, level, llm, tools, root_dir, run_id, iteration)
+            level_results = _run_level(
+                nodes, spec, level, llm, tools, root_dir, run_id, iteration, on_task_progress
+            )
             results.extend(level_results)
             if not all(r.passed for r in level_results):
                 break
@@ -155,6 +168,7 @@ def _run_level(
     asm_diag_root: str,
     run_id: str | None,
     iteration: int,
+    on_task_progress=None,
 ) -> list[StepResult]:
     """One level, batched to at most ``len(nodes)`` tasks in flight at once."""
     results: list[StepResult] = []
@@ -163,7 +177,10 @@ def _run_level(
         batch = tasks[: len(nodes)]
         tasks = tasks[len(nodes) :]
         results.extend(
-            _run_batch(nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root, run_id, iteration)
+            _run_batch(
+                nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root, run_id, iteration,
+                on_task_progress,
+            )
         )
     return results
 
@@ -177,6 +194,7 @@ def _run_batch(
     asm_diag_root: str,
     run_id: str | None,
     iteration: int,
+    on_task_progress=None,
 ) -> list[StepResult]:
     """One (node, task) pair per entry; prompt, build, run each fully
     dispatched across the batch before any of that round is resolved.
@@ -199,10 +217,16 @@ def _run_batch(
     -- dispatching it through the remote prompt/build/run calls below would
     silently build and run the wrong thing.
     """
+
+    def _progress(task_ids: tuple[str, ...], stage: str) -> None:
+        if on_task_progress is not None and task_ids:
+            on_task_progress(task_ids, stage)
+
     results: list[StepResult | None] = [None] * len(batch)
     remote_indices = [i for i, task in enumerate(batch) if task.kind != "unit_test"]
     for i, (node, task) in enumerate(zip(nodes, batch)):
         if task.kind == "unit_test":
+            _progress((task.id,), "building")
             results[i] = run_mace_step(node.piton_root, spec, task, llm, tools=tools)
 
     if not remote_indices:
@@ -215,18 +239,21 @@ def _run_batch(
     def _tag(task_id: str, phase: str) -> str | None:
         return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None
 
+    _progress(tuple(task.id for task in remote_batch), "prompting")
     prompt_refs = [
         llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
         for task in remote_batch
     ]
     queries = [get(ref) for ref in prompt_refs]
 
+    _progress(tuple(task.id for task in remote_batch), "building")
     build_refs = [
         node.build.chia_remote(config, _chia_tag=_tag(task.id, "build"))
         for node, config, task in zip(remote_nodes, configs, remote_batch)
     ]
     builds = [get(ref) for ref in build_refs]
 
+    _progress(tuple(remote_batch[j].id for j, b in enumerate(builds) if b.success), "running")
     run_refs = {
         j: remote_nodes[j].run.chia_remote(
             configs[j],

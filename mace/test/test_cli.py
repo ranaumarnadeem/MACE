@@ -361,6 +361,32 @@ class TestDoRun:
         assert still_running is False  # cmd.Cmd convention: False keeps the loop going
         assert session.top_module == "ariane_top"  # session state survived intact
 
+    def test_task_progress_callback_prints_the_stage_and_task_ids(self, capsys, monkeypatch):
+        """Real-time in-flight feedback: do_run must pass a real
+        on_task_progress through to run_mace_loop and print what it's told
+        -- otherwise a multi-minute build leaves the user staring at a
+        silent terminal with no way to tell "working" from "stuck".
+        """
+        from mace.cli.shell import MaceShell
+        from mace.spec import LoopResult
+
+        def fake_run_mace_loop(
+            piton_roots, spec, llm, db, tools=(), on_iteration=None, on_task_progress=None
+        ):
+            on_task_progress(("t1", "t2"), "building")
+            return LoopResult(run_id=None, status="failed", iterations=())
+
+        monkeypatch.setattr("mace.cli.shell.run_mace_loop", fake_run_mace_loop)
+
+        session = Session(piton_root="/x", top_module="ariane_top")
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.do_run("")
+
+        out = capsys.readouterr().out
+        assert "building" in out
+        assert "t1, t2" in out
+
     def test_verbose_flag_is_acknowledged_not_silently_ignored(self, capsys):
         """-verbose is accepted (for Yosys/OpenROAD familiarity) but has no
         effect -- a user who types it should see that stated plainly, not

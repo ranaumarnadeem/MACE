@@ -64,9 +64,16 @@ def run_mace_loop(
     db: SQLiteNode,
     tools=(),
     on_iteration=None,
+    on_task_progress=None,
 ) -> LoopResult:
     """Plan, execute, and -- if a task fails its gate -- triage and replan,
     until something passes or the spec's budget runs out.
+
+    ``on_task_progress``, if given, is passed straight through to
+    :func:`~mace.integrator.integrate_parallel` -- see its own docstring.
+    Real-time in-flight feedback (a batch's tasks entering prompting/
+    building/running), unlike ``on_iteration`` below, which only fires once
+    an entire iteration -- every level, every batch -- has already finished.
 
     ``on_iteration``, if given, is called as ``on_iteration(iteration,
     results)`` immediately after each iteration's results are recorded --
@@ -149,7 +156,8 @@ def run_mace_loop(
             break
 
         results = integrate_parallel(
-            piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration
+            piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
+            on_task_progress=on_task_progress,
         )
         iter_wall_s = time.monotonic() - iter_started
         iter_usd = sum(extract_cost_usd(r.query) for r in results)
