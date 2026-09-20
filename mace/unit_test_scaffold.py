@@ -88,7 +88,9 @@ def parse_port_names(port_list_text: str) -> list[str]:
     preprocessor-conditional lines, then reads each comma-separated
     declaration segment as ``[direction] [type] [width] name`` and keeps the
     trailing identifier, so multi-name lines like ``input clk, reset_l,``
-    yield both names.
+    yield both names. A width bracket glued directly to the name with no
+    space (``input [7:0]din,`` -- valid Verilog) is split from it first, so
+    ``din`` isn't discarded along with the bracket it's stuck to.
     """
     text = _BLOCK_COMMENT.sub("", port_list_text)
     text = _LINE_COMMENT.sub("", text)
@@ -98,6 +100,7 @@ def parse_port_names(port_list_text: str) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
     for segment in text.split(","):
+        segment = re.sub(r"\](?=\S)", "] ", segment)
         tokens = [t for t in re.split(r"\s+", segment.strip()) if t]
         tokens = [t for t in tokens if not t.startswith("[")]
         tokens = [t for t in tokens if t not in _PORT_KEYWORDS]

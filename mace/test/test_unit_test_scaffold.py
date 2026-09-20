@@ -136,6 +136,14 @@ class TestParsePortNames:
         names = parse_port_names(extract_module_port_list(PARAMETERIZED_MODULE, "bar"))
         assert names == ["clk", "data_in", "data_out"]
 
+    def test_width_bracket_glued_to_the_name_is_still_split_off(self):
+        """``input [7:0]din,`` (no space between the bracket and the name)
+        is valid Verilog -- the name must not be discarded along with the
+        bracket it's stuck to.
+        """
+        names = parse_port_names("input clk,\n  input [7:0]din,\n  output [7:0]dout")
+        assert names == ["clk", "din", "dout"]
+
     def test_multi_name_line(self):
         names = parse_port_names(extract_module_port_list(MULTI_NAME_LINE_MODULE, "baz"))
         assert names == ["clk", "reset_l", "trap"]
