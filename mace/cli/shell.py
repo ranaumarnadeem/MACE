@@ -471,6 +471,12 @@ class MaceShell(cmd.Cmd):
         if "-coverage" in tokens or "--coverage" in tokens:
             self.session.coverage = True
 
+        # Reset before either path below: a coverage report from a *previous*
+        # run must never survive into this one's report, including the
+        # no_adapter early-return -- write_report would otherwise print a
+        # stale percentage next to an unrelated status.
+        self.session.last_coverage = None
+
         if self.session.top_module is not None and self.session.detected_core is None:
             pm = no_adapter_post_mortem(self.session)
             self.session.last_result = type(
@@ -567,7 +573,6 @@ class MaceShell(cmd.Cmd):
                     table.add_row(m["module"], build_cell, m["task_id"], str(m["iteration"]))
                 c.print(table)
 
-        self.session.last_coverage = None
         if self.session.coverage and result.status == "passed":
             dat_path = find_coverage_dat(result.iterations)
             if dat_path is None:

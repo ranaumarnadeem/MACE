@@ -269,6 +269,26 @@ class TestNoAdapterPostMortem:
         assert "ariane" in pm.explanation and "sparc" in pm.explanation and "pico" in pm.explanation
 
 
+class TestDoRun:
+    def test_no_adapter_path_clears_a_stale_coverage_report(self):
+        """A coverage report left over from a PREVIOUS run must not survive
+        into a run whose top_module has no adapter -- write_report would
+        otherwise print an unrelated percentage next to status=no_adapter.
+        See do_run's own comment on why the reset happens before either
+        branch, not only after a real run_mace_loop call.
+        """
+        from mace.cli.shell import MaceShell
+
+        session = Session(piton_root="/x", top_module="not_a_known_core")
+        session.last_coverage = {"hit": 100, "total": 200, "percent": 50.0}
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.do_run("")
+
+        assert session.last_coverage is None
+        assert session.last_result.status == "no_adapter"
+
+
 class TestFormatReport:
     def test_no_run_yet(self):
         text = format_report(Session(piton_root="/x"))
