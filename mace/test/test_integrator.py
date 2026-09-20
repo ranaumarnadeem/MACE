@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace.integrator import _run_batch, integrate, open_nodes, topological_levels, topological_order
 from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM
@@ -264,3 +265,115 @@ class TestRunBatchUnitTestDispatch:
         )
 
         assert events == [(("t1",), "building")]
+
+
+class _FakeRef:
+    """Stand-in for a real chia_remote() dispatch: resolves to *value* after
+    *delay* seconds, once mace.integrator.get() is called on it."""
+
+    def __init__(self, value, delay=0.0):
+        self.value = value
+        self.delay = delay
+
+
+def _fake_get(ref):
+    time.sleep(ref.delay)
+    return ref.value
+
+
+class _FakePromptAttr:
+    """llm.prompt.chia_remote -- one shared llm dispatches every task's
+    prompt, so the delay is looked up per task.spec, not fixed per llm."""
+
+    def __init__(self, delays_by_spec):
+        self.delays_by_spec = delays_by_spec
+
+    def chia_remote(self, llm, spec, tools, _chia_tag=None):
+        query = FakeLLM(responses=["edit"]).prompt("edit")
+        return _FakeRef(query, self.delays_by_spec.get(spec, 0.0))
+
+
+class _FakeBuildAttr:
+    def __init__(self, delay=0.0):
+        self.delay = delay
+
+    def chia_remote(self, config, _chia_tag=None):
+        build = PitonBuildArtifact(
+            success=True, returncode=0, config=config, sim_type="vlt", model_dir="/x",
+            binary_path="/x/Vcmp_top", wall_time_s=0.0,
+        )
+        return _FakeRef(build, self.delay)
+
+
+class _FakeRunAttr:
+    def chia_remote(self, config, workload, asm_diag_root=None, rtl_timeout=None, _chia_tag=None):
+        run = PitonRunResult(
+            success=True, returncode=0, test=workload, sim_type="vlt", run_dir="/x/runs/1",
+            verdict="pass",
+        )
+        return _FakeRef(run, 0.0)
+
+
+class _FakeRemoteNode:
+    def __init__(self, piton_root, build_delay=0.0):
+        self.piton_root = piton_root
+        self.build = _FakeBuildAttr(build_delay)
+        self.run = _FakeRunAttr()
+
+
+class TestRunBatchRemotePipelining:
+    """Each remote task's own prompt -> build -> run must be pipelined
+    independently of its batch-mates -- see _run_batch's own docstring for
+    the bug (batch-wide stage synchronization) this guards against.
+    """
+
+    def test_a_slow_prompt_on_one_task_does_not_delay_a_fast_task_s_build(self, monkeypatch):
+        """task_a: slow prompt, fast build. task_b: fast prompt, slow build.
+        Pipelined, the batch takes close to one delay (both run
+        concurrently on their own threads); batch-wide stage
+        synchronization would take close to the SUM of both delays (every
+        prompt collected before any build is even dispatched).
+        """
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        delay = 0.25
+
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({"task_a_spec": delay, "task_b_spec": 0.0})})()
+        node_a = _FakeRemoteNode("/root_a", build_delay=0.0)
+        node_b = _FakeRemoteNode("/root_b", build_delay=delay)
+        task_a = Task(id="a", deps=(), kind="workload", spec="task_a_spec")
+        task_b = Task(id="b", deps=(), kind="workload", spec="task_b_spec")
+
+        started = time.monotonic()
+        results = _run_batch(
+            [node_a, node_b], make_spec(), [task_a, task_b], llm, (), str(WORKLOADS_DIR), None, 0
+        )
+        elapsed = time.monotonic() - started
+
+        assert [r.passed for r in results] == [True, True]
+        # Sequential (batch-synchronized) would take ~2*delay; pipelined
+        # should be close to one delay, both tasks' pipelines overlapping.
+        assert elapsed < delay * 1.75
+
+    def test_progress_callback_reports_each_task_independently(self, monkeypatch):
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+        node_a = _FakeRemoteNode("/root_a")
+        node_b = _FakeRemoteNode("/root_b")
+        task_a = Task(id="a", deps=(), kind="workload", spec="spec_a")
+        task_b = Task(id="b", deps=(), kind="workload", spec="spec_b")
+        events = []
+        lock_free_append = lambda task_ids, stage: events.append((task_ids, stage))  # noqa: E731
+
+        _run_batch(
+            [node_a, node_b], make_spec(), [task_a, task_b], llm, (), str(WORKLOADS_DIR), None, 0,
+            on_task_progress=lock_free_append,
+        )
+
+        # Each event names exactly one task -- no batch-wide grouping.
+        for task_ids, stage in events:
+            assert len(task_ids) == 1
+        seen_ids = {task_ids[0] for task_ids, _ in events}
+        assert seen_ids == {"a", "b"}
+        seen_stages = {stage for _, stage in events}
+        assert seen_stages == {"prompting", "building", "running"}

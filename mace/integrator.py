@@ -22,6 +22,7 @@ Two appliers, for two settled design decisions:
 from __future__ import annotations
 
 import concurrent.futures
+import threading
 
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
@@ -144,11 +145,11 @@ def integrate_parallel(
 
     Each level's tasks are dispatched round-robin, one per checkout, batched
     in groups of ``len(piton_roots)`` when a level has more tasks than
-    checkouts available. Every task in a batch is dispatched (prompt, then
-    build, then run) before any of that step is resolved -- the same
-    dispatch-then-collect shape chia_openpiton's own parallel-build
-    acceptance test uses -- so batches genuinely overlap on the cluster
-    rather than running one task's whole pipeline before the next starts.
+    checkouts available. Within a batch, each task's own prompt -> build ->
+    run is pipelined independently of its batch-mates (see ``_run_batch``'s
+    own docstring) -- batches genuinely overlap on the cluster, and so does
+    each task's progression through its own stages, rather than one slow
+    task in any stage holding every other task's next stage hostage.
 
     Stops at the first level containing any failed gate: nothing in a later
     level gets to build on a tree that just failed verification. Returns
@@ -175,9 +176,12 @@ def integrate_parallel(
     real-time in-flight feedback for a caller (chiefly ``mace.cli``) that
     would otherwise see nothing at all until a whole batch (a build/run can
     take minutes) or, worse, a whole iteration finishes. ``task_ids`` is
-    every task entering that stage together, since a batch dispatches (and
-    is only resolved) as one group -- see this function's own docstring on
-    why that's the real unit of "in flight" here, not a single task.
+    normally a single task's id, called from whichever of that task's own
+    threads reaches its next stage first -- pipelining means two batch-mates
+    can genuinely be in different stages (or the same stage) at once, so
+    calls are serialized against each other but not batched together. A
+    ``unit_test`` task (run locally, not pipelined) is the one case that's
+    always exactly one task anyway.
 
     ``nodes``, if given, are already-constructed ``OpenPitonWorkspaceNode``
     instances (one per checkout, matching *piton_roots*' order) to dispatch
@@ -247,8 +251,7 @@ def _run_batch(
     iteration: int,
     on_task_progress=None,
 ) -> list[StepResult]:
-    """One (node, task) pair per entry; prompt, build, run each fully
-    dispatched across the batch before any of that round is resolved.
+    """One (node, task) pair per entry.
 
     Each task gets its own PitonConfig (mace.loop._config_for_task) rather
     than one shared for the whole batch, since a task's own CACHES: line
@@ -267,11 +270,28 @@ def _run_batch(
     ``PitonConfig(sys=env_name)`` run_mace_step._run_unit_test_step builds
     -- dispatching it through the remote prompt/build/run calls below would
     silently build and run the wrong thing.
+
+    Each remote task's own prompt -> build -> run is pipelined on its own
+    thread, independently of its batch-mates -- a fast task dispatches its
+    build the moment its OWN prompt resolves, not once every task in the
+    batch has (the previous shape: collect every prompt, THEN dispatch
+    every build, THEN collect every build, THEN dispatch every run -- one
+    slow task in any stage held every other task's next stage hostage). The
+    batch is still bounded to len(nodes) tasks at a time (one checkout
+    each), but within it, wall time now approaches the slowest single
+    task's own pipeline, not the sum of each stage's slowest task.
     """
+    progress_lock = threading.Lock()
 
     def _progress(task_ids: tuple[str, ...], stage: str) -> None:
+        # Serialized, not just called concurrently: on_task_progress is a
+        # caller's callback (chiefly mace.cli's Rich console print) that
+        # may not itself be safe to call from multiple threads at once, and
+        # pipelining now means several tasks can genuinely enter a stage at
+        # the same instant.
         if on_task_progress is not None and task_ids:
-            on_task_progress(task_ids, stage)
+            with progress_lock:
+                on_task_progress(task_ids, stage)
 
     results: list[StepResult | None] = [None] * len(batch)
     remote_indices = [i for i, task in enumerate(batch) if task.kind != "unit_test"]
@@ -290,38 +310,36 @@ def _run_batch(
     def _tag(task_id: str, phase: str) -> str | None:
         return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None
 
-    _progress(tuple(task.id for task in remote_batch), "prompting")
-    prompt_refs = [
-        llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
-        for task in remote_batch
-    ]
-    queries = [get(ref) for ref in prompt_refs]
-
-    _progress(tuple(task.id for task in remote_batch), "building")
-    build_refs = [
-        node.build.chia_remote(config, _chia_tag=_tag(task.id, "build"))
-        for node, config, task in zip(remote_nodes, configs, remote_batch)
-    ]
-    builds = [get(ref) for ref in build_refs]
-
-    _progress(tuple(remote_batch[j].id for j, b in enumerate(builds) if b.success), "running")
-    run_refs = {
-        j: remote_nodes[j].run.chia_remote(
-            configs[j],
-            spec.workloads[0],
-            asm_diag_root=asm_diag_root,
-            rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
-            _chia_tag=_tag(remote_batch[j].id, "run"),
+    def _run_one(node, config: object, task: Task) -> StepResult:
+        _progress((task.id,), "prompting")
+        query = get(
+            llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
         )
-        for j, build in enumerate(builds)
-        if build.success
-    }
-    runs = {j: get(ref) for j, ref in run_refs.items()}
 
-    for j, task in enumerate(remote_batch):
-        run = runs.get(j)
+        _progress((task.id,), "building")
+        build = get(node.build.chia_remote(config, _chia_tag=_tag(task.id, "build")))
+
+        run = None
+        if build.success:
+            _progress((task.id,), "running")
+            run = get(
+                node.run.chia_remote(
+                    config,
+                    spec.workloads[0],
+                    asm_diag_root=asm_diag_root,
+                    rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
+                    _chia_tag=_tag(task.id, "run"),
+                )
+            )
         passed = run.success if run is not None else False
-        results[remote_indices[j]] = StepResult(
-            task=task, query=queries[j], build=builds[j], run=run, passed=passed
-        )
+        return StepResult(task=task, query=query, build=build, run=run, passed=passed)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(remote_batch)) as pool:
+        futures = [
+            pool.submit(_run_one, node, config, task)
+            for node, config, task in zip(remote_nodes, configs, remote_batch)
+        ]
+        for i, future in zip(remote_indices, futures):
+            results[i] = future.result()
+
     return results
