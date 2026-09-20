@@ -37,23 +37,28 @@ def extract_module_port_list(verilog_text: str, module_name: str) -> str:
     scanning past it first. Uses a paren-depth scan rather than a single
     regex since real port lists (see picorv32.v) contain nested brackets and
     `` `MACRO``-based widths that a naive non-greedy regex would mis-match on.
+
+    Comments are stripped before searching for the header, so a block/line
+    comment mentioning ``module <name>(...)`` (e.g. example text, or a
+    commented-out old declaration) can't be mistaken for the real one.
     """
-    header = re.search(rf"\bmodule\s+{re.escape(module_name)}\b", verilog_text)
+    text = _LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", verilog_text))
+    header = re.search(rf"\bmodule\s+{re.escape(module_name)}\b", text)
     if not header:
         raise ModuleNotFoundError_(f"module {module_name!r} not found")
 
     pos = header.end()
     # Skip an optional #( parameter, list ) block before the port list.
-    stripped = verilog_text[pos:].lstrip()
-    skip = len(verilog_text[pos:]) - len(stripped)
+    stripped = text[pos:].lstrip()
+    skip = len(text[pos:]) - len(stripped)
     if stripped.startswith("#("):
         depth = 0
         i = pos + skip + 1  # position of the '('
         start = i
-        while i < len(verilog_text):
-            if verilog_text[i] == "(":
+        while i < len(text):
+            if text[i] == "(":
                 depth += 1
-            elif verilog_text[i] == ")":
+            elif text[i] == ")":
                 depth -= 1
                 if depth == 0:
                     break
@@ -62,16 +67,16 @@ def extract_module_port_list(verilog_text: str, module_name: str) -> str:
     else:
         pos = pos + skip
 
-    open_paren = verilog_text.index("(", pos)
+    open_paren = text.index("(", pos)
     depth = 0
     i = open_paren
-    while i < len(verilog_text):
-        if verilog_text[i] == "(":
+    while i < len(text):
+        if text[i] == "(":
             depth += 1
-        elif verilog_text[i] == ")":
+        elif text[i] == ")":
             depth -= 1
             if depth == 0:
-                return verilog_text[open_paren + 1 : i]
+                return text[open_paren + 1 : i]
         i += 1
     raise ModuleNotFoundError_(f"unbalanced parens scanning module {module_name!r}'s port list")
 

@@ -68,6 +68,17 @@ module bar #(
 endmodule
 """
 
+COMMENTED_HEADER_MODULE = """
+// old signature, kept for reference: module foo(clk, rst, irq);
+/* module foo(a, b, c); */
+module foo (
+    input        clk,
+    input        rst_n,
+    output reg   done
+);
+endmodule
+"""
+
 MULTI_NAME_LINE_MODULE = """
 module baz (
     input clk, reset_l,
@@ -103,6 +114,17 @@ class TestExtractModulePortList:
         assert "WIDTH" not in text or "parameter" not in text
         assert "data_in" in text
         assert "data_out" in text
+
+    def test_ignores_a_commented_out_header_with_the_same_name(self):
+        """A line/block comment mentioning ``module foo(...)`` before the
+        real declaration must not be mistaken for it.
+        """
+        text = extract_module_port_list(COMMENTED_HEADER_MODULE, "foo")
+        assert "clk" in text
+        assert "rst_n" in text
+        assert "done" in text
+        assert "irq" not in text
+        assert "a, b, c" not in text
 
 
 class TestParsePortNames:
