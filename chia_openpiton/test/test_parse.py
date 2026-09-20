@@ -309,3 +309,20 @@ class TestDiaglistGroup:
         text = fixtures("master_diaglist_princeton")
         with pytest.raises(ValueError, match="no_such_group"):
             parse.diaglist_group(text, "no_such_group")
+
+    def test_truncated_group_missing_closing_tag_raises_value_error(self, fixtures):
+        """A bare next() here used to crash with a message-less StopIteration."""
+        text = fixtures("master_diaglist_princeton")
+        truncated = text[: text.index("</ariane_tile1_simple>")]
+        with pytest.raises(ValueError, match="ariane_tile1_simple"):
+            parse.diaglist_group(truncated, "ariane_tile1_simple")
+
+    def test_space_separated_flag_value_is_not_mistaken_for_the_source(self):
+        """"-rtl_timeout 100000 test.S" -- the value 100000 is the first token
+        not starting with "-", but the real source is test.S.
+        """
+        text = "<g>\nmytest -rtl_timeout 100000 test.S\n</g>\n"
+        entries = parse.diaglist_group(text, "g")
+        assert [(e.alias, e.source, e.args) for e in entries] == [
+            ("mytest", "test.S", ("-rtl_timeout", "100000"))
+        ]

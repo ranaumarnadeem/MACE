@@ -329,8 +329,10 @@ def diaglist_group(text: str, group: str) -> tuple[DiagEntry, ...]:
     it. A test line is ``alias source [args...]``; args may appear on
     either side of source (OpenPiton's own file has both), so the source is
     identified as the first token after the alias that does not start with
-    ``-``, and every other token becomes a trailing arg, in file order,
-    appended after the enclosing runargs' flags.
+    ``-`` and contains a ``.`` (a flag's own space-separated value, e.g. the
+    ``1000000`` in ``-rtl_timeout 1000000``, is a bare token too but never
+    looks like a filename), and every other token becomes a trailing arg, in
+    file order, appended after the enclosing runargs' flags.
 
     Args:
         text: Full contents of a master_diaglist-style file.
@@ -350,7 +352,9 @@ def diaglist_group(text: str, group: str) -> tuple[DiagEntry, ...]:
     start = next((i for i, ln in enumerate(lines) if open_re.match(ln)), None)
     if start is None:
         raise ValueError(f"group {group!r} not found in diaglist")
-    end = next(i for i in range(start + 1, len(lines)) if close_re.match(lines[i]))
+    end = next((i for i in range(start + 1, len(lines)) if close_re.match(lines[i])), None)
+    if end is None:
+        raise ValueError(f"closing tag for group {group!r} not found in diaglist")
 
     entries: list[DiagEntry] = []
     runargs: tuple[str, ...] = ()
@@ -368,7 +372,12 @@ def diaglist_group(text: str, group: str) -> tuple[DiagEntry, ...]:
             continue  # some other tag (cmp_default, a nested sub-group, ...)
         parts = ln.split()
         alias, rest = parts[0], parts[1:]
-        source_idx = next((i for i, tok in enumerate(rest) if not tok.startswith("-")), None)
+        # A flag's value can itself be a bare non-"-" token (e.g. "-rtl_timeout
+        # 1000000"), so "not tok.startswith('-')" alone would misidentify it as
+        # the source. Every real source is a filename with an extension.
+        source_idx = next(
+            (i for i, tok in enumerate(rest) if not tok.startswith("-") and "." in tok), None
+        )
         if source_idx is None:
             continue  # no source file on this line -- not a test we can run
         source = rest[source_idx]
