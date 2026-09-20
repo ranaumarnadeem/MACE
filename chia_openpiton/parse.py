@@ -253,12 +253,12 @@ _BUILD_FAILURES: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"%Error(?:-[A-Z]+)?:"),
     ),
     (
-        "make_failed",
-        re.compile(r"^make(?:\[\d+\])?:\s*\*\*\*", re.MULTILINE),
-    ),
-    (
         "compile_error",
         re.compile(r"^\s*\S+:\d+:\d+:\s*error:", re.MULTILINE),
+    ),
+    (
+        "make_failed",
+        re.compile(r"^make(?:\[\d+\])?:\s*\*\*\*", re.MULTILINE),
     ),
 )
 

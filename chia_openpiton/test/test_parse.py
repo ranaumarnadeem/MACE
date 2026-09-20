@@ -220,6 +220,19 @@ class TestBuildFailureReason:
     def test_success_has_no_reason(self, fixtures):
         assert parse.build_failure_reason(fixtures("build_ok_tail.log")) == ""
 
+    def test_compile_error_beats_the_generic_make_failure_it_also_triggers(self):
+        """A real gcc/g++ compile error always also emits `make: *** ...`
+        (make reporting the sub-command's own failure) -- the specific
+        file:line:col diagnostic must win, not the generic make banner that
+        follows it, or the loop's failure taxonomy loses the actual reason.
+        """
+        text = (
+            "foo.c:12:5: error: 'bar' undeclared (first use in this function)\n"
+            "make[2]: *** [Makefile:42: foo.o] Error 1\n"
+            "make[1]: *** [Makefile:10: all] Error 2\n"
+        )
+        assert parse.build_failure_reason(text) == "compile_error"
+
     def test_stderr_is_searched_too(self):
         assert parse.build_failure_reason("", "%Error-NEEDTIMINGOPT: x") == (
             "verilator_needs_timing_flag"
