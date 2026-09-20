@@ -291,7 +291,12 @@ def format_report(session: Session, db: SQLiteNode | None = None) -> str:
     if result is None:
         lines.append("(no run has happened yet in this session)")
         return "\n".join(lines) + "\n"
-    lines.append(f"run_id: {getattr(result, 'run_id', '(none -- static check, no real run)')}")
+    # getattr's own default only fires when run_id is *missing*; the static
+    # no-adapter result sets it explicitly to None (present, not absent), so
+    # that case needs its own check or the report prints the literal
+    # "run_id: None" instead of this friendlier placeholder.
+    run_id = getattr(result, "run_id", None)
+    lines.append(f"run_id: {run_id if run_id is not None else '(none -- static check, no real run)'}")
     lines.append(f"status: {result.status}")
     if db is not None and getattr(result, "run_id", None):
         for key, value in summary(db, result.run_id).items():

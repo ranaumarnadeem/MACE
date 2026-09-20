@@ -655,6 +655,23 @@ class TestFormatReport:
         text = format_report(Session(piton_root="/x"))
         assert "no run has happened yet" in text
 
+    def test_no_adapter_static_result_gets_the_friendly_run_id_placeholder(self):
+        """The no-adapter path's static result sets run_id=None explicitly
+        (present, not missing) -- getattr's own default only fires when an
+        attribute is absent, so this needs its own None check or the report
+        prints the literal "run_id: None" instead.
+        """
+        session = Session(piton_root="/x", top_module="not_a_known_core")
+        pm = no_adapter_post_mortem(session)
+        session.last_result = type(
+            "StaticResult", (), {"run_id": None, "status": "no_adapter", "post_mortem": pm}
+        )()
+
+        text = format_report(session)
+
+        assert "run_id: None" not in text
+        assert "static check, no real run" in text
+
     def test_includes_post_mortem_when_present(self):
         session = Session(piton_root="/x", top_module="custom")
         session.last_result = LoopResult(
