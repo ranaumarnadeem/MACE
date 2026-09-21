@@ -331,3 +331,34 @@ class TestStatusTransitions:
         assert len(seen_feedback) == 3
         assert "rtl_suspect" in seen_feedback[2] and "try a different mesh" in seen_feedback[2]
         assert "build_timeout" in seen_feedback[2] and "raise the sim wall clock" in seen_feedback[2]
+
+
+class TestTriageToolServerConstructionFailure:
+    def test_a_construction_failure_does_not_abort_the_run(self, tmp_path, monkeypatch):
+        """PitonToolServer's own construction (e.g. ChiaTool's port search
+        exhausted on a crowded worker) is a best-effort diagnostic aid --
+        see run_mace_loop's own comment on this. A failure there must leave
+        tool_server as None and let the run proceed, not propagate and
+        abort a run that would otherwise have passed.
+        """
+        db = make_db(tmp_path)
+        monkeypatch.setattr("mace.orchestrator.ray.is_initialized", lambda: True)
+
+        def raising_tool_server(*args, **kwargs):
+            raise RuntimeError("no free port")
+
+        monkeypatch.setattr("mace.orchestrator.PitonToolServer", raising_tool_server)
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
+                step_result("t1"),
+            ),
+        )
+
+        result = run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
+
+        assert result.status == "passed"

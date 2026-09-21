@@ -29,6 +29,7 @@ covers which backends this can see at all.
 
 from __future__ import annotations
 
+import logging
 import time
 
 import ray
@@ -51,6 +52,8 @@ from mace.report import ReportError, generate_post_mortem
 from mace.spec import LoopResult, MaceSpec, Triage
 from mace.triage import TriageError, triage
 from mace.workloads import verify_checksums
+
+logger = logging.getLogger(__name__)
 
 # Statuses a post-mortem is worth generating for: the loop genuinely tried
 # and ran real tasks but never reached "passed". Excluded on purpose:
@@ -183,10 +186,23 @@ def run_mace_loop(
                 if nodes is None:
                     nodes = open_nodes(piton_roots)
                 if tool_server is None and ray.is_initialized():
-                    tool_server = PitonToolServer(
-                        f"triage-{run_id}", piton_roots[0], PitonConfig(),
-                        expose=("grep", "collect", "compare_to_fixture", "symbol_check"),
-                    )
+                    # Best-effort: this tool is a diagnostic aid for triage,
+                    # not something the loop's own correctness depends on.
+                    # A construction failure (e.g. ChiaTool's own port
+                    # search exhausted on a crowded worker) must not abort
+                    # the whole run on what is otherwise a recoverable
+                    # condition -- proceed without it, same as if Ray
+                    # simply weren't initialized.
+                    try:
+                        tool_server = PitonToolServer(
+                            f"triage-{run_id}", piton_roots[0], PitonConfig(),
+                            expose=("grep", "collect", "compare_to_fixture", "symbol_check"),
+                        )
+                    except Exception:
+                        logger.exception(
+                            "run_mace_loop: failed to start the triage tool server -- "
+                            "continuing without it"
+                        )
                 results = integrate_parallel(
                     piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
                     on_task_progress=on_task_progress, nodes=nodes,
