@@ -312,9 +312,21 @@ confirmed actually used via the real \code{sims} invocation) that we and the pla
 passed instead: a genuine finding about this RTL's coherence robustness to cache-capacity extremes, not a
 test-design failure, reported as such rather than letting seven passes imply more than they show.
 
-Phase~2's own internal fan-out (two real tasks across two real checkouts, integrated and gated
-through the same path baseline~(c) uses) measured 30s parallel versus a 57s serial-equivalent,
-consistent with Phase~1's own parallel-build result above.
+The untried lever flagged above (mesh/NoC, not cache) via the full loop, not manual scaling:
+\vspace{-0.9em}
+{\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{MACE loop} & \textbf{Wall} & \textbf{Tasks} & \textbf{Verdict} \\
+\midrule
+2x2, \texttt{barrier\_atomic.c} & 765.4s & 3 & pass (3/3) \\
+4x4, \texttt{barrier\_atomic.c} & 574.6s & 3 & pass (3/3) \\
+\bottomrule
+\end{tabular}\par}
+\vspace{-0.8em}
+
+Phase~2's own fan-out (two real tasks, two checkouts, gated through baseline~(c)'s own path)
+measured 30s parallel vs. 57s serial, consistent with Phase~1's result above.
 
 \section{Limitations and Honest Findings}
 \label{sec:limits}
@@ -363,17 +375,17 @@ genuine Ray-reported out-of-memory condition (22.33GB/23.47GB used) from unconst
 compilation, fixed by forcing serial compilation via \code{MAKEFLAGS}; and, separately, Verilator's
 own generated build step passing an explicit, unlimited \code{-j} directly on its command line,
 which silently overrides that same environment-level fix. Both are real, evidenced via direct
-\code{/proc} inspection, host-local findings -- not a design flaw in \sys{} -- and 4x4 was
-deliberately not pursued further given competing priorities this close to submission.
+\code{/proc} inspection, host-local findings -- not a design flaw in \sys{}. A later, solo (non-
+parallel) attempt via the full loop succeeded instead (table above, 574.6s) -- consistent with the
+OOM above, which was specifically from concurrent compilation this later run never exercised.
 
 \section{Conclusion}
 
-\sys{} demonstrates that an agentic loop can autonomously plan, build, and verify real multicore
-hardware changes against real RTL simulation, with no step's success taken on an agent's own word.
-This project found and fixed real environment bugs, found a real memory-visibility bug in our own
-gate workloads before it could mask a false pass, extended the adapter to a third, previously-unrun
-core, added a real interface and two new capabilities, and precisely characterized every place the
-system did not reach a verdict -- rather than hiding gaps or blaming vague ``environment issues.''
-We believe precision, more than any single passing run, is this hackathon's real contribution.
+\sys{} demonstrates an agentic loop can autonomously plan, build, and verify real multicore
+hardware against real RTL simulation, no step's success taken on an agent's own word. This project
+found and fixed real environment bugs, caught a memory-visibility bug before it could mask a false
+pass, extended the adapter to a third core, verified mesh shapes never reached before, and
+characterized every unresolved verdict precisely. Precision, not a single pass, is the real
+contribution.
 
 \end{document}
