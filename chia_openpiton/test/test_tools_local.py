@@ -321,6 +321,42 @@ class TestSymbolCheck:
         assert "good_trap" in out  # from symbol.tbl
         assert "pass" in out  # the real objdump symbol at the same address
 
+    def test_objdump_f_failure_is_surfaced_as_an_error_not_empty_output(
+        self, stub_piton_root, cfg, tmp_path, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        def fake(cmd, **kwargs):
+            if "-f" in cmd:
+                return SimpleNamespace(stdout="", stderr="objdump: not an object file\n", returncode=1)
+            return SimpleNamespace(stdout="SYMBOL TABLE:\n", stderr="", returncode=0)
+
+        monkeypatch.setattr("chia_openpiton.tools.subprocess.run", fake)
+        tool = bare_tool(str(stub_piton_root), cfg, last_run=self._run_result(tmp_path))
+
+        out = tool.symbol_check()
+
+        assert "ERROR" in out
+        assert "objdump: not an object file" in out
+
+    def test_objdump_t_failure_is_surfaced_as_an_error_not_empty_output(
+        self, stub_piton_root, cfg, tmp_path, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        def fake(cmd, **kwargs):
+            if "-t" in cmd:
+                return SimpleNamespace(stdout="", stderr="objdump: not an object file\n", returncode=1)
+            return SimpleNamespace(stdout="start address 0x80000000\n", stderr="", returncode=0)
+
+        monkeypatch.setattr("chia_openpiton.tools.subprocess.run", fake)
+        tool = bare_tool(str(stub_piton_root), cfg, last_run=self._run_result(tmp_path))
+
+        out = tool.symbol_check()
+
+        assert "ERROR" in out
+        assert "objdump: not an object file" in out
+
     def test_missing_symbol_tbl_says_so_but_still_shows_objdump(
         self, stub_piton_root, cfg, tmp_path, monkeypatch
     ):

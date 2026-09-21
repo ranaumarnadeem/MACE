@@ -357,6 +357,10 @@ class PitonToolServer(AsyncJobTool):
             symbols = subprocess.run(["objdump", "-t", binary], capture_output=True, text=True, timeout=30)
         except FileNotFoundError:
             return "ERROR: 'objdump' was not found on PATH"
+        if entry.returncode != 0:
+            return f"ERROR: 'objdump -f {binary}' failed (exit {entry.returncode}): {entry.stderr}"
+        if symbols.returncode != 0:
+            return f"ERROR: 'objdump -t {binary}' failed (exit {symbols.returncode}): {symbols.stderr}"
         symtbl_text = "(not found in this run directory)"
         if os.path.isfile(symtbl):
             with open(symtbl, errors="replace") as f:
