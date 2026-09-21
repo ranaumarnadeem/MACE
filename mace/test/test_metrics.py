@@ -487,6 +487,29 @@ class TestModuleStatus:
         modules = {row["module"] for row in metrics.module_status(db, run_id)}
         assert modules == {"picorv32", "l15_pipeline"}
 
+    def test_same_bare_module_name_in_different_directories_are_not_collapsed(self, tmp_path):
+        """Real RTL practice: generic names like decoder.v are reused across
+        independent IP blocks in different directories (see
+        mace.unit_test_scaffold.unit_test_env_name's own docstring). Both
+        must survive, not just one of the two silently dropped."""
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        results = (
+            make_result("a", True, kind="unit_test", spec="piton/design/chip/tile/ariane/decoder.v"),
+            make_result(
+                "b", False, kind="unit_test",
+                spec="piton/design/chip/tile/pico/decoder.v", verdict="fail",
+            ),
+        )
+
+        metrics.record_iteration(db, run_id, 0, results, wall_s=1.0)
+
+        statuses = metrics.module_status(db, run_id)
+        assert len(statuses) == 2
+        by_task_id = {row["task_id"]: row for row in statuses}
+        assert by_task_id["a"]["passed"] is True
+        assert by_task_id["b"]["passed"] is False
+
     def test_scoped_to_the_given_run_id(self, tmp_path):
         db = open_test_db(tmp_path)
         run_a = metrics.start_run(db, make_spec(), run_id="run-a")

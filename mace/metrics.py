@@ -289,9 +289,16 @@ def module_status(db: SQLiteNode, run_id: str) -> list[dict]:
     once) deterministically, favoring whichever was written last --
     ``ORDER BY iteration DESC`` alone leaves that case to SQLite's
     unspecified tie order.
+
+    Deduplicates on ``spec`` (the task's real RTL file path), not the bare
+    ``module`` name: two real, different modules can share a filename in
+    different directories (the same reason
+    :func:`mace.unit_test_scaffold.unit_test_env_name` deliberately keys on
+    more than the bare stem) -- deduping on ``module`` alone would collide
+    them into one entry and silently drop the other's status.
     """
     rows = db.query(
-        "SELECT module, task_id, iteration, passed, build_success, run_verdict "
+        "SELECT module, spec, task_id, iteration, passed, build_success, run_verdict "
         "FROM tasks WHERE run_id = ? AND kind = 'unit_test' AND module IS NOT NULL "
         "ORDER BY iteration DESC, rowid DESC",
         (run_id,),
@@ -299,9 +306,9 @@ def module_status(db: SQLiteNode, run_id: str) -> list[dict]:
     seen: set[str] = set()
     result = []
     for row in rows:
-        if row["module"] in seen:
+        if row["spec"] in seen:
             continue
-        seen.add(row["module"])
+        seen.add(row["spec"])
         result.append(
             {
                 "module": row["module"],
