@@ -639,6 +639,30 @@ class TestHandleReadVerilog:
 
         assert "not wired into the build" in msg
 
+    def test_windows_native_path_backslashes_survive_tokenizing(self, monkeypatch):
+        """shlex.split's default POSIX mode treats \\ as an escape
+        character, so a native Windows path typed into the shell
+        (C:\\Users\\me\\foo.v) used to come out mangled to
+        C:Usersmefoo.v -- every backslash silently eaten -- instead of
+        being preserved for the exists() check right after.
+        """
+        from mace.cli.shell import _split_file_args
+
+        monkeypatch.setattr("mace.cli.shell.os.name", "nt")
+
+        tokens = _split_file_args(r"C:\Users\me\foo.v")
+
+        assert tokens == [r"C:\Users\me\foo.v"]
+
+    def test_windows_native_path_with_quotes_still_strips_them(self, monkeypatch):
+        from mace.cli.shell import _split_file_args
+
+        monkeypatch.setattr("mace.cli.shell.os.name", "nt")
+
+        tokens = _split_file_args(r'"C:\Program Files\foo.v"')
+
+        assert tokens == [r"C:\Program Files\foo.v"]
+
 
 class TestHandleTopModule:
     def test_known_core_name_reports_the_match(self):

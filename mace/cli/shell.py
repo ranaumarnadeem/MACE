@@ -168,6 +168,22 @@ def init(
 # ---------------------------------------------------------------------------
 
 
+def _split_file_args(arg: str) -> list[str]:
+    """shlex.split, but safe for a native Windows path.
+
+    shlex's default POSIX mode treats ``\\`` as an escape character, so a
+    path like ``C:\\Users\\me\\foo.v`` comes out mangled to
+    ``C:Usersmefoo.v`` -- every backslash silently eaten. Non-POSIX mode
+    keeps backslashes literal (right for a Windows path), at the cost of
+    leaving wrapping quotes attached to each token, which are stripped
+    back off here to match POSIX mode's own behavior.
+    """
+    if os.name != "nt":
+        return shlex.split(arg)
+    tokens = shlex.split(arg, posix=False)
+    return [t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in "\"'" else t for t in tokens]
+
+
 def handle_read_verilog(session: Session, arg: str) -> str:
     """`read_verilog <file> [file2 ...]` -- check that RTL source files exist.
 
@@ -179,7 +195,7 @@ def handle_read_verilog(session: Session, arg: str) -> str:
     if not arg.strip():
         return "ERROR: read_verilog needs at least one file"
     try:
-        tokens = shlex.split(arg)
+        tokens = _split_file_args(arg)
     except ValueError as e:
         # An unterminated quote (read_verilog "foo.v) -- caught here so it
         # gets this module's own clean ERROR: message, not the shell's
