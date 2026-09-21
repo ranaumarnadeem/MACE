@@ -147,6 +147,22 @@ class TestParseTasks:
         tasks = parse_tasks(text)
         assert tasks[0].caches is None
 
+    def test_numbered_list_lines_are_still_matched(self):
+        """A model asked for "one line per task" commonly renders it as a
+        numbered list anyway -- requiring the tag to be the literal first
+        character silently matched this zero times."""
+        text = (
+            "1. TASK: t1 | deps= | kind=config | x_tiles=1\n"
+            "2. TASK: t2 | deps=t1 | kind=workload | hello_world.c\n"
+        )
+        tasks = parse_tasks(text)
+        assert [t.id for t in tasks] == ["t1", "t2"]
+
+    def test_bulleted_list_lines_are_still_matched(self):
+        text = "- TASK: t1 | deps= | kind=config | x_tiles=1\n"
+        tasks = parse_tasks(text)
+        assert [t.id for t in tasks] == ["t1"]
+
 
 class TestParseCacheOverrides:
     def test_single_cache_for_one_task(self):
@@ -223,6 +239,12 @@ class TestParseDiagnosis:
         ):
             assert value in KNOWN_DIAGNOSES
 
+    def test_two_directives_on_one_line_do_not_merge(self):
+        """A model that keeps a short diagnosis and its fix in one sentence
+        must not have the second tag's text swallowed into the first tag's
+        value -- that silently corrupts the diagnosis and loses the fix."""
+        assert parse_diagnosis("DIAGNOSIS: timeout FIX: raise rtl_timeout") == "timeout"
+
 
 class TestParseFix:
     def test_last_fix_wins(self):
@@ -235,6 +257,13 @@ class TestParseFix:
 
     def test_fix_text_is_not_lowercased(self):
         assert parse_fix("FIX: Rerun with -Verbose") == "Rerun with -Verbose"
+
+    def test_diagnosis_on_the_same_line_does_not_leak_into_fix(self):
+        """FIX: mid-line (not its own line start) still isn't recognized as
+        its own directive -- that would need a bigger redesign than this
+        fix's scope -- but it must not corrupt DIAGNOSIS's own value
+        either (see TestParseDiagnosis's sibling test)."""
+        assert parse_fix("DIAGNOSIS: timeout FIX: raise rtl_timeout") is None
 
 
 class TestParseAssessment:

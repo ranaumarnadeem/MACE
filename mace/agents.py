@@ -44,6 +44,11 @@ KNOWN_ASSESSMENTS: frozenset[str] = frozenset(
     ("fixable_config", "likely_hardware_limitation", "inconclusive")
 )
 
+# Every tag _footer_lines is ever called with (see the bottom of this
+# module's call sites). Used to bound a value's own capture -- see
+# _footer_lines' docstring on why a value can't just run to end-of-line.
+_KNOWN_FOOTER_TAGS = ("TASK", "CACHES", "DIAGNOSIS", "FIX", "ASSESSMENT", "EXPLANATION", "NEXT_STEPS")
+
 
 def _footer_lines(text: str, tag: str) -> list[str]:
     """Every ``<tag>: ...`` line body in ``text``, in file order.
@@ -54,8 +59,25 @@ def _footer_lines(text: str, tag: str) -> list[str]:
     the *entire next line* -- including that line's own tag -- as this
     line's value. A truly empty tag line is dropped instead (no match),
     matching this module's existing fail-open convention.
+
+    An optional leading list marker (``"1. "``, ``"2) "``, ``"- "``,
+    ``"* "``) is allowed before the tag: a model asked for "one line per
+    task" or "a footer" commonly renders it as a numbered or bulleted list
+    anyway, and requiring the tag to be the literal first character
+    silently matched those responses zero times.
+
+    The value itself stops at end-of-line *or* right before another known
+    footer tag later on the same line, whichever comes first: a model that
+    puts two directives on one line (``"DIAGNOSIS: timeout FIX: raise
+    rtl_timeout"``) would otherwise have the second tag's text swallowed
+    into the first tag's value, silently losing that second directive.
     """
-    return re.findall(rf"(?im)^\s*{tag}:[ \t]*(.+)$", text)
+    other_tags = "|".join(t for t in _KNOWN_FOOTER_TAGS if t != tag)
+    pattern = (
+        rf"(?im)^\s*(?:[-*•]|\d+[.)])?[ \t]*{tag}:[ \t]*"
+        rf"(.+?)(?=[ \t]+(?:{other_tags}):|$)"
+    )
+    return re.findall(pattern, text)
 
 
 def parse_tasks(text: str) -> tuple[Task, ...]:
