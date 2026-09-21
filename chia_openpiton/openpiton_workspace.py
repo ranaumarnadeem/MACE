@@ -927,7 +927,9 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 the glob's starting point.
             max_bytes_per_file: Files over this size are recorded in ``skipped``
                 rather than shipped -- protects against a glob matching a model
-                binary or a multi-megabyte waveform.
+                binary or a multi-megabyte waveform. ``0`` is a real cap (skip
+                every non-empty file, list-only), not "no cap" -- pass ``None``
+                for that.
         """
         root = _require_root(piton_root)
         base = os.path.normpath(base_dir if os.path.isabs(base_dir) else _resolve_under(root, base_dir))
@@ -953,7 +955,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 except OSError:
                     continue
                 listing[rel] = size
-                if max_bytes_per_file and size > max_bytes_per_file:
+                if max_bytes_per_file is not None and size > max_bytes_per_file:
                     skipped[rel] = size
                     continue
                 with open(path, errors="replace") as f:

@@ -605,6 +605,17 @@ class TestWorkspaceFiles:
         assert got.skipped["big.log"] == 5000
         assert got.listing["big.log"] == 5000
 
+    def test_max_bytes_per_file_zero_is_a_real_cap_not_no_cap(self, node, stub_piton_root):
+        """0 is falsy in Python, so `if max_bytes_per_file and ...` used to
+        treat max_bytes_per_file=0 the same as None (no cap) -- a caller
+        asking for a strict list-only mode got full file contents instead.
+        """
+        (stub_piton_root / "build" / "small.log").write_text("ok")
+        got = node.collect(str(stub_piton_root / "build"), ("*.log",), max_bytes_per_file=0)
+        assert got.files == {}
+        assert got.skipped["small.log"] == 2
+        assert got.listing["small.log"] == 2
+
     def test_clean_removes_only_this_configs_model(self, node, cfg):
         art = node.build(cfg)
         assert os.path.isdir(art.model_dir)
