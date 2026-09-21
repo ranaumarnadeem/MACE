@@ -788,6 +788,33 @@ class TestDoRun:
         assert still_running is False  # cmd.Cmd convention: False keeps the loop going
         assert session.top_module == "ariane_top"  # session state survived intact
 
+    def test_ctrl_c_during_run_leaves_last_result_and_last_coverage_consistent(self, monkeypatch):
+        """A previous run's last_result/last_coverage must not be split
+        apart by an interrupt mid-run. last_coverage used to be cleared up
+        front -- before build_spec_from_session/run_mace_loop even ran --
+        so a Ctrl-C left last_result stale from the PREVIOUS run while
+        last_coverage had already been wiped, even though that previous
+        run genuinely had a coverage percentage to report.
+        """
+        from mace.cli.shell import MaceShell
+        from mace.spec import LoopResult
+
+        def raising_run_mace_loop(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr("mace.cli.shell.run_mace_loop", raising_run_mace_loop)
+
+        session = Session(piton_root="/x", top_module="ariane_top")
+        previous_result = LoopResult(run_id="prev", status="passed", iterations=())
+        session.last_result = previous_result
+        session.last_coverage = {"hit": 100, "total": 200, "percent": 50.0}
+        shell = MaceShell(session, llm=None, db=None)
+
+        shell.onecmd("run")
+
+        assert session.last_result is previous_result
+        assert session.last_coverage == {"hit": 100, "total": 200, "percent": 50.0}
+
     def test_task_progress_callback_prints_the_stage_and_task_ids(self, capsys, monkeypatch):
         """Real-time in-flight feedback: do_run must pass a real
         on_task_progress through to run_mace_loop and print what it's told

@@ -655,17 +655,21 @@ class MaceShell(cmd.Cmd):
         if "-coverage" in tokens or "--coverage" in tokens:
             self.session.coverage = True
 
-        # Reset before either path below: a coverage report from a *previous*
-        # run must never survive into this one's report, including the
-        # no_adapter early-return -- write_report would otherwise print a
-        # stale percentage next to an unrelated status.
-        self.session.last_coverage = None
-
+        # last_result and last_coverage are always set together below, at the
+        # point a new result actually exists -- never reset ahead of time.
+        # An earlier version cleared last_coverage here, before
+        # build_spec_from_session/run_mace_loop even ran; an interrupt or
+        # exception between that reset and the eventual `last_result =`
+        # assignment (e.g. Ctrl-C mid-run) left last_coverage wiped while
+        # last_result still held a PREVIOUS run's data -- write_report would
+        # then print that old run's status with no coverage, even if that
+        # old run genuinely had a coverage percentage to show.
         if self.session.top_module is not None and self.session.detected_core is None:
             pm = no_adapter_post_mortem(self.session)
             self.session.last_result = type(
                 "StaticResult", (), {"run_id": None, "status": "no_adapter", "post_mortem": pm}
             )()
+            self.session.last_coverage = None  # this static result never has one
             _print_post_mortem(c, pm)
             return
 
@@ -749,6 +753,7 @@ class MaceShell(cmd.Cmd):
             on_iteration=on_iteration, on_task_progress=on_task_progress,
         )
         self.session.last_result = result
+        self.session.last_coverage = None  # overwritten below if coverage was requested
         status_style = "green" if result.status == "passed" else "red"
         c.print(f"\nrun_id=[bold]{result.run_id}[/bold] status=[bold {status_style}]{result.status}[/bold {status_style}]")
         if result.post_mortem is not None:
