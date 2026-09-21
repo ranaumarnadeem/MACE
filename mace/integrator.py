@@ -22,6 +22,7 @@ Two appliers, for two settled design decisions:
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import threading
 
 from chia.base.ChiaFunction import get
@@ -30,6 +31,8 @@ from mace.loop import _config_for_task, run_mace_step
 from mace.replay import tag_for
 from mace.spec import MaceSpec, StepResult, Task
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
+
+logger = logging.getLogger(__name__)
 
 
 def open_nodes(piton_roots: tuple[str, ...]) -> list:
@@ -51,19 +54,44 @@ def open_nodes(piton_roots: tuple[str, ...]) -> list:
     confirm on a real ``--piton-root-2`` run before fully trusting the
     speedup claim, though the underlying pattern (independent blocking I/O
     calls off the main thread) is a standard, low-risk one.
+
+    If any one construction fails (e.g. a real placement-group-ready
+    timeout on a contended cluster), every other checkout's already-
+    successfully-constructed node is closed before the error propagates --
+    a plain ``pool.map`` would instead discard those live nodes with
+    nothing left holding a reference to close them, permanently leaking
+    their placement groups.
     """
     if not piton_roots:
         return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(piton_roots)) as pool:
-        return list(
-            pool.map(lambda root: OpenPitonWorkspaceNode(root, pg_ready_timeout_s=120), piton_roots)
-        )
+        futures = [
+            pool.submit(OpenPitonWorkspaceNode, root, pg_ready_timeout_s=120) for root in piton_roots
+        ]
+        concurrent.futures.wait(futures)  # let every construction finish, success or failure
+        errors = [f.exception() for f in futures if f.exception() is not None]
+        if errors:
+            close_nodes([f.result() for f in futures if f.exception() is None])
+            raise errors[0]
+        return [f.result() for f in futures]
 
 
 def close_nodes(nodes: list) -> None:
-    """Counterpart to :func:`open_nodes`."""
+    """Counterpart to :func:`open_nodes`.
+
+    Attempts every node's own ``.close()`` even if an earlier one raises
+    (a real Ray GCS RPC, not guaranteed never to fail) -- one node's
+    failure must not abort cleanup of the rest and leak their placement
+    groups too. Logs each failure rather than raising: this already runs
+    from a ``finally`` block in mace.orchestrator.run_mace_loop, where
+    raising here would itself abort the run before it can record its
+    actual result.
+    """
     for node in nodes:
-        node.close()
+        try:
+            node.close()
+        except Exception:
+            logger.exception("close_nodes: failed to close %r -- its placement group may be leaked", node)
 
 
 def topological_levels(tasks: tuple[Task, ...]) -> tuple[tuple[Task, ...], ...]:

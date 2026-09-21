@@ -11,7 +11,14 @@ import time
 import pytest
 
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
-from mace.integrator import _run_batch, integrate, open_nodes, topological_levels, topological_order
+from mace.integrator import (
+    _run_batch,
+    close_nodes,
+    integrate,
+    open_nodes,
+    topological_levels,
+    topological_order,
+)
 from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM
 from mace.workloads import WORKLOADS_DIR
@@ -197,6 +204,67 @@ class TestOpenNodes:
 
         # Sequential would take ~0.6s; concurrent should be close to ~0.2s.
         assert elapsed < 0.45
+
+    def test_order_preserved_even_when_construction_finishes_out_of_order(self, monkeypatch):
+        import mace.integrator as integrator_module
+
+        class _VariableDelayNode:
+            _delays = {"/slow": 0.15, "/fast": 0.0}
+
+            def __init__(self, root, pg_ready_timeout_s=120):
+                time.sleep(self._delays[root])
+                self.root = root
+
+        monkeypatch.setattr(integrator_module, "OpenPitonWorkspaceNode", _VariableDelayNode)
+
+        nodes = open_nodes(("/slow", "/fast"))
+
+        assert [n.root for n in nodes] == ["/slow", "/fast"]
+
+    def test_partial_failure_closes_the_nodes_that_did_succeed(self, monkeypatch):
+        """If one checkout's construction fails, the other's already-live
+        node must not be discarded with nothing left to close it -- that
+        would permanently leak its placement group."""
+        import mace.integrator as integrator_module
+
+        closed = []
+
+        class _Node:
+            def __init__(self, root, pg_ready_timeout_s=120):
+                if root == "/bad":
+                    raise TimeoutError("placement group never became ready")
+                self.root = root
+
+            def close(self):
+                closed.append(self.root)
+
+        monkeypatch.setattr(integrator_module, "OpenPitonWorkspaceNode", _Node)
+
+        with pytest.raises(TimeoutError):
+            open_nodes(("/good", "/bad"))
+
+        assert closed == ["/good"]
+
+
+class TestCloseNodes:
+    def test_one_nodes_close_failure_does_not_block_closing_the_rest(self):
+        closed = []
+
+        class _Node:
+            def __init__(self, name, should_raise=False):
+                self.name = name
+                self.should_raise = should_raise
+
+            def close(self):
+                if self.should_raise:
+                    raise RuntimeError("real Ray GCS RPC failure")
+                closed.append(self.name)
+
+        nodes = [_Node("a"), _Node("b", should_raise=True), _Node("c")]
+
+        close_nodes(nodes)  # must not raise -- and must still close a and c
+
+        assert closed == ["a", "c"]
 
 
 class _NodeStub:
