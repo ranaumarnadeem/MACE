@@ -354,7 +354,12 @@ class TestBuildResult:
 
         def fake_communicate(self, *a, **kw):
             calls["n"] += 1
-            if calls["n"] == 1:
+            # build()'s own address-map staleness recheck (see
+            # TestBuildDetectsStaleAddressMap) now runs a `git diff`
+            # subprocess unconditionally before ever reaching the real
+            # sims build -- that's call 1; the real build is call 2, the
+            # one this test means to interrupt.
+            if calls["n"] == 2:
                 raise KeyboardInterrupt()
             return real_communicate(self, *a, **kw)
 
@@ -463,17 +468,35 @@ class TestBuildDetectsStaleAddressMap:
         art = node.build(cfg)
         assert art.success is True
 
-    def test_a_config_with_no_recorded_diff_skips_the_check_entirely(self, node, cfg, monkeypatch):
-        """The overwhelmingly common case (no address_map ever used): no
-        _git call should even happen for this check."""
-
-        def fail_if_called(*a, **kw):
-            raise AssertionError("_git should not be called when config.diff is empty")
-
-        monkeypatch.setattr(OpenPitonWorkspaceNode, "_git", fail_if_called)
+    def test_a_config_with_no_recorded_diff_still_proceeds_when_checkout_is_still_clean(
+        self, node, cfg, monkeypatch
+    ):
+        """The overwhelmingly common case (no address_map ever used): the
+        recheck still runs (see the next test for why it must), but a
+        still-clean checkout matches this config's own empty diff, so
+        build() proceeds normally."""
+        monkeypatch.setattr(OpenPitonWorkspaceNode, "_git", lambda root, args, timeout_seconds=60: "")
         assert cfg.diff == ""
         art = node.build(cfg)
         assert art.success is True
+
+    def test_a_config_with_no_recorded_diff_is_still_protected_from_a_later_dirty_configure(
+        self, node, cfg, monkeypatch
+    ):
+        """A config built from a clean checkout (diff="") must be refused
+        just as readily as a dirty one if a LATER configure(address_map=...)
+        call on the same checkout has since made it dirty -- skipping this
+        recheck just because the original diff was empty was the actual bug:
+        that case got zero protection while its mirror image (dirty config,
+        then a second dirty configure()) was already caught."""
+        monkeypatch.setattr(
+            OpenPitonWorkspaceNode,
+            "_git",
+            lambda root, args, timeout_seconds=60: "+ a map added by a later configure() call",
+        )
+        assert cfg.diff == ""
+        with pytest.raises(ValueError, match="no longer matches"):
+            node.build(cfg)
 
 
 class TestRunVerdicts:
