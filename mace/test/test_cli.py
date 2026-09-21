@@ -703,6 +703,18 @@ class TestHandleSetCore:
         assert session.core_count is None  # not left stuck at 0
         assert session.target_mesh is None
 
+    def test_a_count_that_only_factors_into_an_oversized_axis_is_a_clean_error(self):
+        """65535 = 255x257 -- one axis over the 256-tile-per-axis limit --
+        must reach the same clean ERROR path as `0`, not report a false
+        "will attempt it" success that later crashes inside run() when
+        chia_openpiton's own PitonConfig validates the axes for real.
+        """
+        session = Session(piton_root="/x")
+        msg = handle_set_core(session, "65535")
+        assert msg.startswith("ERROR")
+        assert session.core_count is None
+        assert session.target_mesh is None
+
 
 class TestBuildSpecFromSession:
     def test_defaults_when_nothing_set(self):
