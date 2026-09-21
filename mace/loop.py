@@ -117,7 +117,7 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
     try:
         ports = read_dut_ports(rtl_path, module_name)
         ports_desc = ", ".join(ports)
-    except (OSError, ModuleNotFoundError_) as e:
+    except (OSError, UnicodeDecodeError, ModuleNotFoundError_) as e:
         ports_desc = f"(could not read real ports: {e})"
 
     prompt = (

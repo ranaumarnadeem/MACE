@@ -273,6 +273,26 @@ class TestUnitTestTask:
         assert "could not read real ports" in llm.calls[0][0]
         assert result.build.success is True  # build still proceeds regardless
 
+    def test_non_utf8_module_file_does_not_crash_the_step(self, stub_piton_root, monkeypatch):
+        """A non-UTF-8 RTL file (e.g. a stray Latin-1 comment from an old
+        toolchain) makes Path.read_text() raise UnicodeDecodeError, not
+        OSError -- this must degrade the same way a missing file does, not
+        propagate and crash the whole task.
+        """
+        self._scaffold(stub_piton_root)
+        rel_path = "design/foo.v"
+        rtl = stub_piton_root / rel_path
+        rtl.parent.mkdir(parents=True, exist_ok=True)
+        rtl.write_bytes(b"module foo (\n  input clk // \xe9\n);\nendmodule\n")
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["reconciled the ports"])
+        task = Task(id="t1", deps=(), kind="unit_test", spec=rel_path)
+
+        result = run_mace_step(str(stub_piton_root), make_spec(), task, llm)
+
+        assert "could not read real ports" in llm.calls[0][0]
+        assert result.build.success is True  # build still proceeds regardless
+
     def test_scaffolding_is_idempotent_across_two_tasks(self, stub_piton_root, monkeypatch):
         env_dir = self._scaffold(stub_piton_root)
         rel_path = self._rtl_module(stub_piton_root)
