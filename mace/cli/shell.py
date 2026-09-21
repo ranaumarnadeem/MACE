@@ -67,6 +67,30 @@ from mace.workloads import RECOMMENDED_RTL_TIMEOUT
 app = typer.Typer(help="MACE: point it at a core, tell it what to verify, and watch it work.")
 
 
+def _is_windows() -> bool:
+    """A thin wrapper over ``os.name == "nt"`` so tests can monkeypatch
+    platform-specific branches (see ``_split_file_args``/``_gcloud_adc_path``)
+    without setting the real, process-global ``os.name`` -- several stdlib
+    modules (``pathlib`` chief among them) read that directly, and doing so
+    was confirmed to break things: it made ``pathlib.Path`` try to
+    instantiate a real ``WindowsPath`` later in the same process, crashing
+    pytest's own cache-writing teardown with a raw ``NotImplementedError``.
+    """
+    return os.name == "nt"
+
+
+def _gcloud_adc_path() -> Path:
+    """Where `gcloud auth application-default login` writes its credentials
+    file. gcloud itself only uses ``~/.config/gcloud`` on Linux/macOS --
+    on Windows it writes under ``%APPDATA%\\gcloud`` instead, so checking
+    the POSIX path there always reports MISSING even right after a
+    successful login.
+    """
+    if _is_windows() and os.environ.get("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "gcloud" / "application_default_credentials.json"
+    return Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+
+
 # ---------------------------------------------------------------------------
 # init / doctor -- combined per the project owner's own instruction: init
 # does what a separate "doctor" command would have done, plus credential setup.
@@ -129,7 +153,7 @@ def init(
         # doesn't need that env var set at all) into a .env file that then
         # silently does nothing -- a real live-user rough edge. No .env file
         # is written for this backend.
-        adc_file = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+        adc_file = _gcloud_adc_path()
         typer.echo("backend=vertex authenticates via Google ADC, not a stored key/file.")
         if adc_file.exists():
             typer.echo(f"  [OK] Application Default Credentials found at {adc_file}")
@@ -178,7 +202,7 @@ def _split_file_args(arg: str) -> list[str]:
     leaving wrapping quotes attached to each token, which are stripped
     back off here to match POSIX mode's own behavior.
     """
-    if os.name != "nt":
+    if not _is_windows():
         return shlex.split(arg)
     tokens = shlex.split(arg, posix=False)
     return [t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in "\"'" else t for t in tokens]

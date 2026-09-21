@@ -241,6 +241,26 @@ class TestInit:
         assert "--backend vertex" in result.output
         assert "--api" not in result.output  # vertex's own run command omits it
 
+    def test_windows_checks_appdata_not_dot_config(self, tmp_path, monkeypatch):
+        """gcloud itself only writes ADC under ~/.config on Linux/macOS --
+        on Windows it writes under %APPDATA%\\gcloud instead, so checking
+        the POSIX path there always reported MISSING even right after a
+        successful `gcloud auth application-default login`.
+        """
+        from typer.testing import CliRunner
+
+        appdata = tmp_path / "AppData" / "Roaming"
+        adc_dir = appdata / "gcloud"
+        adc_dir.mkdir(parents=True)
+        (adc_dir / "application_default_credentials.json").write_text("{}")
+        monkeypatch.setattr("mace.cli.shell._is_windows", lambda: True)
+        monkeypatch.setenv("APPDATA", str(appdata))
+
+        result = CliRunner().invoke(app, ["init", "--backend", "vertex"])
+
+        assert result.exit_code == 0
+        assert "[OK] Application Default Credentials found" in result.output
+
     def test_non_vertex_backend_still_writes_the_env_file(self, tmp_path):
         from typer.testing import CliRunner
 
@@ -648,7 +668,7 @@ class TestHandleReadVerilog:
         """
         from mace.cli.shell import _split_file_args
 
-        monkeypatch.setattr("mace.cli.shell.os.name", "nt")
+        monkeypatch.setattr("mace.cli.shell._is_windows", lambda: True)
 
         tokens = _split_file_args(r"C:\Users\me\foo.v")
 
@@ -657,7 +677,7 @@ class TestHandleReadVerilog:
     def test_windows_native_path_with_quotes_still_strips_them(self, monkeypatch):
         from mace.cli.shell import _split_file_args
 
-        monkeypatch.setattr("mace.cli.shell.os.name", "nt")
+        monkeypatch.setattr("mace.cli.shell._is_windows", lambda: True)
 
         tokens = _split_file_args(r'"C:\Program Files\foo.v"')
 
