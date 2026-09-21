@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from chia_openpiton.state_def import PitonCore
+from chia_openpiton.state_def import MAX_TILES_PER_AXIS, PitonCore
 
 # Cores chia_openpiton actually has a working L15 adapter for -- the real
 # boundary this project's own research established (docs/TECHNICAL_GUIDE.md
@@ -81,16 +81,36 @@ def mesh_for_core_count(n: int) -> tuple[int, int]:
     project has ever actually built is square (1x1, 2x2, 4x4) -- otherwise
     the narrowest rectangle that fits, since chia_openpiton itself has no
     preference beyond what OpenPiton's own mesh topology allows.
+
+    Raises ``ValueError`` if no mesh of *n* tiles could fit within
+    ``MAX_TILES_PER_AXIS`` per side -- checked before the trial-division
+    loop below (not just on its result), since *n* itself is otherwise
+    unbounded and this project's own hard limit (a per-axis cap of 256)
+    means no valid *n* ever exceeds ``MAX_TILES_PER_AXIS ** 2`` tiles; an
+    absurd *n* (e.g. an accidental extra digit typed into `set_core`)
+    would otherwise make this loop scan up to sqrt(n) candidates, which
+    is a real hang risk in an interactive shell for a large enough typo.
     """
     if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
         raise ValueError(f"core count must be a positive int, got {n!r}")
+    if n > MAX_TILES_PER_AXIS * MAX_TILES_PER_AXIS:
+        raise ValueError(
+            f"core count {n} cannot fit in any mesh up to "
+            f"{MAX_TILES_PER_AXIS}x{MAX_TILES_PER_AXIS} "
+            f"({MAX_TILES_PER_AXIS * MAX_TILES_PER_AXIS} tiles)"
+        )
     root = int(n**0.5)
     if root * root == n:
-        return (root, root)
-    for y in range(root, 0, -1):
-        if n % y == 0:
-            return (n // y, y)
-    return (n, 1)  # n is prime (or 1, already handled above)
+        mesh = (root, root)
+    else:
+        mesh = next(((n // y, y) for y in range(root, 0, -1) if n % y == 0), (n, 1))
+    x, y = mesh
+    if x > MAX_TILES_PER_AXIS or y > MAX_TILES_PER_AXIS:
+        raise ValueError(
+            f"core count {n} only factors into a {x}x{y} mesh, "
+            f"which exceeds the {MAX_TILES_PER_AXIS}-tile-per-axis limit"
+        )
+    return mesh
 
 
 @dataclass

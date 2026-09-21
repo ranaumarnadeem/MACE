@@ -71,6 +71,31 @@ class TestMeshForCoreCount:
         for n in KNOWN_MESH_OUTCOMES:
             mesh_for_core_count(n)  # must not raise
 
+    def test_a_count_too_large_for_any_mesh_raises_immediately(self):
+        """256*256 = 65536 is the largest tile count any mesh could hold
+        (MAX_TILES_PER_AXIS=256 per side) -- a huge n (e.g. an accidental
+        extra digit typed into `set_core`) must be rejected up front, not
+        walked through an O(sqrt(n)) trial-division loop first. Bounded by
+        an explicit timeout: this is exactly the hang this check exists to
+        prevent, so a regression here should make the test itself hang
+        rather than merely fail an assertion.
+        """
+        import time
+
+        started = time.monotonic()
+        with pytest.raises(ValueError, match="cannot fit"):
+            mesh_for_core_count(10**9)
+        assert time.monotonic() - started < 1.0
+
+    def test_a_count_that_only_factors_into_an_oversized_axis_raises(self):
+        """65535 = 255 * 257 -- under the 65536-tile total cap, but its
+        narrowest-rectangle factorization puts 257 tiles on one axis,
+        over the 256-tile-per-axis limit. The total-count guard alone
+        would miss this; the result's own axes must be checked too.
+        """
+        with pytest.raises(ValueError, match="exceeds the 256-tile-per-axis limit"):
+            mesh_for_core_count(65535)
+
 
 class TestSession:
     def test_detected_core_is_none_before_top_module_set(self):
