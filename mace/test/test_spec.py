@@ -39,10 +39,23 @@ class TestBudgetValidation:
         with pytest.raises(ValueError, match="max_usd"):
             Budget(max_usd=bad)
 
+    def test_bool_is_not_accepted_as_max_usd(self):
+        """True/False are ints in Python, so True <= 0 is False -- without
+        an explicit bool exclusion (matching max_iterations's own guard),
+        Budget(max_usd=True) silently passed validation and was then used
+        as a $1 budget everywhere the loop compares against it.
+        """
+        with pytest.raises(ValueError, match="max_usd"):
+            Budget(max_usd=True)
+
     @pytest.mark.parametrize("bad", [0, -1])
     def test_max_wall_s_must_be_positive(self, bad):
         with pytest.raises(ValueError, match="max_wall_s"):
             Budget(max_wall_s=bad)
+
+    def test_bool_is_not_accepted_as_max_wall_s(self):
+        with pytest.raises(ValueError, match="max_wall_s"):
+            Budget(max_wall_s=True)
 
 
 class TestMaceSpecValidation:

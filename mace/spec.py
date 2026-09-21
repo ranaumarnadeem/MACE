@@ -43,8 +43,12 @@ class Budget:
             raise ValueError(f"max_iterations must be an int, got {self.max_iterations!r}")
         if self.max_iterations <= 0:
             raise ValueError(f"max_iterations must be positive, got {self.max_iterations}")
+        if not isinstance(self.max_usd, (int, float)) or isinstance(self.max_usd, bool):
+            raise ValueError(f"max_usd must be a number, got {self.max_usd!r}")
         if self.max_usd <= 0:
             raise ValueError(f"max_usd must be positive, got {self.max_usd}")
+        if not isinstance(self.max_wall_s, int) or isinstance(self.max_wall_s, bool):
+            raise ValueError(f"max_wall_s must be an int, got {self.max_wall_s!r}")
         if self.max_wall_s <= 0:
             raise ValueError(f"max_wall_s must be positive, got {self.max_wall_s}")
 
