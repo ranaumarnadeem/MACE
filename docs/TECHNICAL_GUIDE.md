@@ -512,6 +512,57 @@ byline is a real name (Rana Umar Nadeem), not a placeholder, and there's a
 real architecture figure (Figure 1, the pipeline diagram) -- both already
 done, contrary to what an earlier version of this note said.
 
+### The full 3-core × 2-baseline matrix
+
+Everything above is Ariane only. The same (b)/(c) pair was also run for real
+against `sparc` and `pico` -- same objective (1×1 mesh, `barrier_atomic.c`),
+same LLM backend (Gemini 2.5 Flash on Vertex) -- completing a genuine 3-core
+× 2-baseline matrix. Not in the paper (already at its exact 4-page limit);
+recorded here instead. Raw logs: `runs/bench_{sparc,pico}_{b,c}.log`; the
+(c) runs are also in `runs/mace_end_to_end.db` (run IDs `e91cc625501a`
+sparc, `fc4309c57074` pico).
+
+| Core     | (b) one-shot LLM                                                          | (c) full MACE loop                                        |
+|----------|-----------------------------------------------------------------------------|--------------------------------------------------------------|
+| ariane   | fail, 186.5s -- built, failed hardware verification                       | pass, 4/4 tasks, 1 iteration, 741.7s                          |
+| sparc    | fail, 766.0s -- built, but the run command itself failed (no verdict)      | `budget_exceeded`, 0 tasks passed, 3 iterations, 966.3s       |
+| pico     | fail, ~33s -- LLM's own config was unparseable (`l15_size=0`), rejected before any build | `budget_exceeded`, 0 tasks passed, 3 iterations, 1250.5s      |
+
+Neither sparc nor pico passed under either baseline here -- but the *why*
+differs sharply between them, and it's the full loop's own triage/post-mortem
+machinery (not us, reading logs by hand) that told the two apart, which
+neither baseline (b) nor a bare pass/fail number could show on its own:
+
+- **sparc (c):** the config task's own Verilator model build succeeded, but
+  every one of 3 replan attempts still failed to *run* the gate workload --
+  `command failed (rc=1)`, no verdict. The loop's own triage diagnosed a
+  missing `util.h` include path in the diagnostic program's own build (an
+  LLM inference we have not independently verified the way the pico RTL
+  bugs above were) and its post-mortem classified the whole run
+  `fixable_config`, not a hardware limitation -- consistent with there being
+  no other evidence of a sparc RTL gap anywhere in this project.
+- **pico (c):** every one of 3 replan attempts reached verdict `maxcycles`
+  (deadlock) on the 1×1 mesh. The loop's own post-mortem reasoned that
+  `barrier_atomic.c`'s own barrier logic needs more than one participant to
+  ever release -- something a 1×1 mesh can never provide, no matter how the
+  config is retried -- and classified this `likely_hardware_limitation`.
+  More precisely this is a workload/mesh mismatch, not an RTL bug: pico's
+  own adapter already passes for real (see the update above) on a workload
+  shaped for a single core. This is a *different* failure from the earlier,
+  now-fixed pico boot/trap RTL bugs -- those were already fixed before this
+  run, and this run's failure is about workload choice, not a regression.
+
+One-shot's two distinct failure modes are themselves informative. For sparc
+it produced a config that looked plausible and got as far as a real build,
+but the hardware run still failed silently, with no verdict at all --
+exactly the class of failure an ungated single guess can't catch, because
+nothing downstream of it ever checks. For pico it never even reached
+hardware: the LLM proposed `l15_size=0`, and `PitonConfig`'s own
+construction-time validation (`chia_openpiton/state_def.py`, "cache ...
+size/associativity must be positive") correctly rejected it --
+`examples/baseline_one_shot_llm.py` has no retry path for a malformed LLM
+response at all, so this is simply where that baseline stops.
+
 ## 8. Standing conventions — follow these, don't second-guess them
 
 - **No AI co-author trailers in commits.** A deliberate, repeated instruction

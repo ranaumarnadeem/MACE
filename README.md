@@ -178,6 +178,13 @@ measurement suggested. One trial isn't proof a one-shot prompt can never
 solve this objective — LLM output varies run to run — but it's a concrete
 instance of the failure mode the loop exists to catch.
 
+The same (b)/(c) pair was also run for real against `sparc` and `pico`,
+completing a full 3-core × 2-baseline matrix (not in the paper, already at
+its page limit — see `docs/TECHNICAL_GUIDE.md`'s "The full 3-core ×
+2-baseline matrix" for the numbers and the two distinct failure modes the
+loop's own triage/post-mortem told apart: a fixable sparc build/config issue
+vs. a pico workload/mesh mismatch, neither an RTL bug).
+
 Manual mesh scaling (baseline (a)) has no dedicated
 script; `scripts/local_2x2_build_test.py` is the closest thing, a hand-run
 multi-tile attempt with a full log of what happened, kept for its
