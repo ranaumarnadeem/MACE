@@ -31,8 +31,11 @@ from __future__ import annotations
 
 import time
 
+import ray
 from chia.database.sqlite_node import SQLiteNode
 
+from chia_openpiton.state_def import PitonConfig
+from chia_openpiton.tools import PitonToolServer
 from mace.integrator import close_nodes, integrate_parallel, open_nodes
 from mace.llm import extract_cost_usd
 from mace.metrics import (
@@ -142,81 +145,105 @@ def run_mace_loop(
     # piton_roots, so re-acquiring (and tearing down) a real Ray placement
     # group per checkout on every single replan iteration is pure waste.
     nodes: list | None = None
+    # Read-only diagnostic tool over compare_to_fixture/symbol_check (see
+    # chia_openpiton/tools.py) -- lets triage/report reach the same
+    # fixture-diff/objdump evidence a human read by hand for the PicoRV32/
+    # 2x2-mesh findings, instead of only via grep over text logs. Guarded
+    # by ray.is_initialized() the same way mace.loop's own TestbenchEditTool
+    # is: never constructed in a tier-0 test (which never calls ray.init()),
+    # so `tools` stays exactly what was passed in there, unchanged.
+    # Outlives `nodes` on purpose -- generate_post_mortem runs after nodes
+    # are already closed below, but still needs tool access.
+    tool_server = None
     try:
-        for iteration in range(spec.budget.max_iterations):
-            if time.monotonic() - started > spec.budget.max_wall_s:
-                status = "budget_exceeded"
-                break
-            if total_usd > spec.budget.max_usd:
-                status = "budget_exceeded"
-                break
-
-            # Started before plan()'s own LLM round-trip, not just
-            # integrate_parallel's: the recorded wall_s (and therefore the
-            # execution_time_s the paper/README cite) must count real time
-            # the same way baseline (b) (examples/baseline_one_shot_llm.py)
-            # does -- that script's timer starts before its own LLM call
-            # too. Starting this after plan() would silently exclude every
-            # Planner call's latency, biasing the comparison in this loop's
-            # favor.
-            iter_started = time.monotonic()
-            try:
-                tasks = plan(spec, llm, tools=tools, feedback="\n".join(feedback_history))
-            except PlanningError:
-                status = "planning_failed"
-                break
-
-            if nodes is None:
-                nodes = open_nodes(piton_roots)
-            results = integrate_parallel(
-                piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
-                on_task_progress=on_task_progress, nodes=nodes,
-            )
-            iter_wall_s = time.monotonic() - iter_started
-            iter_usd = sum(extract_cost_usd(r.query) for r in results)
-            total_usd += iter_usd
-            iterations.append(results)
-            diagnoses.append(None)  # overwritten below if this level gets triaged
-            record_iteration(db, run_id, iteration, results, iter_wall_s, usd=iter_usd)
-            if on_iteration is not None:
-                on_iteration(iteration, results)
-
-            if results and all(r.passed for r in results):
-                status = "passed"
-                break
-
-            failed = next((r for r in results if not r.passed), None)
-            if failed is None:
-                # integrate_parallel returned nothing to run at all -- no
-                # task DAG produced any work, so there's nothing to triage
-                # either.
-                status = "failed"
-                break
-
-            had_a_failure = True
-            try:
-                diagnosis = triage(failed, llm, tools=tools)
-            except TriageError:
-                diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
-            diagnoses[-1] = (failed.task.id, diagnosis)
-            record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
-            feedback_history.append(
-                f"Task {failed.task.id} ({failed.task.spec}) failed: "
-                f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
-            )
-    finally:
-        if nodes is not None:
-            close_nodes(nodes)
-
-    post_mortem = None
-    if status in _POST_MORTEM_STATUSES and iterations:
         try:
-            post_mortem = generate_post_mortem(
-                spec, tuple(iterations), tuple(diagnoses), status, llm, tools=tools
-            )
-            record_post_mortem(db, run_id, post_mortem)
-        except ReportError:
-            pass  # fail-open, matching triage's own posture
+            for iteration in range(spec.budget.max_iterations):
+                if time.monotonic() - started > spec.budget.max_wall_s:
+                    status = "budget_exceeded"
+                    break
+                if total_usd > spec.budget.max_usd:
+                    status = "budget_exceeded"
+                    break
+
+                # Started before plan()'s own LLM round-trip, not just
+                # integrate_parallel's: the recorded wall_s (and therefore the
+                # execution_time_s the paper/README cite) must count real time
+                # the same way baseline (b) (examples/baseline_one_shot_llm.py)
+                # does -- that script's timer starts before its own LLM call
+                # too. Starting this after plan() would silently exclude every
+                # Planner call's latency, biasing the comparison in this loop's
+                # favor.
+                iter_started = time.monotonic()
+                try:
+                    tasks = plan(spec, llm, tools=tools, feedback="\n".join(feedback_history))
+                except PlanningError:
+                    status = "planning_failed"
+                    break
+
+                if nodes is None:
+                    nodes = open_nodes(piton_roots)
+                if tool_server is None and ray.is_initialized():
+                    tool_server = PitonToolServer(
+                        f"triage-{run_id}", piton_roots[0], PitonConfig(),
+                        expose=("grep", "collect", "compare_to_fixture", "symbol_check"),
+                    )
+                results = integrate_parallel(
+                    piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
+                    on_task_progress=on_task_progress, nodes=nodes,
+                )
+                iter_wall_s = time.monotonic() - iter_started
+                iter_usd = sum(extract_cost_usd(r.query) for r in results)
+                total_usd += iter_usd
+                iterations.append(results)
+                diagnoses.append(None)  # overwritten below if this level gets triaged
+                record_iteration(db, run_id, iteration, results, iter_wall_s, usd=iter_usd)
+                if on_iteration is not None:
+                    on_iteration(iteration, results)
+
+                if results and all(r.passed for r in results):
+                    status = "passed"
+                    break
+
+                failed = next((r for r in results if not r.passed), None)
+                if failed is None:
+                    # integrate_parallel returned nothing to run at all -- no
+                    # task DAG produced any work, so there's nothing to triage
+                    # either.
+                    status = "failed"
+                    break
+
+                had_a_failure = True
+                triage_tools = tools
+                if tool_server is not None:
+                    tool_server.set_context(failed.build, failed.run)
+                    triage_tools = (*tools, tool_server)
+                try:
+                    diagnosis = triage(failed, llm, tools=triage_tools)
+                except TriageError:
+                    diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
+                diagnoses[-1] = (failed.task.id, diagnosis)
+                record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
+                feedback_history.append(
+                    f"Task {failed.task.id} ({failed.task.spec}) failed: "
+                    f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
+                )
+        finally:
+            if nodes is not None:
+                close_nodes(nodes)
+
+        post_mortem = None
+        if status in _POST_MORTEM_STATUSES and iterations:
+            report_tools = (*tools, tool_server) if tool_server is not None else tools
+            try:
+                post_mortem = generate_post_mortem(
+                    spec, tuple(iterations), tuple(diagnoses), status, llm, tools=report_tools
+                )
+                record_post_mortem(db, run_id, post_mortem)
+            except ReportError:
+                pass  # fail-open, matching triage's own posture
+    finally:
+        if tool_server is not None:
+            tool_server.stop()
 
     if status == "passed" and had_a_failure:
         mark_all_recovered(db, run_id)
