@@ -7,6 +7,8 @@
 \usepackage{graphicx}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
 \usepackage{titlesec}
 
 \setlength{\parindent}{0pt}
@@ -39,13 +41,15 @@ planner decomposes a hardware objective into a task DAG, specialized agents exec
 parallel, a deterministic integrator applies and gates every change against real Verilator
 simulation, and a failure-analysis agent triages and replans on any failure. We evaluate \sys{}
 against two baselines -- manual mesh scaling and a single-shot LLM configuration with no tools or
-iteration -- using real hardware runs throughout, with no simulated results anywhere in this paper.
-We report what worked, what did not, and precisely why: a genuine RTL-level finding while extending
-\sys{} to a third, never-before-simulated core (PicoRV32); a real dispatch failure against a
-dependency we do not control (CHIA's tailnet-relay task launching), first misdiagnosed as a
-scheduler bug and corrected once better evidence arrived; and a one-shot LLM baseline that built
-successfully but failed real hardware verification, where only \sys{}'s iterate-until-verified loop
-reached a passing result on the same objective.
+iteration -- across all three supported cores, using real hardware runs throughout, with no
+simulated results anywhere in this paper. We report what worked, what did not, and precisely why: a
+genuine RTL-level finding while extending \sys{} to a third, never-before-simulated core (PicoRV32);
+a real dispatch failure against a dependency we do not control (CHIA's tailnet-relay task
+launching), first misdiagnosed as a scheduler bug and corrected once better evidence arrived; a
+one-shot LLM baseline that fails on all three cores in three distinct ways, where \sys{}'s loop
+passes on one and, on the other two, correctly exhausts its retry budget rather than reporting a
+false pass; and two real mesh shapes (2x2, 4x4) where manual scaling got stuck but the full loop
+passed.
 \end{minipage}
 \end{center}
 \vspace{1.2em}
@@ -141,12 +145,11 @@ transcripts (\code{sim.log}, \code{status.log}) using the exact strings OpenPito
 monitors emit, so a verdict is never inferred from an agent's own claim.
 
 \textbf{Real hardening.} Getting real hardware to build at all surfaced four permanent,
-environment-level bugs, all fixed once and captured in a single idempotent patch script:
-binutils~2.38+ splitting \code{zicsr}/\code{zifencei} out of base RV64I (breaking the boot ROM's
-own assembly), GCC~15's C23 default silently breaking a legacy two-argument function call, broken
-git symlinks on a Windows-mounted checkout materializing as literal path-text files, and 66 files
-with CRLF-terminated shebang lines. None are \sys{}-specific -- the kind of friction any real
-deployment of decades-old RTL encounters.
+environment-level bugs, fixed once in a single idempotent patch script: binutils~2.38+ splitting
+\code{zicsr}/\code{zifencei} out of base RV64I (breaking the boot ROM's own assembly), GCC~15's C23
+default breaking a legacy two-argument function call, broken git symlinks on a Windows-mounted
+checkout materializing as literal path-text files, and 66 CRLF-terminated shebang lines. None are
+\sys{}-specific -- friction any real deployment of decades-old RTL encounters.
 
 \textbf{Build-result caching.} \code{build()} skips re-invoking the simulator entirely when a
 matching successful-build marker already exists on disk. Measured on a real rebuild of an
@@ -186,12 +189,11 @@ USD, wall-clock -- are checked before each iteration starts, not merely logged a
 Gate-workload checksums are verified at run start, before any LLM call or checkout is touched, so a
 task cannot tamper with its own grading.
 
-\textbf{Replay, scoped honestly.} LLM, build, and run decisions are cache-tagged and can be
-re-served at zero additional token or compute cost. We verified directly, by reading CHIA's own
-cache/bypass implementation rather than assuming a stronger guarantee, that this mechanism
-reproduces \emph{decisions} (an LLM's response text, a build/run's pass/fail artifact) -- not the
-literal source edits an agent made through its tools. Those remain git's job. We consider this an
-honest and useful scope, not a shortcoming to paper over.
+\textbf{Replay, scoped honestly.} LLM, build, and run decisions are cache-tagged and re-served at
+zero additional token or compute cost. Verified directly, by reading CHIA's own cache/bypass
+implementation, that this reproduces \emph{decisions} (an LLM's response text, a build/run's
+pass/fail artifact) -- not the literal source edits an agent made through its tools; those remain
+git's job. An honest, useful scope, not a shortcoming to paper over.
 
 \section{A Third Core: PicoRV32}
 \label{sec:pico}
@@ -256,136 +258,146 @@ actually available on our project (\code{gemini-2.0-*} 404s; \code{gemini-2.5-fl
 \section{Evaluation}
 \label{sec:eval}
 
-We compare three approaches to the same objective (verify the barrier/atomic-counter gate workload
-on a 1x1 mesh) and, for baseline~(a), larger meshes: \textbf{(a)} manual mesh scaling with a time
-log; \textbf{(b)} a single LLM prompt asking directly for a configuration, applied once with no
-tools, no verification, and no retry; \textbf{(c)} the full \sys{} loop. All three share the same
-LLM backend, objective, and gate workload where applicable, and all results below are real hardware
-runs -- no simulated numbers appear in this paper.
+We compare three approaches: \textbf{(a)} manual mesh scaling with a time log; \textbf{(b)} a single
+LLM prompt asking directly for a configuration, applied once with no tools, no verification, and no
+retry; \textbf{(c)} the full \sys{} loop. All results below are real hardware runs -- no simulated
+numbers appear anywhere in this paper.
 
-\begin{center}
-\small
-\begin{tabular}{@{}lrrl@{}}
-\toprule
-\textbf{Run} & \textbf{Wall time} & \textbf{Tasks} & \textbf{Verdict} \\
-\midrule
-(b) one-shot LLM                        & 186.5s      & 1 (LLM call) & fail \\
-(c) \sys{}, 4 runs, \texttt{barrier\_atomic.c} & 1835--2180s & 1--5         & pass (4/4) \\
-(c) \sys{}, 1 run, \texttt{producer\_consumer.c}\textsuperscript{*} & 2118.02s & 2 & pass \\
-\bottomrule
-\end{tabular}
+\textbf{Three cores, two baselines.} (b) and (c) were run against the identical objective (verify
+\code{barrier\_atomic.c} on a 1x1 mesh) for all three supported cores, not just ariane, same LLM
+backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
 
-\footnotesize{\textsuperscript{*}A second, distinct gate workload -- real coverage beyond one
-program, not repeated success on the same one.}
-\end{center}
+\begin{figure*}[t]
+\centering
+\vspace{-1.0em}
+\begin{minipage}{0.56\textwidth}
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=9pt, width=8.6cm, height=2.5cm,
+  symbolic x coords={ariane,sparc,pico}, xtick=data,
+  x tick label style={font=\scriptsize}, y tick label style={font=\scriptsize},
+  ylabel={wall time (s)}, ylabel style={font=\scriptsize},
+  ymin=0, ymax=1750, enlarge x limits=0.28,
+  nodes near coords, point meta=explicit symbolic,
+  every node near coord/.append style={font=\tiny, rotate=90, anchor=west, inner sep=1pt},
+]
+\addplot[fill=orange!70] coordinates {(ariane,186.5)[fail] (sparc,766.0)[fail] (pico,32.6)[unparseable]};
+\addplot[fill=blue!55] coordinates {(ariane,741.7)[pass] (sparc,966.3)[budget\_exceeded] (pico,1250.5)[budget\_exceeded]};
+\end{axis}
+\end{tikzpicture}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.4\textwidth}
+\centering
+\begin{tikzpicture}[tile/.style={draw, fill=gray!15, minimum size=0.22cm, inner sep=0}, font=\scriptsize]
+  \node[tile] at (0,0.55) {};
+  \node at (0,0.0) {1x1};
+  \node[align=center, text width=1.6cm] at (0,-0.55) {(a) pass\\(c) pass};
 
-\begin{center}
-\small
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Mesh (a)} & \textbf{Build} & \textbf{Run} \\
-\midrule
-1x1 & pass (repeated) & pass \\
-2x2 & pass (211s)     & hang -- likely genuine RTL gap \\
-4x4 & not reached      & not reached -- see \S\ref{sec:limits} \\
-\bottomrule
-\end{tabular}
-\end{center}
+  \foreach \x in {0,1} \foreach \y in {0,1} \node[tile] at (1.55+\x*0.24,0.55+\y*0.24) {};
+  \node at (1.67,0.0) {2x2};
+  \node[align=center, text width=2.3cm] at (1.67,-0.6)
+    {{\color{red!60!black}(a) hang}\\{\color{green!50!black}(c) pass, 765.4s}};
 
-\textbf{Discussion.} With the timeout bug corrected, baseline~(b)'s one-shot guess built but failed
-real hardware verification (186.5s); a fresh, same-day baseline~(c) run passed the identical
-objective (741.7s, 4/4 tasks -- not the table's four pre-fix \texttt{barrier\_atomic.c} rows above)
-at roughly 4x the cost, not "for free" as an earlier, buggy measurement implied. This doesn't prove
-a luckier guess could never pass, but it demonstrates \sys{}'s actual value proposition: not raw
-speed on an objective a single guess already solves, but having \emph{any} recovery mechanism when
-a first guess is wrong. Baseline~(c)'s own data
-already shows the planner sometimes decomposes the same nominal objective into multiple dependent
-tasks (run~2, five tasks) rather than one; and \S\ref{sec:pico}'s PicoRV32 run and (a)'s 2x2 mesh
-are exactly the harder cases -- a novel core, an untested mesh shape -- where baseline~(b)'s
-one-shot design has no mechanism to recover from an incorrect first answer at all. By construction,
-it simply fails there too.
-
-One honest gap: the detect-failure~$\rightarrow$~diagnose~$\rightarrow$~replan~$\rightarrow$~pass cycle is
-proven at the mechanism level (a stateful stub that fails once, then passes) but never fired across seven real
-hardware runs -- including one where we forced an extreme first configuration (a 128-byte, direct-mapped L1,
-confirmed actually used via the real \code{sims} invocation) that we and the planner both expected to fail. It
-passed instead: a genuine finding about this RTL's coherence robustness to cache-capacity extremes, not a
-test-design failure, reported as such rather than letting seven passes imply more than they show.
-
-The untried lever flagged above (mesh/NoC, not cache) via the full loop, not manual scaling:
+  \foreach \x in {0,...,3} \foreach \y in {0,...,3} \node[tile] at (3.6+\x*0.19,0.55+\y*0.19) {};
+  \node at (3.885,0.0) {4x4};
+  \node[align=center, text width=2.3cm] at (3.885,-0.6)
+    {{\color{gray}(a) not reached}\\{\color{green!50!black}(c) pass, 574.6s}};
+\end{tikzpicture}
+\end{minipage}
+\vspace{-0.6em}
+\caption{\textbf{Left:} {\color{orange!70!black}orange}=(b) one-shot, {\color{blue!55!black}blue}
+=(c) full loop, all cores, same 1x1 objective; (b) never passes, and on sparc/pico (c) exhausts its
+retry budget rather than reporting a false pass (logs: \code{runs/bench\_\{sparc,pico\}\_\{b,c\}.log}).
+\textbf{Right:} manual mesh scaling (a) vs.\ (c) -- the loop passes both shapes (a) got stuck on.}
+\label{fig:eval}
 \vspace{-0.9em}
-{\centering\footnotesize\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}lrrl@{}}
-\toprule
-\textbf{MACE loop} & \textbf{Wall} & \textbf{Tasks} & \textbf{Verdict} \\
-\midrule
-2x2, \texttt{barrier\_atomic.c} & 765.4s & 3 & pass (3/3) \\
-4x4, \texttt{barrier\_atomic.c} & 574.6s & 3 & pass (3/3) \\
-\bottomrule
-\end{tabular}\par}
-\vspace{-0.8em}
+\end{figure*}
+
+(b) fails all three, in three distinct ways -- each itself informative. For ariane, the one-shot
+config built but failed real verification: a functionally wrong guess. For sparc, it built and even
+reached a run attempt that then failed silently, no verdict at all. For pico, the LLM's own proposed
+config (\code{l15\_size=0}) was rejected by \code{PitonConfig}'s own construction-time validation
+before any hardware was touched -- (b)'s script has no retry path for a malformed response. (c)
+passes ariane (4/4 tasks, 741.7s, roughly 4x (b)'s cost -- not ``for free'' as an earlier, buggy
+measurement implied); a second, distinct ariane gate workload, \code{producer\_consumer.c}, also
+passed (2118.02s, 2 tasks) -- real coverage beyond one program, not repeated success on the same
+one. For sparc and pico, (c) does not pass either -- but its own triage/post-mortem,
+not us reading logs by hand, told the two failures apart correctly: sparc's 3 replan attempts still
+could not resolve a missing \code{util.h} include path in the gate program's own build (classified
+\code{fixable\_config}, an LLM diagnosis we have not independently verified); pico's 3 attempts all
+deadlocked (\code{maxcycles}) because \code{barrier\_atomic.c}'s own barrier logic needs more than
+one participant -- something a 1x1 mesh can never provide -- correctly classified
+\code{likely\_hardware\_limitation} (more precisely a workload/mesh mismatch, not a regression of
+the pico RTL bugs \S\ref{sec:pico} already fixed).
+
+\textbf{The loop recovers mesh shapes manual scaling could not.} Baseline~(a)'s own real attempts
+got stuck at 2x2 (build passes, run hangs) and never reached 4x4 -- see \S\ref{sec:limits} for the
+two real, independent causes behind that. The full loop, same mesh shapes, real hardware, passed
+both (Figure~\ref{fig:eval}, right).
 
 Phase~2's own fan-out (two real tasks, two checkouts, gated through baseline~(c)'s own path)
-measured 30s parallel vs. 57s serial, consistent with Phase~1's result above.
+measured 30s parallel vs.\ 57s serial, consistent with Phase~1's result above.
+
+One honest gap: the detect-failure~$\rightarrow$~diagnose~$\rightarrow$~replan~$\rightarrow$~pass
+cycle is proven at the mechanism level (a stateful stub that fails once, then passes) but never
+fired across the passing hardware runs above -- including a forced extreme first configuration (a
+128-byte, direct-mapped L1, confirmed actually used) that we and the planner both expected to fail.
+It passed instead: a genuine finding about this RTL's coherence robustness to cache-capacity
+extremes, not a test-design failure, reported as such rather than letting repeated passes imply more
+than they show.
 
 \section{Limitations and Honest Findings}
 \label{sec:limits}
 
 \textbf{A launch-configuration gap we first misdiagnosed as a CHIA scheduler bug -- corrected once
 better evidence arrived.} A task whose resource request could only be satisfied by a tailnet-relayed
-GCP worker never executed, though that worker's own outbound registration and heartbeat to the
-cluster's GCS worked fine throughout. We ruled out a worker-startup failure (the node stayed
-\code{Alive} with correct resources throughout) and scheduler slowness (a six-minute state-dump
-showed zero pending start requests -- the worker was never even asked to start a task), and
-initially concluded this was a genuine gap in CHIA's own scheduling/relay plumbing, filing it
+GCP worker never executed, though that worker's own registration and heartbeat to the cluster's GCS
+worked fine throughout. We ruled out a worker-startup failure (node stayed \code{Alive} with correct
+resources) and scheduler slowness (a six-minute state-dump showed zero pending start requests),
+initially concluding this was a genuine gap in CHIA's own scheduling/relay plumbing and filing it
 upstream (\texttt{ucb-bar/chia\#72}) rather than guessing at a fix. A CHIA maintainer's reply
 identified the real cause: CHIA sets three proxy environment variables on each node during
-\code{chia up}, inherited automatically by a job submitted via \code{chia job submit} but not by a
-driver launched manually via \code{python driver.py} -- what every real run in this paper does --
-unless the launching shell sets the same variables itself. We verified this directly rather than
-take it on faith: exporting the exact values read off the head's own live raylet process took the
-identical forced-placement task from a six-minute hang to a two-second real execution on the GCP
-worker. Every fact we found was correct; the conclusion we drew from those facts was not --
-corrected here rather than left standing. With dispatch fixed, the 2x2 Ariane acceptance test
-itself still has not reached a pass/fail verdict -- a build-time worker crash, likely the same
-memory-pressure class of issue as the next paragraph, now also observed on GCP.
+\code{chia up}, inherited by a job submitted via \code{chia job submit} but not by a driver launched
+manually via \code{python driver.py} -- what every real run here does -- unless the launching shell
+sets them itself. Verified directly: exporting the exact values read off the head's own live raylet
+took the same forced-placement task from a six-minute hang to a two-second real execution. Every
+fact we found was correct; the conclusion was not -- corrected here rather than left standing. With
+dispatch fixed, 2x2 Ariane on GCP still has not reached a verdict -- a build-time worker crash,
+likely the same memory-pressure class as below.
 
-A later, independent dispatch attempt against the same topology reproduced the stuck symptom again
--- this time with the environment fix already confirmed correctly in place, ruling out a repeat of
-the same cause. Both tailnet relays' logs show zero new activity during the stuck window, and
-\code{strace} on both raylets shows zero new \code{connect()} syscalls on either side -- the
-worker's raylet shows real, continuous traffic on already-established connections, just nothing
-new. Whatever carries a lease assignment from the GCS to this worker's raylet appears to never
-attempt an outbound connection at all -- Ray's own scheduling internals under a proxied topology,
-not a CHIA configuration gap. Filed as a precise follow-up on the same upstream issue; open at time
-of writing.
+A later, independent dispatch attempt on the same topology reproduced the stuck symptom -- this
+time with the environment fix already confirmed in place, ruling out a repeat of the same cause.
+Both tailnet relays' logs show zero new activity during the stall, and \code{strace} on both raylets
+shows zero new \code{connect()} syscalls -- real, continuous traffic on already-established
+connections, just nothing new. Whatever carries a lease assignment from the GCS to this worker's
+raylet appears to never attempt an outbound connection at all -- Ray's own scheduling internals
+under a proxied topology, not a CHIA gap. Filed as a follow-up on the same upstream issue; open at
+time of writing.
 
-\textbf{Two RTL-adjacent hangs, read as genuine gaps rather than our bugs.} Both the 2x2 Ariane
-mesh and the 1x1 PicoRV32 run show an identical signature -- generic boot/reset/IOB handshake
-completes exactly as in a known-good passing run, then the core never reaches its own trap address
--- despite correct compiled binaries in both cases. OpenPiton's own CI shows 2x2 Ariane has no
-upstream Verilator precedent at any tile count other than 1x1 and 4x4, and PicoRV32 has never been
-run under any simulator by anyone. We read both as likely, previously-undiscovered RTL gaps in
-untested configurations, not adapter bugs -- the same adapter code drives the passing cases -- but
-did not chase either to a waveform-level root cause given the time left.
+\textbf{Two RTL-adjacent hangs, read as genuine gaps rather than our bugs.} Both the 2x2 Ariane mesh
+and the 1x1 PicoRV32 run show an identical signature: a correct boot/reset/IOB handshake, then the
+core never reaches its own trap address, despite correct compiled binaries. OpenPiton's own CI shows
+2x2 Ariane has no upstream Verilator precedent besides 1x1 and 4x4, and PicoRV32 has never run under
+any simulator, by anyone. We read both as likely, previously-undiscovered RTL gaps in untested
+configurations, not adapter bugs -- the same code drives the passing cases -- but did not chase
+either to a waveform-level root cause given the time left.
 
-\textbf{4x4 memory pressure, two independent causes, both diagnosed precisely.} Attempting the one
+\textbf{4x4 memory pressure, two independent causes, both diagnosed precisely.} The one
 upstream-validated mesh shape (4x4) surfaced two real, independent memory-pressure failures: a
-genuine Ray-reported out-of-memory condition (22.33GB/23.47GB used) from unconstrained parallel
-compilation, fixed by forcing serial compilation via \code{MAKEFLAGS}; and, separately, Verilator's
-own generated build step passing an explicit, unlimited \code{-j} directly on its command line,
-which silently overrides that same environment-level fix. Both are real, evidenced via direct
-\code{/proc} inspection, host-local findings -- not a design flaw in \sys{}. A later, solo (non-
-parallel) attempt via the full loop succeeded instead (table above, 574.6s) -- consistent with the
-OOM above, which was specifically from concurrent compilation this later run never exercised.
+genuine Ray-reported OOM (22.33GB/23.47GB used) from unconstrained parallel compilation, fixed via
+\code{MAKEFLAGS}; and, separately, Verilator's own build step passing an explicit, unlimited
+\code{-j} directly on its command line, silently overriding that fix. Both evidenced via direct
+\code{/proc} inspection -- host-local findings, not a design flaw in \sys{}. A later, solo attempt
+via the full loop passed instead (Figure~\ref{fig:eval}, right, 574.6s), consistent with the OOM
+above, specifically from concurrent compilation this later run never exercised.
 
+\enlargethispage{\baselineskip}
 \section{Conclusion}
 
-\sys{} demonstrates an agentic loop can autonomously plan, build, and verify real multicore
-hardware against real RTL simulation, no step's success taken on an agent's own word. This project
-found and fixed real environment bugs, caught a memory-visibility bug before it could mask a false
-pass, extended the adapter to a third core, verified mesh shapes never reached before, and
-characterized every unresolved verdict precisely. Precision, not a single pass, is the real
-contribution.
+\sys{} shows an agentic loop can autonomously plan, build, and verify real multicore hardware,
+gated by real RTL simulation, not an agent's word. It fixed environment bugs, added a third core,
+and verified mesh shapes never reached before -- precision, not one pass, is the contribution.
 
 \end{document}

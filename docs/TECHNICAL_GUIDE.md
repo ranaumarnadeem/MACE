@@ -508,19 +508,25 @@ pages, covering all of the above honestly — including (b) failing real
 hardware verification while (c) passes at roughly 4x its wall-clock cost,
 discussed directly rather than hidden (see README.md's own baseline
 section for the real numbers this and the paper both reflect). The author
-byline is a real name (Rana Umar Nadeem), not a placeholder, and there's a
-real architecture figure (Figure 1, the pipeline diagram) -- both already
-done, contrary to what an earlier version of this note said.
+byline is a real name (Rana Umar Nadeem), not a placeholder, and there are
+real figures throughout: the pipeline diagram (Figure 1), a real-data bar
+chart of the 3-core × 2-baseline matrix, and a manual-vs-loop mesh-scaling
+comparison diagram (both Figure 2 -- see the next section).
 
 ### The full 3-core × 2-baseline matrix
 
 Everything above is Ariane only. The same (b)/(c) pair was also run for real
 against `sparc` and `pico` -- same objective (1×1 mesh, `barrier_atomic.c`),
 same LLM backend (Gemini 2.5 Flash on Vertex) -- completing a genuine 3-core
-× 2-baseline matrix. Not in the paper (already at its exact 4-page limit);
-recorded here instead. Raw logs: `runs/bench_{sparc,pico}_{b,c}.log`; the
-(c) runs are also in `runs/mace_end_to_end.db` (run IDs `e91cc625501a`
-sparc, `fc4309c57074` pico).
+× 2-baseline matrix. This wall-time data is now in the paper too (Figure 2,
+left), alongside a second new figure comparing manual mesh scaling against
+the full loop on 2×2/4×4 (Figure 2, right) -- both real `pgfplots`/TikZ
+figures added when the paper was revised with real charts and diagrams,
+still fitting the exact 4-page limit. The fuller per-core discussion below
+is recorded here instead, in more depth than the paper's own tighter prose
+has room for. Raw logs: `runs/bench_{sparc,pico}_{b,c}.log`; the (c) runs
+are also in `runs/mace_end_to_end.db` (run IDs `e91cc625501a` sparc,
+`fc4309c57074` pico).
 
 | Core     | (b) one-shot LLM                                                          | (c) full MACE loop                                        |
 |----------|-----------------------------------------------------------------------------|--------------------------------------------------------------|
