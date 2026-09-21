@@ -203,6 +203,139 @@ class TestCollect:
         assert "skipped" in out and "x" * 1000 not in out
 
 
+class TestSetContext:
+    def test_points_grep_and_collect_at_the_given_run(self, stub_piton_root, cfg, tmp_path):
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        (run_dir / "sim.log").write_text("Simulation -> PASS (HIT GOOD TRAP)")
+        run = PitonRunResult(success=True, returncode=0, test="t", sim_type="vlt", run_dir=str(run_dir))
+
+        tool = bare_tool(str(stub_piton_root), cfg)
+        assert "no run yet" in tool.grep("sim_log", "x")
+
+        tool.set_context(None, run)
+
+        assert "PASS" in tool.grep("sim_log", "PASS")
+
+
+class TestCompareToFixture:
+    def _run_result(self, tmp_path, sim_log: str) -> PitonRunResult:
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        (run_dir / "sim.log").write_text(sim_log)
+        return PitonRunResult(success=True, returncode=0, test="t", sim_type="vlt", run_dir=str(run_dir))
+
+    def test_no_run_yet(self, stub_piton_root, cfg):
+        tool = bare_tool(str(stub_piton_root), cfg)
+        assert "no run yet" in tool.compare_to_fixture("run_pass_sim.log")
+
+    def test_unknown_fixture_name_is_an_error(self, stub_piton_root, cfg, tmp_path):
+        tool = bare_tool(str(stub_piton_root), cfg, last_run=self._run_result(tmp_path, "x"))
+        out = tool.compare_to_fixture("no_such_fixture.log")
+        assert "ERROR" in out and "unknown fixture" in out
+
+    def test_path_traversal_is_rejected(self, stub_piton_root, cfg, tmp_path):
+        """fixture_name is a model-supplied string -- it must not be able to
+        read anything outside chia_openpiton/test/fixtures/."""
+        tool = bare_tool(str(stub_piton_root), cfg, last_run=self._run_result(tmp_path, "x"))
+        out = tool.compare_to_fixture("../../../../etc/passwd")
+        assert "ERROR" in out and "unknown fixture" in out
+
+    def test_identical_to_fixture_says_so(self, stub_piton_root, cfg, tmp_path, fixtures):
+        tool = bare_tool(
+            str(stub_piton_root), cfg,
+            last_run=self._run_result(tmp_path, fixtures("run_pass_sim.log")),
+        )
+        out = tool.compare_to_fixture("run_pass_sim.log")
+        assert "identical to run_pass_sim.log" in out
+
+    def test_reports_the_real_divergence_point(self, stub_piton_root, cfg, tmp_path, fixtures):
+        """The exact real-world use case (see docs/TECHNICAL_GUIDE.md's
+        PicoRV32/2x2-mesh findings): a maxcycles run diverging from the
+        known-good passing transcript."""
+        tool = bare_tool(
+            str(stub_piton_root), cfg,
+            last_run=self._run_result(tmp_path, fixtures("run_maxcycles_sim.log")),
+        )
+        out = tool.compare_to_fixture("run_pass_sim.log")
+        assert "diverges from run_pass_sim.log at line" in out
+        assert "this run's sim.log" in out
+
+
+class TestSymbolCheck:
+    def _run_result(self, tmp_path, with_binary=True, with_symtbl=True) -> PitonRunResult:
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        if with_binary:
+            (run_dir / "diag.exe").write_bytes(b"\x7fELF")  # content irrelevant; objdump is mocked
+        if with_symtbl:
+            (run_dir / "symbol.tbl").write_text("good_trap 0000000080000540 X 0000000080000540\n")
+        return PitonRunResult(success=True, returncode=0, test="t", sim_type="vlt", run_dir=str(run_dir))
+
+    def _fake_objdump(self, monkeypatch, f_stdout: str, t_stdout: str):
+        from types import SimpleNamespace
+
+        def fake(cmd, **kwargs):
+            stdout = f_stdout if "-f" in cmd else t_stdout
+            return SimpleNamespace(stdout=stdout, returncode=0)
+
+        monkeypatch.setattr("chia_openpiton.tools.subprocess.run", fake)
+
+    def test_no_run_yet(self, stub_piton_root, cfg):
+        tool = bare_tool(str(stub_piton_root), cfg)
+        assert "no run yet" in tool.symbol_check()
+
+    def test_no_binary_in_run_dir(self, stub_piton_root, cfg, tmp_path):
+        tool = bare_tool(
+            str(stub_piton_root), cfg,
+            last_run=self._run_result(tmp_path, with_binary=False),
+        )
+        assert "no diag.exe" in tool.symbol_check()
+
+    def test_missing_objdump_is_an_error_not_an_exception(self, stub_piton_root, cfg, tmp_path, monkeypatch):
+        def raise_not_found(cmd, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", "objdump")
+
+        monkeypatch.setattr("chia_openpiton.tools.subprocess.run", raise_not_found)
+        tool = bare_tool(str(stub_piton_root), cfg, last_run=self._run_result(tmp_path))
+
+        out = tool.symbol_check()
+
+        assert "ERROR" in out and "objdump" in out
+
+    def test_real_captured_objdump_output_and_symbol_tbl_shown_side_by_side(
+        self, stub_piton_root, cfg, tmp_path, fixtures, monkeypatch
+    ):
+        """Uses real objdump -f/-t output captured from an actual passing
+        run on this machine (chia_openpiton/test/fixtures/objdump_{f,t}_pass.txt),
+        proving the tool's formatting handles real data, not just synthetic
+        strings."""
+        self._fake_objdump(
+            monkeypatch, fixtures("objdump_f_pass.txt"), fixtures("objdump_t_pass.txt")
+        )
+        tool = bare_tool(str(stub_piton_root), cfg, last_run=self._run_result(tmp_path))
+
+        out = tool.symbol_check()
+
+        assert "start address 0x0000000080000000" in out
+        assert "good_trap" in out  # from symbol.tbl
+        assert "pass" in out  # the real objdump symbol at the same address
+
+    def test_missing_symbol_tbl_says_so_but_still_shows_objdump(
+        self, stub_piton_root, cfg, tmp_path, monkeypatch
+    ):
+        self._fake_objdump(monkeypatch, "start address 0x80000000\n", "SYMBOL TABLE:\n")
+        tool = bare_tool(
+            str(stub_piton_root), cfg,
+            last_run=self._run_result(tmp_path, with_symtbl=False),
+        )
+
+        out = tool.symbol_check()
+
+        assert "start address 0x80000000" in out
+        assert "not found in this run directory" in out
+
+
 class TestConfig:
     def test_config_get_renders_the_current_config(self, stub_piton_root, cfg):
         tool = bare_tool(str(stub_piton_root), cfg)

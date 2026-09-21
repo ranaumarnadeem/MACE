@@ -384,3 +384,20 @@ def diaglist_group(text: str, group: str) -> tuple[DiagEntry, ...]:
         extra = tuple(tok for i, tok in enumerate(rest) if i != source_idx)
         entries.append(DiagEntry(alias=alias, source=source, args=runargs + extra))
     return tuple(entries)
+
+
+def first_divergence(reference: str, actual: str) -> tuple[int, str, str] | None:
+    """The 1-based line number and both lines at the first point *reference*
+    and *actual* differ, or ``None`` if one is a line-for-line prefix of the
+    other (including two identical texts).
+
+    This is the fixture-diff half of the manual technique that root-caused
+    the PicoRV32 and 2x2-mesh RTL findings (see docs/TECHNICAL_GUIDE.md's
+    account): diffing a failing run's sim.log line-for-line against a
+    known-good passing transcript to find the exact point of divergence,
+    rather than a human eyeballing two logs side by side.
+    """
+    for i, (r, a) in enumerate(zip(reference.splitlines(), actual.splitlines()), start=1):
+        if r != a:
+            return i, r, a
+    return None

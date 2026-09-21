@@ -329,3 +329,31 @@ class TestDiaglistGroup:
         assert [(e.alias, e.source, e.args) for e in entries] == [
             ("mytest", "test.S", ("-rtl_timeout", "100000"))
         ]
+
+
+class TestFirstDivergence:
+    def test_identical_texts_return_none(self):
+        text = "line one\nline two\nline three\n"
+        assert parse.first_divergence(text, text) is None
+
+    def test_reports_the_first_differing_line(self):
+        reference = "boot\nreset\nHit Good trap\nPASS\n"
+        actual = "boot\nreset\nmax cycles reached\n"
+        assert parse.first_divergence(reference, actual) == (3, "Hit Good trap", "max cycles reached")
+
+    def test_one_text_a_strict_prefix_of_the_other_is_not_a_divergence(self):
+        reference = "boot\nreset\nHit Good trap\nPASS\n"
+        actual = "boot\nreset\n"
+        assert parse.first_divergence(reference, actual) is None
+        assert parse.first_divergence(actual, reference) is None
+
+    def test_real_fixture_diverges_at_the_documented_point(self, fixtures):
+        """The exact real-world use case: a maxcycles run diverging from the
+        known-good passing transcript, per docs/TECHNICAL_GUIDE.md's own
+        account of the PicoRV32/2x2-mesh investigations."""
+        good = fixtures("run_pass_sim.log")
+        bad = fixtures("run_maxcycles_sim.log")
+        result = parse.first_divergence(good, bad)
+        assert result is not None
+        line_no, good_line, bad_line = result
+        assert good_line != bad_line

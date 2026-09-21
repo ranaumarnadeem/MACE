@@ -1,0 +1,6 @@
+
+diag.exe:     file format elf64-little
+architecture: UNKNOWN!, flags 0x00000112:
+EXEC_P, HAS_SYMS, D_PAGED
+start address 0x0000000080000000
+

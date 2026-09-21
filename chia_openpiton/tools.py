@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+from pathlib import Path
 
 from chia.base.tools.AsyncJobTool import AsyncJobTool
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode, _require_root
+from chia_openpiton.parse import first_divergence
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 
 # Which log a grep/collect call reads, and its filename under a run directory.
@@ -36,6 +39,10 @@ _LOG_SOURCES: dict[str, str] = {
     "status_log": "status.log",
     "fake_uart": "fake_uart.log",
 }
+
+# compare_to_fixture()'s allowlist -- a fixture_name must resolve to a file
+# directly inside this directory, never an arbitrary path the model names.
+_FIXTURES_DIR = Path(__file__).resolve().parent / "test" / "fixtures"
 
 
 def _grep_lines(text: str, pattern: str, context: int, max_lines: int) -> str:
@@ -72,9 +79,13 @@ class PitonToolServer(AsyncJobTool):
 
     Exposes: ``{name}_build``, ``{name}_run``, ``{name}_job_status``,
     ``{name}_grep``, ``{name}_collect``, ``{name}_config_get``,
-    ``{name}_config_set``. Pass ``expose=(...)`` to register only a subset --
-    e.g. ``expose=("config_get", "config_set")`` for an agent that only edits
-    configuration and hands off building to something else.
+    ``{name}_config_set``, ``{name}_compare_to_fixture``,
+    ``{name}_symbol_check``. Pass ``expose=(...)`` to register only a subset
+    -- e.g. ``expose=("config_get", "config_set")`` for an agent that only
+    edits configuration and hands off building to something else, or
+    ``expose=("grep", "collect", "compare_to_fixture", "symbol_check")`` for
+    a read-only diagnostic agent that inspects an already-completed failure
+    rather than driving a new build/run itself (see ``set_context``).
 
     Co-location: point ``task_options`` at the same bundle as whatever
     workspace node owns this checkout (``node.task_options``), so the tool's
@@ -111,6 +122,8 @@ class PitonToolServer(AsyncJobTool):
             "collect": self.collect,
             "config_get": self.config_get,
             "config_set": self.config_set,
+            "compare_to_fixture": self.compare_to_fixture,
+            "symbol_check": self.symbol_check,
         }
         selected = tuple(registry) if expose is None else tuple(expose)
         unknown = [t for t in selected if t not in registry]
@@ -263,6 +276,96 @@ class PitonToolServer(AsyncJobTool):
         for name, size in result.skipped.items():
             lines.append(f"(skipped {name}: {size} bytes, over the {max_bytes}-byte cap)")
         return "\n".join(lines)
+
+    # -- diagnosis: the manual fixture-diff/objdump technique, automated --------
+    # See docs/TECHNICAL_GUIDE.md's PicoRV32 and 2x2-mesh findings: a hang was
+    # only trusted as a real RTL gap (not a bad build) after diffing the run's
+    # sim.log against a known-good transcript and cross-checking the compiled
+    # binary's own objdump output against the run's symbol.tbl. These two
+    # tools hand a model the same raw data a human read by hand.
+
+    def set_context(self, build: PitonBuildArtifact | None, run: PitonRunResult | None) -> None:
+        """Point this tool at an already-completed build/run without going
+        through this instance's own ``build()``/``run()`` -- for a caller
+        (e.g. mace's orchestrator, triaging a StepResult it built through a
+        different OpenPitonWorkspaceNode entirely) that wants grep/collect/
+        compare_to_fixture/symbol_check to see a specific real failure."""
+        self._last_build = build
+        self._last_run = run
+
+    def compare_to_fixture(self, fixture_name: str, max_context: int = 5) -> str:
+        """Diff the current run's sim.log against a known-good reference
+        transcript, line for line, reporting the exact point of first
+        divergence.
+
+        Args:
+            fixture_name: A captured reference transcript's filename under
+                chia_openpiton/test/fixtures/ (e.g. ``"run_pass_sim.log"``).
+                Restricted to that directory's own files -- not an
+                arbitrary path.
+            max_context: Lines of context shown around the divergence
+                point, from both the fixture and this run.
+        """
+        if self._last_run is None:
+            return f"ERROR: no run yet; call {self.name}_run(...) first"
+        fixture_path = (_FIXTURES_DIR / fixture_name).resolve()
+        if fixture_path.parent != _FIXTURES_DIR.resolve() or not fixture_path.is_file():
+            available = sorted(p.name for p in _FIXTURES_DIR.glob("*.log"))
+            return f"ERROR: unknown fixture {fixture_name!r}; available: {available}"
+        sim_log_path = os.path.join(self._last_run.run_dir, "sim.log")
+        if not os.path.isfile(sim_log_path):
+            return "(no sim.log in this run)"
+        reference = fixture_path.read_text(errors="replace")
+        with open(sim_log_path, errors="replace") as f:
+            actual = f.read()
+        result = first_divergence(reference, actual)
+        if result is None:
+            shorter = min(len(reference.splitlines()), len(actual.splitlines()))
+            return f"identical to {fixture_name} through all {shorter} shared line(s)"
+        line_no, _ref_line, _act_line = result
+        ref_lines, act_lines = reference.splitlines(), actual.splitlines()
+        start = max(0, line_no - 1 - max_context)
+        ref_ctx = "\n".join(ref_lines[start:line_no])
+        act_ctx = "\n".join(act_lines[start:line_no])
+        return (
+            f"diverges from {fixture_name} at line {line_no}:\n"
+            f"--- {fixture_name} (lines {start + 1}-{line_no}) ---\n{ref_ctx}\n"
+            f"--- this run's sim.log (lines {start + 1}-{line_no}) ---\n{act_ctx}"
+        )
+
+    def symbol_check(self) -> str:
+        """Real ``objdump -f``/``-t`` output for the current run's compiled
+        diag binary, plus the run's own ``symbol.tbl``, side by side.
+
+        Deliberately returns raw data rather than a precomputed match/
+        mismatch verdict: ``good_trap``/``bad_trap`` in symbol.tbl are not
+        named symbols inside the binary itself (confirmed against a real
+        build -- the address symbol.tbl calls ``good_trap`` is the same
+        address objdump's own symbol table names ``pass``), so correlating
+        them is a real reasoning step, not a lookup this tool can do for
+        the model.
+        """
+        if self._last_run is None:
+            return f"ERROR: no run yet; call {self.name}_run(...) first"
+        run_dir = self._last_run.run_dir
+        binary = os.path.join(run_dir, "diag.exe")
+        symtbl = os.path.join(run_dir, "symbol.tbl")
+        if not os.path.isfile(binary):
+            return "(no diag.exe in this run directory)"
+        try:
+            entry = subprocess.run(["objdump", "-f", binary], capture_output=True, text=True, timeout=30)
+            symbols = subprocess.run(["objdump", "-t", binary], capture_output=True, text=True, timeout=30)
+        except FileNotFoundError:
+            return "ERROR: 'objdump' was not found on PATH"
+        symtbl_text = "(not found in this run directory)"
+        if os.path.isfile(symtbl):
+            with open(symtbl, errors="replace") as f:
+                symtbl_text = f.read()
+        return (
+            f"--- objdump -f diag.exe ---\n{entry.stdout}"
+            f"--- objdump -t diag.exe (symbol table) ---\n{symbols.stdout}"
+            f"--- this run's own symbol.tbl ---\n{symtbl_text}"
+        )
 
     # -- configuration ----------------------------------------------------------
 
