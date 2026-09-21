@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-_KEY_LINE = re.compile(r"(?im)^\s*(objective|workloads|core)\s*:\s*(.+)$")
+_KEY_LINE = re.compile(r"(?im)^\s*(objective|workloads|core)\s*:[ \t]*(.+)$")
 
 
 def parse_spec_file(text: str) -> dict:

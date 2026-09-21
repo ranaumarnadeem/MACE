@@ -130,6 +130,15 @@ class TestParseSpecFile:
         overrides = parse_spec_file("workloads: foo.c\ncore: ariane\n")
         assert overrides == {"workloads": ("foo.c",), "core": "ariane"}
 
+    def test_a_key_line_with_no_value_does_not_swallow_the_next_line(self):
+        """objective:'s own \\s* after the colon used to match a trailing
+        newline too, so an empty-valued key line bled the FOLLOWING line's
+        text into its own value -- here, `core: ariane` would have become
+        the "objective" instead of being parsed as its own key.
+        """
+        overrides = parse_spec_file("objective:\ncore: ariane\n")
+        assert overrides == {"core": "ariane"}
+
 
 class TestConfig:
     def test_write_and_load_round_trip(self, tmp_path):
