@@ -6,6 +6,8 @@ Run:
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from mace.unit_test_scaffold import (
@@ -233,6 +235,14 @@ class TestScaffoldEnv:
 
         monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeResult())
         with pytest.raises(RuntimeError, match="create_env.py"):
+            scaffold_env(str(tmp_path), "foo_ut")
+
+    def test_a_timeout_is_a_clean_runtime_error_not_a_raw_timeoutexpired(self, tmp_path, monkeypatch):
+        def raising_run(*a, **kw):
+            raise subprocess.TimeoutExpired(cmd="create_env.py", timeout=60)
+
+        monkeypatch.setattr("subprocess.run", raising_run)
+        with pytest.raises(RuntimeError, match="create_env.py.*timed out"):
             scaffold_env(str(tmp_path), "foo_ut")
 
     def test_module_dv_path_fixes_the_generated_config_and_flist(self, tmp_path, monkeypatch):

@@ -173,14 +173,19 @@ def scaffold_env(
         }
 
     create_env_py = dv / "verif" / "env" / "create_env.py"
-    result = subprocess.run(
-        ["python3", str(create_env_py), f"--name={env_name}"],
-        cwd=str(root),
-        env={"DV_ROOT": str(dv), **_inherited_path_env()},
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        result = subprocess.run(
+            ["python3", str(create_env_py), f"--name={env_name}"],
+            cwd=str(root),
+            env={"DV_ROOT": str(dv), **_inherited_path_env()},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"create_env.py --name={env_name} timed out after {e.timeout}s"
+        ) from e
     if result.returncode != 0:
         raise RuntimeError(
             f"create_env.py --name={env_name} failed (rc={result.returncode}): "
