@@ -65,9 +65,19 @@ def main() -> int:
     # /tmp/ray/ray_current_cluster marker left by an earlier torn-down cluster
     # (e.g. a `chia up`/`chia down` session) -- without it, ray.init() can
     # silently try to attach to that dead address instead of starting fresh.
+    # include_dashboard=False: nothing here uses the dashboard UI. Does not
+    # fix it, but on a loaded machine ray.init() can still hit a real,
+    # separate Ray startup race: the per-node dashboard AGENT (which starts
+    # regardless of this flag) sometimes takes longer to load its modules
+    # than the raylet's own internal wait for the agent's listen-port file,
+    # so the raylet crashes on startup ("Timed out waiting for file
+    # .../dashboard_agent_listen_port_..."). No fix found within ray.init()
+    # itself -- retrying (deleting /tmp/ray/ray_current_cluster first) is
+    # what actually recovers.
     ray.init(
         address="local",
         resources={"openpiton": len(piton_roots), f"{args.backend}_creds": len(piton_roots)},
+        include_dashboard=False,
     )
 
     spec = MaceSpec(
