@@ -46,6 +46,16 @@ CACHES: <task id> | <name>=<size>,<associativity> ...
 Only l1i, l1d, l15, l2 are recognized names; size and associativity must be
 positive integers. A task with no CACHES: line keeps the mesh's default
 cache geometry.
+
+If a task needs a specific RTL define set on top of the mesh's defaults --
+for example because an earlier attempt's failure feedback identified one a
+build needs -- also emit one line naming that task's id:
+
+CONFIG_RTL: <task id> | <FLAG1> <FLAG2> ...
+
+Each flag is an upper-snake-case identifier (e.g. CONFIG_DISABLE_BIST_CLEAR).
+These add to the mesh's default RTL defines; they never replace them. A task
+with no CONFIG_RTL: line keeps the mesh's default RTL defines only.
 """
 
 

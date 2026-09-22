@@ -172,6 +172,23 @@ class TestTaskValidation:
         with pytest.raises(ValueError, match="positive"):
             Task(id="t1", deps=(), kind="config", spec="s", caches=(("l1d", bad_geom),))
 
+    def test_config_rtl_defaults_to_none(self):
+        t = Task(id="t1", deps=(), kind="config", spec="s")
+        assert t.config_rtl is None
+
+    def test_valid_config_rtl_is_kept(self):
+        t = Task(id="t1", deps=(), kind="config", spec="s", config_rtl=("CONFIG_DISABLE_BIST_CLEAR",))
+        assert t.config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",)
+
+    @pytest.mark.parametrize("bad_flag", ["config_disable_bist_clear", "1FLAG", "FLAG-A", "", "Flag"])
+    def test_malformed_config_rtl_flag_rejected(self, bad_flag):
+        with pytest.raises(ValueError, match="config_rtl"):
+            Task(id="t1", deps=(), kind="config", spec="s", config_rtl=(bad_flag,))
+
+    def test_duplicate_config_rtl_flag_rejected(self):
+        with pytest.raises(ValueError, match="duplicate config_rtl"):
+            Task(id="t1", deps=(), kind="config", spec="s", config_rtl=("FLAG_A", "FLAG_A"))
+
 
 def test_task_is_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):

@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 
 from chia_openpiton.state_def import DEFAULT_CACHES
-from mace.spec import TASK_KINDS, Task
+from mace.spec import _RTL_FLAG_RE, TASK_KINDS, Task
 
 # Not enforced by parse_diagnosis -- see its docstring for why. Exposed so a
 # caller can decide whether a parsed value is one it recognizes.
@@ -47,7 +47,9 @@ KNOWN_ASSESSMENTS: frozenset[str] = frozenset(
 # Every tag _footer_lines is ever called with (see the bottom of this
 # module's call sites). Used to bound a value's own capture -- see
 # _footer_lines' docstring on why a value can't just run to end-of-line.
-_KNOWN_FOOTER_TAGS = ("TASK", "CACHES", "DIAGNOSIS", "FIX", "ASSESSMENT", "EXPLANATION", "NEXT_STEPS")
+_KNOWN_FOOTER_TAGS = (
+    "TASK", "CACHES", "CONFIG_RTL", "DIAGNOSIS", "FIX", "ASSESSMENT", "EXPLANATION", "NEXT_STEPS",
+)
 
 
 def _footer_lines(text: str, tag: str) -> list[str]:
@@ -89,19 +91,24 @@ def parse_tasks(text: str) -> tuple[Task, ...]:
 
     A task whose id is also named in a well-formed ``CACHES:`` line (see
     :func:`parse_cache_overrides`) gets that line's cache geometry; every
-    other task keeps ``caches=None`` (the mesh's default geometry).
+    other task keeps ``caches=None`` (the mesh's default geometry). Likewise
+    for a well-formed ``CONFIG_RTL:`` line (see
+    :func:`parse_config_rtl_overrides`) and ``Task.config_rtl``.
     """
     cache_overrides = parse_cache_overrides(text)
+    config_rtl_overrides = parse_config_rtl_overrides(text)
     tasks = []
     for raw in _footer_lines(text, "TASK"):
-        task = _parse_task_line(raw, cache_overrides)
+        task = _parse_task_line(raw, cache_overrides, config_rtl_overrides)
         if task is not None:
             tasks.append(task)
     return tuple(tasks)
 
 
 def _parse_task_line(
-    raw: str, cache_overrides: dict[str, tuple[tuple[str, tuple[int, int]], ...]]
+    raw: str,
+    cache_overrides: dict[str, tuple[tuple[str, tuple[int, int]], ...]],
+    config_rtl_overrides: dict[str, tuple[str, ...]],
 ) -> Task | None:
     parts = raw.split("|", 3)
     if len(parts) != 4:
@@ -114,7 +121,11 @@ def _parse_task_line(
         return None
     deps = tuple(d.strip() for d in deps_field[len("deps="):].split(",") if d.strip())
     try:
-        return Task(id=task_id, deps=deps, kind=kind, spec=spec, caches=cache_overrides.get(task_id))
+        return Task(
+            id=task_id, deps=deps, kind=kind, spec=spec,
+            caches=cache_overrides.get(task_id),
+            config_rtl=config_rtl_overrides.get(task_id),
+        )
     except ValueError:
         return None
 
@@ -165,6 +176,42 @@ def _parse_cache_line(raw: str) -> tuple[str, dict[str, tuple[int, int]]] | None
             continue
         caches[name] = (size, assoc)
     return (task_id, caches) if caches else None
+
+
+def parse_config_rtl_overrides(text: str) -> dict[str, tuple[str, ...]]:
+    """Every well-formed ``CONFIG_RTL: <task_id> | <FLAG> ...`` line, keyed
+    by task id, as a sorted-and-deduplicated tuple of flag names ready for
+    :attr:`mace.spec.Task.config_rtl`.
+
+    Unlike :func:`parse_cache_overrides`, there is no fixed allowlist of
+    recognized flag names -- ``chia_openpiton.state_def.PitonConfig`` places
+    none on which ``-config_rtl=<unit>`` values ``sims`` accepts, so neither
+    does this. Each token only has to look like a real RTL define (an
+    upper-snake-case identifier); a malformed one is dropped, not raised,
+    same fail-open convention as :func:`parse_cache_overrides`. Multiple
+    ``CONFIG_RTL:`` lines for the same task id merge (a union of flags, not
+    last-line-wins), since two separate replan attempts might each add a
+    different flag this task still needs.
+    """
+    merged: dict[str, set[str]] = {}
+    for raw in _footer_lines(text, "CONFIG_RTL"):
+        parsed = _parse_config_rtl_line(raw)
+        if parsed is None:
+            continue
+        task_id, flags = parsed
+        merged.setdefault(task_id, set()).update(flags)
+    return {task_id: tuple(sorted(flags)) for task_id, flags in merged.items()}
+
+
+def _parse_config_rtl_line(raw: str) -> tuple[str, set[str]] | None:
+    task_id, sep, rest = raw.partition("|")
+    if not sep:
+        return None
+    task_id = task_id.strip()
+    if not task_id:
+        return None
+    flags = {token for token in rest.split() if _RTL_FLAG_RE.match(token)}
+    return (task_id, flags) if flags else None
 
 
 def parse_diagnosis(text: str) -> str | None:

@@ -166,6 +166,12 @@ def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
     own cache override if it set one via a Planner CACHES: line (see
     mace.agents.parse_cache_overrides) -- a task with no override keeps the
     mesh's default cache geometry, same as before per-task overrides existed.
+
+    A task's own CONFIG_RTL: flags (see mace.agents.parse_config_rtl_overrides)
+    are added on top of PitonConfig's own default config_rtl, never in place
+    of it -- a real, already-discovered fix like CONFIG_DISABLE_BIST_CLEAR
+    should not silently cost the run MINIMAL_MONITORING (PitonConfig's own
+    default) just because a task asked for one specific extra flag.
     """
     kwargs: dict = dict(
         core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
@@ -173,4 +179,6 @@ def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
     )
     if task.caches is not None:
         kwargs["caches"] = task.caches_dict
+    if task.config_rtl is not None:
+        kwargs["config_rtl"] = tuple(sorted(set(PitonConfig().config_rtl) | set(task.config_rtl)))
     return PitonConfig(**kwargs)

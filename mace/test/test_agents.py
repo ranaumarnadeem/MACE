@@ -19,6 +19,7 @@ from mace.agents import (
     is_testbench_port_mismatch,
     parse_assessment,
     parse_cache_overrides,
+    parse_config_rtl_overrides,
     parse_diagnosis,
     parse_explanation,
     parse_fix,
@@ -147,6 +148,22 @@ class TestParseTasks:
         tasks = parse_tasks(text)
         assert tasks[0].caches is None
 
+    def test_task_named_in_a_config_rtl_line_gets_the_override(self):
+        text = (
+            "TASK: t1 | deps= | kind=config | disable the BIST self-clear\n"
+            "CONFIG_RTL: t1 | CONFIG_DISABLE_BIST_CLEAR\n"
+        )
+        tasks = parse_tasks(text)
+        assert tasks[0].config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",)
+
+    def test_task_not_named_in_any_config_rtl_line_keeps_none(self):
+        text = (
+            "TASK: t1 | deps= | kind=config | disable the BIST self-clear\n"
+            "CONFIG_RTL: t2 | CONFIG_DISABLE_BIST_CLEAR\n"
+        )
+        tasks = parse_tasks(text)
+        assert tasks[0].config_rtl is None
+
     def test_numbered_list_lines_are_still_matched(self):
         """A model asked for "one line per task" commonly renders it as a
         numbered list anyway -- requiring the tag to be the literal first
@@ -208,6 +225,47 @@ class TestParseCacheOverrides:
 
     def test_no_caches_lines_returns_empty(self):
         assert parse_cache_overrides("TASK: t1 | deps= | kind=config | x\n") == {}
+
+
+class TestParseConfigRtlOverrides:
+    def test_single_flag_for_one_task(self):
+        overrides = parse_config_rtl_overrides("CONFIG_RTL: t1 | CONFIG_DISABLE_BIST_CLEAR\n")
+        assert overrides == {"t1": ("CONFIG_DISABLE_BIST_CLEAR",)}
+
+    def test_multiple_flags_on_one_line(self):
+        overrides = parse_config_rtl_overrides("CONFIG_RTL: t1 | FLAG_B FLAG_A\n")
+        assert overrides == {"t1": ("FLAG_A", "FLAG_B")}
+
+    def test_different_tasks_get_independent_overrides(self):
+        text = "CONFIG_RTL: t1 | FLAG_A\nCONFIG_RTL: t4 | FLAG_B\n"
+        overrides = parse_config_rtl_overrides(text)
+        assert overrides == {"t1": ("FLAG_A",), "t4": ("FLAG_B",)}
+
+    def test_multiple_lines_for_the_same_task_merge_as_a_union(self):
+        """Unlike CACHES: (later line wins per cache name), CONFIG_RTL: lines
+        for the same task id merge -- there is no per-flag identity a second
+        line could "overwrite", only a set of flags to add."""
+        text = "CONFIG_RTL: t1 | FLAG_A\nCONFIG_RTL: t1 | FLAG_B\n"
+        overrides = parse_config_rtl_overrides(text)
+        assert overrides == {"t1": ("FLAG_A", "FLAG_B")}
+
+    def test_repeating_the_same_flag_on_another_line_is_not_a_duplicate(self):
+        text = "CONFIG_RTL: t1 | FLAG_A\nCONFIG_RTL: t1 | FLAG_A\n"
+        overrides = parse_config_rtl_overrides(text)
+        assert overrides == {"t1": ("FLAG_A",)}
+
+    def test_lowercase_flag_is_dropped_not_the_whole_line(self):
+        overrides = parse_config_rtl_overrides("CONFIG_RTL: t1 | flag_a FLAG_B\n")
+        assert overrides == {"t1": ("FLAG_B",)}
+
+    def test_missing_pipe_is_dropped(self):
+        assert parse_config_rtl_overrides("CONFIG_RTL: t1 FLAG_A\n") == {}
+
+    def test_blank_task_id_is_dropped(self):
+        assert parse_config_rtl_overrides("CONFIG_RTL:  | FLAG_A\n") == {}
+
+    def test_no_config_rtl_lines_returns_empty(self):
+        assert parse_config_rtl_overrides("TASK: t1 | deps= | kind=config | x\n") == {}
 
 
 class TestParseDiagnosis:

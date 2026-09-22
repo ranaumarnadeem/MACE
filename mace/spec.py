@@ -12,6 +12,7 @@ task's view of the same run.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from chia.base.llm_call import QueryResult
@@ -22,6 +23,12 @@ from chia_openpiton.state_def import (
     PitonCore,
     PitonRunResult,
 )
+
+# A real sims -config_rtl=<unit> flag name (e.g. CONFIG_DISABLE_BIST_CLEAR,
+# MINIMAL_MONITORING) is always an upper-snake-case C preprocessor define --
+# this is a sanity check, not an allowlist, since chia_openpiton.state_def.
+# PitonConfig itself places no restriction on which names sims accepts.
+_RTL_FLAG_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -110,6 +117,15 @@ class Task:
     # cache geometry. See mace.agents.parse_cache_overrides for how this
     # gets populated from a Planner-produced CACHES: line.
     caches: tuple[tuple[str, tuple[int, int]], ...] | None = None
+    # Extra RTL define flags (e.g. "CONFIG_DISABLE_BIST_CLEAR") this task's
+    # build needs on top of the mesh's default config_rtl -- never a
+    # replacement for it (see mace.loop._config_for_task). None means "no
+    # override". See mace.agents.parse_config_rtl_overrides for how this
+    # gets populated from a Planner-produced CONFIG_RTL: line. PitonConfig
+    # itself places no restriction on which flag names sims accepts, so
+    # neither does this -- only that each one looks like a real RTL define,
+    # not typo'd or empty.
+    config_rtl: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -132,6 +148,16 @@ class Task:
                 size, assoc = geom
                 if size <= 0 or assoc <= 0:
                     raise ValueError(f"cache {name} size/associativity must be positive, got {geom}")
+        if self.config_rtl is not None:
+            seen_flags: set[str] = set()
+            for flag in self.config_rtl:
+                if not isinstance(flag, str) or not _RTL_FLAG_RE.match(flag):
+                    raise ValueError(
+                        f"config_rtl flags must be non-empty upper-snake-case identifiers, got {flag!r}"
+                    )
+                if flag in seen_flags:
+                    raise ValueError(f"duplicate config_rtl flag {flag!r}")
+                seen_flags.add(flag)
 
     @property
     def caches_dict(self) -> dict[str, tuple[int, int]] | None:

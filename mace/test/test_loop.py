@@ -178,6 +178,37 @@ class TestConfigFromSpec:
         assert "-config_l1d_size=8192" in build_argv
         assert "-config_l1d_associativity=4" in build_argv
 
+    def test_task_config_rtl_override_is_added_to_the_mesh_default(
+        self, stub_piton_root, monkeypatch, sims_argv
+    ):
+        """A task's CONFIG_RTL: flag (mace.agents.parse_config_rtl_overrides)
+        must reach the real build's argv alongside PitonConfig's own default
+        (MINIMAL_MONITORING), not instead of it -- see mace.loop._config_for_task."""
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+        task_with_override = Task(
+            id="t1", deps=(), kind="config", spec="disable the BIST self-clear",
+            config_rtl=("CONFIG_DISABLE_BIST_CLEAR",),
+        )
+
+        run_mace_step(str(stub_piton_root), make_spec(), task_with_override, llm)
+
+        build_argv = sims_argv.lines()[0]
+        assert "-config_rtl=CONFIG_DISABLE_BIST_CLEAR" in build_argv
+        assert "-config_rtl=MINIMAL_MONITORING" in build_argv
+
+    def test_task_with_no_config_rtl_override_keeps_the_mesh_default(
+        self, stub_piton_root, monkeypatch, sims_argv
+    ):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+
+        run_mace_step(str(stub_piton_root), make_spec(), TASK, llm)
+
+        build_argv = sims_argv.lines()[0]
+        assert "-config_rtl=MINIMAL_MONITORING" in build_argv
+        assert "-config_rtl=CONFIG_DISABLE_BIST_CLEAR" not in build_argv
+
     def test_spec_coverage_flag_reaches_the_real_build(self, stub_piton_root, monkeypatch, sims_argv):
         """Mirrors test_task_cache_override_reaches_the_real_build: spec.coverage
         only matters if it actually reaches the build's argv, not just the
