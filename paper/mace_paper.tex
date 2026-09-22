@@ -7,8 +7,6 @@
 \usepackage{graphicx}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
-\usepackage{pgfplots}
-\pgfplotsset{compat=1.17}
 \usepackage{titlesec}
 
 \setlength{\parindent}{0pt}
@@ -279,25 +277,21 @@ backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
 \begin{figure*}[t]
 \centering
 \vspace{-1.3em}
-\begin{minipage}{0.56\textwidth}
+\begin{minipage}{0.5\textwidth}
 \centering
-\begin{tikzpicture}
-\begin{axis}[
-  ybar, bar width=9pt, width=8.6cm, height=2.2cm,
-  symbolic x coords={ariane,sparc,pico}, xtick=data,
-  x tick label style={font=\scriptsize}, y tick label style={font=\scriptsize},
-  ylabel={wall time (s)}, ylabel style={font=\scriptsize},
-  ymin=0, ymax=1750, enlarge x limits=0.28,
-  nodes near coords, point meta=explicit symbolic,
-  every node near coord/.append style={font=\tiny, rotate=90, anchor=west, inner sep=1pt},
-]
-\addplot[fill=orange!70] coordinates {(ariane,186.5)[fail] (sparc,766.0)[fail] (pico,32.6)[unparseable, 32.6s]};
-\addplot[fill=blue!55] coordinates {(ariane,741.7)[pass] (sparc,966.3)[budget\_exceeded] (pico,1250.5)[budget\_exceeded]};
-\end{axis}
-\end{tikzpicture}
+\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Core} & \textbf{(b) one-shot LLM} & \textbf{(c) full loop} \\
+\midrule
+ariane & {\color{red!60!black}fail}, 186.5s & \textbf{\color{green!50!black}pass}, 741.7s \\
+sparc & {\color{red!60!black}fail}, 766.0s & {\color{orange!80!black}budget\_exceeded}, 966.3s \\
+pico & {\color{red!60!black}fail} (unparseable), 32.6s & {\color{orange!80!black}budget\_exceeded}, 1250.5s \\
+\bottomrule
+\end{tabular}
 \end{minipage}%
 \hfill
-\begin{minipage}{0.4\textwidth}
+\begin{minipage}{0.46\textwidth}
 \centering
 \footnotesize\textbf{ariane}, \code{barrier\_atomic.c}\\[2pt]
 \begin{tikzpicture}[tile/.style={draw, fill=gray!15, minimum size=0.22cm, inner sep=0}, font=\scriptsize]
@@ -318,13 +312,13 @@ backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
 \end{tikzpicture}
 \end{minipage}
 \vspace{-0.6em}
-\caption{\textbf{Left:} {\color{orange!70!black}orange}=(b) one-shot, {\color{blue!55!black}blue}=(c)
-full loop, all cores, same 1x1 objective; (b) never passes, and on sparc/pico (c) exhausts its retry
-budget rather than reporting a false pass (logs: \code{runs/baseline\_\{b,c\}\_output.log} for
-ariane, \code{runs/bench\_\{sparc,pico\}\_\{b,c\}.log} for sparc/pico).
-\textbf{Right:} manual mesh scaling (a) vs.\ (c), ariane only -- {\color{green!50!black}green}=pass,
-{\color{red!60!black}red}=hang, {\color{gray}gray}=not reached; the loop passes both shapes (a) got
-stuck on.}
+\caption{\textbf{Left:} all three cores, same 1x1 objective; (b) never passes, and on sparc/pico (c)
+exhausts its retry budget rather than reporting a false pass -- only ariane reaches a real hardware
+\textbf{\color{green!50!black}pass} under either baseline (logs:
+\code{runs/baseline\_\{b,c\}\_output.log} for ariane, \code{runs/bench\_\{sparc,pico\}\_\{b,c\}.log}
+for sparc/pico). \textbf{Right:} manual mesh scaling (a) vs.\ (c), ariane only --
+{\color{green!50!black}green}=pass, {\color{red!60!black}red}=hang, {\color{gray}gray}=not reached;
+the loop passes both shapes (a) got stuck on.}
 \label{fig:eval}
 \vspace{-0.9em}
 \end{figure*}
