@@ -36,7 +36,7 @@
 hardware construction and verification, built on Google/NVIDIA's CHIA framework. Phase~1
 contributes \code{chia\_openpiton}, a CHIA platform adapter exposing OpenPiton's
 configure/build/simulate/run/collect operations through CHIA's standard interface, validated
-against real RTL simulation across 143 tests. Phase~2 contributes the \sys{} loop itself: a
+against real RTL simulation across 208 tests. Phase~2 contributes the \sys{} loop itself: a
 planner decomposes a hardware objective into a task DAG, specialized agents execute tasks in
 parallel, a deterministic integrator applies and gates every change against real Verilator
 simulation, and a failure-analysis agent triages and replans on any failure. We evaluate \sys{}
@@ -61,7 +61,8 @@ passed.
 \begin{tikzpicture}[
     box/.style={draw, rounded corners, minimum height=0.5cm, minimum width=1.5cm,
                 align=center, font=\footnotesize, fill=gray!8, inner sep=1.5pt},
-    arr/.style={-{Latex[length=1.8mm]}, thick}
+    arr/.style={-{Latex[length=1.8mm]}, thick},
+    lbl/.style={font=\tiny, midway}
   ]
   \node[box] (req) {Requirement};
   \node[box, right=0.12cm of req] (plan) {Planning};
@@ -71,19 +72,22 @@ passed.
   \node[box, right=0.12cm of int] (ver) {Verification};
   \node[box, right=0.12cm of ver] (fail) {Failure\\Analysis};
   \node[box, right=0.12cm of fail] (iter) {Iteration};
+  \node[box, above=0.5cm of ver, fill=green!15] (done) {Passed};
   \draw[arr] (req) -- (plan);
   \draw[arr] (plan) -- (dec);
   \draw[arr] (dec) -- (par);
   \draw[arr] (par) -- (int);
   \draw[arr] (int) -- (ver);
-  \draw[arr] (ver) -- (fail);
+  \draw[arr] (ver) -- node[lbl, above]{pass} (done);
+  \draw[arr] (ver) -- node[lbl, below]{fail} (fail);
   \draw[arr] (fail) -- (iter);
   \draw[arr] (iter.south) -- ++(0,-0.4cm) -| (plan.south);
 \end{tikzpicture}
 \vspace{-0.8em}
 \caption{The MACE pipeline. Verification gates every integrated change
-against real Verilator simulation, never a self-report; a failure triggers
-failure analysis and a replan (the loop back to Planning), not a bare retry.}
+against real Verilator simulation, never a self-report; every gate workload
+passing ends the run (Passed); any failure triggers failure analysis and a
+replan (the loop back to Planning), not a bare retry.}
 \label{fig:pipeline}
 \vspace{-0.6em}
 \end{figure*}
@@ -156,7 +160,7 @@ matching successful-build marker already exists on disk. Measured on a real rebu
 identical configuration: 104s~$\rightarrow$~0.00s -- delivering ``an agent iteration that only
 changes the test should never rebuild'' without any loop-level machinery.
 
-\textbf{Results.} 143 tests across three tiers (pure-unit, live-Ray with a stub simulator, and
+\textbf{Results.} 208 tests across three tiers (pure-unit, live-Ray with a stub simulator, and
 real hardware) all pass. Real-hardware acceptance tests pass for a 1x1 Ariane build and run
 (\code{hello\_world.c}, compiled and executed by the adapter itself), and for two real,
 independent checkouts building in parallel: 176s wall-clock versus a 324s serial-equivalent. Only
@@ -219,18 +223,24 @@ by checking multilib metadata.
 \textbf{Results.} The adapter extension (a new \code{Literal} entry, two \code{sims} flags, and
 mirrored tests) landed with full unit coverage and zero regressions to the existing \code{ariane}
 and \code{sparc} paths. The build passes cleanly and fast -- 57 seconds, consistent with pico's
-structurally lighter build (no bootrom/device-tree chain, unlike Ariane). The run reaches verdict
-\code{maxcycles}.
+structurally lighter build (no bootrom/device-tree chain, unlike Ariane). The initial run reached
+verdict \code{maxcycles}.
 
-The compiled binary's symbol table and entry point exactly match the run's own configured trap
-addresses (\code{objdump~-t}/\code{-f} against \code{symbol.tbl}). Comparing the run's transcript
-against a known-good passing-Ariane fixture from earlier in this project: both show an
-\emph{identical} generic boot/reset/IOB-handshake trace -- but the fixture's very next line,
-\code{Hit Good trap}, never appears for pico. This localizes the
-divergence precisely: not boot infrastructure, not the compiled binary, but the point at which the
-core itself must reach its own trap address. Unsurprising, in one sense -- nobody has ever run this
-core under a simulator before to catch it -- and exactly the property originally asked for: \sys{}
-distinguished ``builds'' from ``runs correctly'' instead of reporting a false pass.
+The compiled binary's symbol table and entry point exactly matched the run's own configured trap
+addresses (\code{objdump~-t}/\code{-f} against \code{symbol.tbl}), ruling out a bad build or
+toolchain mismatch. Its transcript matched a known-good passing-Ariane fixture line for line through
+the generic boot/reset/IOB-handshake trace -- but the fixture's next line, \code{Hit Good trap},
+never appeared, localizing the divergence to the point the core itself must reach its own trap
+address, not boot infrastructure or the binary.
+
+Unlike the still-open 2x2 Ariane hang (\S\ref{sec:limits}), this one \emph{was} chased to a
+waveform-level root cause: three real, independently waveform-verified RTL/testbench bugs, all
+fixed -- PicoRV32's own \code{resetn}/\code{booted} self-boot gate, the manycore monitor's
+\code{active\_thread} tracking for pico's tile, and a real-silicon BIST self-clear race discarding
+its first memory writes. PicoRV32 now genuinely \textbf{passes} (\code{Simulation -> PASS (HIT GOOD
+TRAP)}) -- a first for this core under any simulator, by anyone. \sys{} distinguished ``builds''
+from ``runs correctly'' instead of reporting a false pass, letting the investigation find and fix
+the real bug rather than stop at a shrug.
 
 \section{Beyond the Proposal: Interface, Coverage, Portability}
 \label{sec:cli}
@@ -240,10 +250,9 @@ backend, never a mock.
 
 \textbf{The \code{mace} CLI}, a Yosys/OpenROAD-style interactive shell
 (\code{read\_verilog}/\code{top\_module}/\code{read\_spec}/\code{set\_core}, then \code{run}), is
-the actual interface a user drives \sys{} through, not just an API. When \code{top\_module} names
-no core \code{chia\_openpiton} has an adapter for, \code{run} immediately produces the same
-structured assessment \S\ref{sec:pico} needed real investigation to first establish, instead of
-attempting a fake integration.
+the actual interface a user drives \sys{} through, not just an API. When \code{top\_module} names no
+core \code{chia\_openpiton} supports, \code{run} immediately gives the same structured assessment
+\S\ref{sec:pico} needed real investigation to establish, instead of a fake integration attempt.
 
 \textbf{Verilator code coverage} (\code{run -coverage}) is a second verification axis beyond
 pass/fail, and needed a genuine fix, not just a flag: OpenPiton's own hand-written testbench never
@@ -252,29 +261,29 @@ called Verilator's coverage-write API, so a clean run produced no data until pat
 
 \textbf{Backend portability}: the \sys{} loop runs end-to-end, unmodified, against Google's Vertex
 Gemini backend as well as OpenCode, confirmed with a full real passing run. Vertex authenticates via
-Application Default Credentials rather than a literal key, and required identifying which model was
-actually available on our project (\code{gemini-2.0-*} 404s; \code{gemini-2.5-flash} works).
+Application Default Credentials, not a literal key, and required identifying which model was
+actually available (\code{gemini-2.0-*} 404s; \code{gemini-2.5-flash} works).
 
 \section{Evaluation}
 \label{sec:eval}
 
 We compare three approaches: \textbf{(a)} manual mesh scaling with a time log; \textbf{(b)} a single
-LLM prompt asking directly for a configuration, applied once with no tools, no verification, and no
-retry; \textbf{(c)} the full \sys{} loop. All results below are real hardware runs -- no simulated
-numbers appear anywhere in this paper.
+LLM prompt for a configuration, applied once with no tools, verification, or retry; \textbf{(c)} the
+full \sys{} loop. All results below are real hardware runs -- no simulated numbers appear anywhere
+in this paper.
 
-\textbf{Three cores, two baselines.} (b) and (c) were run against the identical objective (verify
+\textbf{Three cores, two baselines.} (b) and (c) ran against the identical objective (verify
 \code{barrier\_atomic.c} on a 1x1 mesh) for all three supported cores, not just ariane, same LLM
 backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
 
 \begin{figure*}[t]
 \centering
-\vspace{-1.0em}
+\vspace{-1.3em}
 \begin{minipage}{0.56\textwidth}
 \centering
 \begin{tikzpicture}
 \begin{axis}[
-  ybar, bar width=9pt, width=8.6cm, height=2.5cm,
+  ybar, bar width=9pt, width=8.6cm, height=2.2cm,
   symbolic x coords={ariane,sparc,pico}, xtick=data,
   x tick label style={font=\scriptsize}, y tick label style={font=\scriptsize},
   ylabel={wall time (s)}, ylabel style={font=\scriptsize},
@@ -282,7 +291,7 @@ backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
   nodes near coords, point meta=explicit symbolic,
   every node near coord/.append style={font=\tiny, rotate=90, anchor=west, inner sep=1pt},
 ]
-\addplot[fill=orange!70] coordinates {(ariane,186.5)[fail] (sparc,766.0)[fail] (pico,32.6)[unparseable]};
+\addplot[fill=orange!70] coordinates {(ariane,186.5)[fail] (sparc,766.0)[fail] (pico,32.6)[unparseable, 32.6s]};
 \addplot[fill=blue!55] coordinates {(ariane,741.7)[pass] (sparc,966.3)[budget\_exceeded] (pico,1250.5)[budget\_exceeded]};
 \end{axis}
 \end{tikzpicture}
@@ -290,10 +299,12 @@ backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
 \hfill
 \begin{minipage}{0.4\textwidth}
 \centering
+\footnotesize\textbf{ariane}, \code{barrier\_atomic.c}\\[2pt]
 \begin{tikzpicture}[tile/.style={draw, fill=gray!15, minimum size=0.22cm, inner sep=0}, font=\scriptsize]
   \node[tile] at (0,0.55) {};
   \node at (0,0.0) {1x1};
-  \node[align=center, text width=1.6cm] at (0,-0.55) {(a) pass\\(c) pass};
+  \node[align=center, text width=1.6cm] at (0,-0.55)
+    {{\color{green!50!black}(a) pass}\\{\color{green!50!black}(c) pass}};
 
   \foreach \x in {0,1} \foreach \y in {0,1} \node[tile] at (1.55+\x*0.24,0.55+\y*0.24) {};
   \node at (1.67,0.0) {2x2};
@@ -307,30 +318,32 @@ backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
 \end{tikzpicture}
 \end{minipage}
 \vspace{-0.6em}
-\caption{\textbf{Left:} {\color{orange!70!black}orange}=(b) one-shot, {\color{blue!55!black}blue}
-=(c) full loop, all cores, same 1x1 objective; (b) never passes, and on sparc/pico (c) exhausts its
-retry budget rather than reporting a false pass (logs: \code{runs/bench\_\{sparc,pico\}\_\{b,c\}.log}).
-\textbf{Right:} manual mesh scaling (a) vs.\ (c) -- the loop passes both shapes (a) got stuck on.}
+\caption{\textbf{Left:} {\color{orange!70!black}orange}=(b) one-shot, {\color{blue!55!black}blue}=(c)
+full loop, all cores, same 1x1 objective; (b) never passes, and on sparc/pico (c) exhausts its retry
+budget rather than reporting a false pass (logs: \code{runs/baseline\_\{b,c\}\_output.log} for
+ariane, \code{runs/bench\_\{sparc,pico\}\_\{b,c\}.log} for sparc/pico).
+\textbf{Right:} manual mesh scaling (a) vs.\ (c), ariane only -- {\color{green!50!black}green}=pass,
+{\color{red!60!black}red}=hang, {\color{gray}gray}=not reached; the loop passes both shapes (a) got
+stuck on.}
 \label{fig:eval}
 \vspace{-0.9em}
 \end{figure*}
 
-(b) fails all three, in three distinct ways -- each itself informative. For ariane, the one-shot
-config built but failed real verification: a functionally wrong guess. For sparc, it built and even
-reached a run attempt that then failed silently, no verdict at all. For pico, the LLM's own proposed
-config (\code{l15\_size=0}) was rejected by \code{PitonConfig}'s own construction-time validation
-before any hardware was touched -- (b)'s script has no retry path for a malformed response. (c)
-passes ariane (4/4 tasks, 741.7s, roughly 4x (b)'s cost -- not ``for free'' as an earlier, buggy
-measurement implied); a second, distinct ariane gate workload, \code{producer\_consumer.c}, also
-passed (2118.02s, 2 tasks) -- real coverage beyond one program, not repeated success on the same
-one. For sparc and pico, (c) does not pass either -- but its own triage/post-mortem,
-not us reading logs by hand, told the two failures apart correctly: sparc's 3 replan attempts still
-could not resolve a missing \code{util.h} include path in the gate program's own build (classified
-\code{fixable\_config}, an LLM diagnosis we have not independently verified); pico's 3 attempts all
-deadlocked (\code{maxcycles}) because \code{barrier\_atomic.c}'s own barrier logic needs more than
-one participant -- something a 1x1 mesh can never provide -- correctly classified
-\code{likely\_hardware\_limitation} (more precisely a workload/mesh mismatch, not a regression of
-the pico RTL bugs \S\ref{sec:pico} already fixed).
+(b) fails all three, in three distinct ways. For ariane, the one-shot config built but failed real
+verification: a functionally wrong guess. For sparc, it built and reached a run attempt that failed
+silently, no verdict at all. For pico, the LLM's own config (\code{l15\_size=0}) was rejected by
+\code{PitonConfig}'s construction-time validation before any hardware was touched -- (b) has no
+retry path for a malformed response. (c) passes ariane (4/4 tasks, 741.7s, roughly 4x (b)'s cost --
+not ``for free'' as an earlier, buggy measurement implied); a second, distinct ariane gate workload,
+\code{producer\_consumer.c}, also passed (2118.02s, 2 tasks) -- real coverage beyond one program,
+not repeated success on the same one. For sparc and pico, (c) does not pass either -- it exhausts
+its retry budget instead -- but its own triage/post-mortem, not us reading logs by hand, told the
+two outcomes apart: sparc's 3 replan attempts could not resolve a missing \code{util.h} include path
+in the gate program's own build (classified \code{fixable\_config}, an LLM diagnosis we have not
+independently verified); pico's 3 attempts all deadlocked (\code{maxcycles}) because
+\code{barrier\_atomic.c}'s own barrier logic needs more than one participant -- something a 1x1 mesh
+can never provide -- correctly classified \code{likely\_hardware\_limitation} (more precisely a
+workload/mesh mismatch, not a regression of the pico RTL bugs \S\ref{sec:pico} already fixed).
 
 \textbf{The loop recovers mesh shapes manual scaling could not.} Baseline~(a)'s own real attempts
 got stuck at 2x2 (build passes, run hangs) and never reached 4x4 -- see \S\ref{sec:limits} for the
@@ -342,62 +355,56 @@ measured 30s parallel vs.\ 57s serial, consistent with Phase~1's result above.
 
 One honest gap: the detect-failure~$\rightarrow$~diagnose~$\rightarrow$~replan~$\rightarrow$~pass
 cycle is proven at the mechanism level (a stateful stub that fails once, then passes) but never
-fired across the passing hardware runs above -- including a forced extreme first configuration (a
-128-byte, direct-mapped L1, confirmed actually used) that we and the planner both expected to fail.
-It passed instead: a genuine finding about this RTL's coherence robustness to cache-capacity
-extremes, not a test-design failure, reported as such rather than letting repeated passes imply more
-than they show.
+fired across the passing runs above -- including a forced extreme first config (a 128-byte,
+direct-mapped L1, confirmed actually used) we and the planner both expected to fail. It passed
+instead: a real finding about this RTL's coherence robustness to cache-capacity extremes, not a
+test-design failure, reported as such rather than letting repeated passes imply more than they show.
 
 \section{Limitations and Honest Findings}
 \label{sec:limits}
 
 \textbf{A launch-configuration gap we first misdiagnosed as a CHIA scheduler bug -- corrected once
 better evidence arrived.} A task whose resource request could only be satisfied by a tailnet-relayed
-GCP worker never executed, though that worker's own registration and heartbeat to the cluster's GCS
+GCP worker never executed, though the worker's own registration and heartbeat to the cluster's GCS
 worked fine throughout. We ruled out a worker-startup failure (node stayed \code{Alive} with correct
 resources) and scheduler slowness (a six-minute state-dump showed zero pending start requests),
 initially concluding this was a genuine gap in CHIA's own scheduling/relay plumbing and filing it
-upstream (\texttt{ucb-bar/chia\#72}) rather than guessing at a fix. A CHIA maintainer's reply
-identified the real cause: CHIA sets three proxy environment variables on each node during
-\code{chia up}, inherited by a job submitted via \code{chia job submit} but not by a driver launched
-manually via \code{python driver.py} -- what every real run here does -- unless the launching shell
-sets them itself. Verified directly: exporting the exact values read off the head's own live raylet
-took the same forced-placement task from a six-minute hang to a two-second real execution. Every
-fact we found was correct; the conclusion was not -- corrected here rather than left standing. With
-dispatch fixed, 2x2 Ariane on GCP still has not reached a verdict -- a build-time worker crash,
-likely the same memory-pressure class as below.
+upstream (\texttt{ucb-bar/chia\#72}). A CHIA maintainer's reply identified the real cause: CHIA sets
+three proxy environment variables on each node during \code{chia up}, inherited by \code{chia job
+submit} but not by a driver launched manually via \code{python driver.py} -- what every real run
+here does -- unless the launching shell sets them itself. Verified directly: exporting those values
+from the head's own live raylet took the same task from a six-minute hang to a two-second execution.
+Every fact we found was correct; the conclusion was not -- corrected here rather than left standing.
+With dispatch fixed, 2x2 Ariane on GCP still has not reached a verdict -- likely the same
+memory-pressure class as below.
 
-A later, independent dispatch attempt on the same topology reproduced the stuck symptom -- this
-time with the environment fix already confirmed in place, ruling out a repeat of the same cause.
-Both tailnet relays' logs show zero new activity during the stall, and \code{strace} on both raylets
-shows zero new \code{connect()} syscalls -- real, continuous traffic on already-established
-connections, just nothing new. Whatever carries a lease assignment from the GCS to this worker's
-raylet appears to never attempt an outbound connection at all -- Ray's own scheduling internals
-under a proxied topology, not a CHIA gap. Filed as a follow-up on the same upstream issue; open at
-time of writing.
+A later, independent dispatch attempt on the same topology reproduced the stuck symptom with the
+environment fix already confirmed in place, ruling out a repeat of the same cause -- both tailnet
+relays' logs and a raylet-level \code{strace} show zero new outbound activity at all, pointing at
+Ray's own scheduling internals under a proxied topology, not a CHIA gap. Filed as a follow-up; open
+at time of writing.
 
-\textbf{Two RTL-adjacent hangs, read as genuine gaps rather than our bugs.} Both the 2x2 Ariane mesh
-and the 1x1 PicoRV32 run show an identical signature: a correct boot/reset/IOB handshake, then the
-core never reaches its own trap address, despite correct compiled binaries. OpenPiton's own CI shows
-2x2 Ariane has no upstream Verilator precedent besides 1x1 and 4x4, and PicoRV32 has never run under
-any simulator, by anyone. We read both as likely, previously-undiscovered RTL gaps in untested
-configurations, not adapter bugs -- the same code drives the passing cases -- but did not chase
-either to a waveform-level root cause given the time left.
+\textbf{A 2x2 Ariane hang, read as a genuine RTL gap rather than our bug.} The 2x2 Ariane mesh shows
+the same signature PicoRV32's investigation (\S\ref{sec:pico}) started from: a correct boot/reset/IOB
+handshake, then the core never reaches its own trap address, despite a correct binary. OpenPiton's
+own CI shows 2x2 Ariane has no upstream Verilator precedent besides 1x1 and 4x4. We read this as a
+likely, previously-undiscovered RTL gap, not an adapter bug -- the same code drives the passing
+cases -- but, unlike PicoRV32's identical symptom, did not chase this one to a waveform-level root
+cause given the time left.
 
 \textbf{4x4 memory pressure, two independent causes, both diagnosed precisely.} The one
-upstream-validated mesh shape (4x4) surfaced two real, independent memory-pressure failures: a
-genuine Ray-reported OOM (22.33GB/23.47GB used) from unconstrained parallel compilation, fixed via
-\code{MAKEFLAGS}; and, separately, Verilator's own build step passing an explicit, unlimited
-\code{-j} directly on its command line, silently overriding that fix. Both evidenced via direct
-\code{/proc} inspection -- host-local findings, not a design flaw in \sys{}. A later, solo attempt
-via the full loop passed instead (Figure~\ref{fig:eval}, right, 574.6s), consistent with the OOM
-above, specifically from concurrent compilation this later run never exercised.
+upstream-validated 4x4 shape surfaced two real memory-pressure failures: a genuine Ray-reported OOM
+(22.33GB/23.47GB used) from unconstrained parallel compilation, fixed via \code{MAKEFLAGS}; and
+Verilator's own build step passing an explicit, unlimited \code{-j} on its command line, silently
+overriding that fix. Both evidenced via direct \code{/proc} inspection -- host-local, not a design
+flaw in \sys{}. A later, solo full-loop attempt passed instead (Figure~\ref{fig:eval}, right,
+574.6s), consistent with the OOM being specific to concurrent compilation this run avoided.
 
-\enlargethispage{\baselineskip}
+\enlargethispage{3\baselineskip}
 \section{Conclusion}
 
-\sys{} shows an agentic loop can autonomously plan, build, and verify real multicore hardware,
-gated by real RTL simulation, not an agent's word. It fixed environment bugs, added a third core,
-and verified mesh shapes never reached before -- precision, not one pass, is the contribution.
+\sys{} shows an agentic loop can plan, build, and verify real hardware, gated by RTL simulation, not
+an agent's word -- fixing environment bugs, adding a third core, and verifying mesh shapes never
+reached before. Precision, not one pass, is the point.
 
 \end{document}
