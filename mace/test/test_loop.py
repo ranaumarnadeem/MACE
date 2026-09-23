@@ -13,7 +13,7 @@ Ray/network/cost-bearing.
 from __future__ import annotations
 
 from chia_openpiton.state_def import PitonConfig
-from mace.loop import run_mace_step
+from mace.loop import _unit_test_tool_name, run_mace_step
 from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM
 
@@ -221,6 +221,33 @@ class TestConfigFromSpec:
 
         build_argv = sims_argv.lines()[0]
         assert "-vlt_build_args=--coverage-line" in build_argv
+
+
+class TestUnitTestToolName:
+    """CHIA's API backends name each tool function f"{tool}__{fn}"[:64], and
+    TestbenchEditTool's functions are themselves named f"{tool}_{method}"."""
+
+    METHODS = ("read_testbench", "write_testbench", "read_dut_source")
+
+    def _api_names(self, task_id):
+        name = _unit_test_tool_name(task_id)
+        return [f"{name}__{name}_{m}" for m in self.METHODS]
+
+    def test_long_planner_task_id_keeps_function_names_distinct(self):
+        # The exact task id that made Vertex reject a real 4x4 loop run with
+        # "Duplicate function declaration found".
+        names = self._api_names("T6_UnitTestCoherenceLogic")
+        assert all(len(n) <= 64 for n in names)
+        assert len({n[:64] for n in names}) == len(self.METHODS)
+
+    def test_any_length_task_id_fits(self):
+        assert all(len(n) <= 64 for n in self._api_names("t" * 500))
+
+    def test_distinct_task_ids_get_distinct_tool_names(self):
+        assert _unit_test_tool_name("t1") != _unit_test_tool_name("t2")
+
+    def test_same_task_id_gets_the_same_tool_name(self):
+        assert _unit_test_tool_name("t1") == _unit_test_tool_name("t1")
 
 
 class TestUnitTestTask:

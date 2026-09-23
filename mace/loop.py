@@ -13,6 +13,7 @@ layered on top of it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -149,7 +150,9 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
 
     edit_tool = None
     if ray.is_initialized():
-        edit_tool = TestbenchEditTool(f"unit_test_edit_{task.id}", scaffold_result["top_v"], rtl_path)
+        edit_tool = TestbenchEditTool(
+            _unit_test_tool_name(task.id), scaffold_result["top_v"], rtl_path
+        )
     all_tools = (*tools, edit_tool) if edit_tool is not None else tools
     try:
         query = llm.prompt(prompt, tools=list(all_tools))
@@ -159,6 +162,12 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
 
     build = OpenPitonWorkspaceNode.build(piton_root, PitonConfig(sys=env_name))
     return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
+
+
+def _unit_test_tool_name(task_id: str) -> str:
+    # Fixed-length: CHIA backends truncate f"{tool}__{tool}_{fn}" to 64 chars,
+    # so a long planner task id made every tool function collapse to one name.
+    return f"ut_edit_{hashlib.sha1(task_id.encode()).hexdigest()[:8]}"
 
 
 def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
