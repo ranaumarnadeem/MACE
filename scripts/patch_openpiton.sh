@@ -615,7 +615,10 @@ block = """                    spc0_phy_pc_w   <= {{8{spc0_phy_pc_m[39]}}, spc0_
 count = content.count(anchor)
 if count == 0:
     branch_end = content.find("`else // RTL_SPARC0")
-    if branch_end != -1 and "active_thread[(0*4)+3] <= 1'b1;" in content[max(0, branch_end - 1500):branch_end]:
+    if branch_end == -1:
+        print(f"no RTL_SPARC0 branch, skipping fix 10: {path}")
+        sys.exit(0)
+    if "active_thread[(0*4)+3] <= 1'b1;" in content[max(0, branch_end - 1500):branch_end]:
         print(f"already patched: {path} (fix 10)")
         sys.exit(0)
     print("ERROR: RTL_SPARC0 branch not recognized, neither patched nor the expected upstream text", file=sys.stderr)
