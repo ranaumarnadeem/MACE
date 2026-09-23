@@ -577,6 +577,175 @@ PYEOF
     fi
 )
 
+# 10. pc_cmp.v's RTL_SPARC0 branch never assigns active_thread at all (fix 7
+#     is the same bug for RTL_PICO0). Every good/bad-trap check gates on
+#     active_thread, so every sparc run silently reaches max_cycle with no
+#     verdict, even OpenPiton's own CI-verified princeton-test-test.s. Adds
+#     the same clocked, unconditional block RTL_ARIANE0 uses.
+(
+    cd "$ROOT"
+    PC_CMP="piton/verif/env/manycore/pc_cmp.v.pyv"
+    if [ ! -f "$PC_CMP" ]; then
+        echo "not found, skipping fix 10: $PC_CMP"
+    else
+        python3 - "$PC_CMP" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+anchor = """                    spc0_phy_pc_w   <= {{8{spc0_phy_pc_m[39]}}, spc0_phy_pc_m[39:0]};
+                end
+        `else // RTL_SPARC0"""
+block = """                    spc0_phy_pc_w   <= {{8{spc0_phy_pc_m[39]}}, spc0_phy_pc_m[39:0]};
+                end
+                always @(posedge clk) begin
+                    if (~rst_l) begin
+                      active_thread[(0*4)]   <= 1'b0;
+                      active_thread[(0*4)+1] <= 1'b0;
+                      active_thread[(0*4)+2] <= 1'b0;
+                      active_thread[(0*4)+3] <= 1'b0;
+                    end else begin
+                      active_thread[(0*4)]   <= 1'b1;
+                      active_thread[(0*4)+1] <= 1'b1;
+                      active_thread[(0*4)+2] <= 1'b1;
+                      active_thread[(0*4)+3] <= 1'b1;
+                    end
+                end
+        `else // RTL_SPARC0"""
+count = content.count(anchor)
+if count == 0:
+    branch_end = content.find("`else // RTL_SPARC0")
+    if branch_end != -1 and "active_thread[(0*4)+3] <= 1'b1;" in content[max(0, branch_end - 1500):branch_end]:
+        print(f"already patched: {path} (fix 10)")
+        sys.exit(0)
+    print("ERROR: RTL_SPARC0 branch not recognized, neither patched nor the expected upstream text", file=sys.stderr)
+    sys.exit(1)
+if count != 1:
+    print(f"ERROR: expected exactly 1 match for the RTL_SPARC0 branch end, found {count}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(anchor, block)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: pc_cmp.v.pyv's RTL_SPARC0 now asserts active_thread, matching RTL_ARIANE0")
+PYEOF
+    fi
+)
+
+# 11. pc_cmp.v declares finish_mask as a Verilog "integer" (always exactly 32
+#     bits) under Verilator only, while its siblings active_thread/good are
+#     "reg [31:0]" that this template's own replace("31", ...) widens to
+#     4 bits per tile. So under Verilator the finish mask silently truncates
+#     past 8 tiles: a 4x4 Ariane run reported PASS after only 8 of its 16
+#     tiles finished (confirmed per tile from each core's own trace).
+#     Declaring it "reg [31:0]" everywhere lets the template widen it too.
+#     Deliberately no Verilog comment added here: a backtick inside one
+#     broke Verilator's parse of the generated file.
+(
+    cd "$ROOT"
+    PC_CMP="piton/verif/env/manycore/pc_cmp.v.pyv"
+    if [ ! -f "$PC_CMP" ]; then
+        echo "not found, skipping fix 11: $PC_CMP"
+    elif ! grep -q "integer      finish_mask;" "$PC_CMP"; then
+        echo "already patched: $PC_CMP (fix 11)"
+    else
+        python3 - "$PC_CMP" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+old = """    `ifndef VERILATOR
+    reg [31:0]   finish_mask;
+    `else
+    integer      finish_mask;
+    `endif
+"""
+new = """    reg [31:0]   finish_mask;
+"""
+count = content.count(old)
+if count != 1:
+    print(f"ERROR: expected exactly 1 match for the finish_mask declaration, found {count}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: pc_cmp.v.pyv's finish_mask is now reg [31:0], widened per tile like active_thread")
+PYEOF
+    fi
+)
+
+# 12. Ariane's shared syscalls.c (linked into every ariane C diagnostic)
+#     polls its multi-hart exit barrier (finish_sync0/finish_sync1) with
+#     plain loads. That is the same staleness bug mace/workloads/barrier_atomic.c
+#     works around with atomic_read(): a plain load does not reliably observe
+#     another tile's atomic update, so on any multi-tile mesh every hart but
+#     the last spins forever (a 1x1 mesh hides it, since nc=1). Poll through
+#     an atomic fetch-add-zero instead.
+(
+    cd "$ROOT"
+    SYSCALLS="piton/verif/diag/assembly/include/riscv/ariane/syscalls.c"
+    if [ ! -f "$SYSCALLS" ]; then
+        echo "not found, skipping fix 12: $SYSCALLS"
+    elif ! grep -q "while(finish_sync0 != nc);" "$SYSCALLS"; then
+        echo "already patched: $SYSCALLS (fix 12)"
+    else
+        python3 - "$SYSCALLS" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+swaps = [
+    ("  while(finish_sync0 != nc);",
+     "  { uint32_t v; do { ATOMIC_FETCH_OP(v, finish_sync0, 0, add, w); } while (v != nc); }"),
+    ("  while(finish_sync1 != cid);",
+     "  { uint32_t v; do { ATOMIC_FETCH_OP(v, finish_sync1, 0, add, w); } while (v != cid); }"),
+]
+for old, new in swaps:
+    count = content.count(old)
+    if count != 1:
+        print(f"ERROR: expected exactly 1 match for {old.strip()!r}, found {count}", file=sys.stderr)
+        sys.exit(1)
+    content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: syscalls.c's exit barrier now polls through atomic fetch-add-zero")
+PYEOF
+    fi
+)
+
+# 13. CVA6's Verilator instruction tracer opens a hardcoded
+#     "trace_hart_00.dasm" regardless of hart_id_i, so every tile of a
+#     multi-tile Ariane build truncates and shares one file, and every tile
+#     but one looks like it never booted. Name the file per hart, the way
+#     instr_tracer.sv already does. Lives in the ariane submodule.
+(
+    cd "$ROOT"
+    CVA6_SV="piton/design/chip/tile/ariane/core/cva6.sv"
+    if [ ! -f "$CVA6_SV" ]; then
+        echo "not found, skipping fix 13 (ariane submodule not initialized?): $CVA6_SV"
+    elif ! grep -q 'f = $fopen("trace_hart_00.dasm", "w");' "$CVA6_SV"; then
+        echo "already patched: $CVA6_SV (fix 13)"
+    else
+        python3 - "$CVA6_SV" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+old = """    f = $fopen("trace_hart_00.dasm", "w");"""
+new = """    string dasm_fn;
+    $sformat(dasm_fn, "trace_hart_%0.0f.dasm", hart_id_i);
+    f = $fopen(dasm_fn, "w");"""
+count = content.count(old)
+if count != 1:
+    print(f"ERROR: expected exactly 1 match for the trace_hart_00.dasm open, found {count}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: cva6.sv's tracer now writes trace_hart_<hart_id>.dasm per tile")
+PYEOF
+    fi
+)
+
 # Addition (not a bug fix): pico_reset_ut, a real, standalone unit test for
 # picorv32.v's self-boot behavior (finding 6) -- proves finding 8's -sys=
 # generalization end to end by authoring a genuinely NEW unit-test
