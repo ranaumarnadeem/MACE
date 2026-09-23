@@ -34,6 +34,13 @@ from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec
 
 
+def _parse_mesh(text: str) -> tuple[int, int]:
+    x, sep, y = text.lower().partition("x")
+    if not (sep and x.isdigit() and y.isdigit()):
+        raise argparse.ArgumentTypeError(f"--mesh must look like 2x2, got {text!r}")
+    return int(x), int(y)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--piton-root", required=True, help="First OpenPiton checkout")
@@ -48,9 +55,10 @@ def main() -> int:
     ap.add_argument("--project", default="mace-508004")
     ap.add_argument("--workload", default="barrier_atomic.c")
     ap.add_argument(
-        "--objective",
-        default="Verify the barrier_atomic gate workload passes on a 1x1 mesh.",
+        "--mesh", type=_parse_mesh, default=(1, 1),
+        help="Target mesh as XxY. This, not the objective text, sizes every task's build.",
     )
+    ap.add_argument("--objective", default=None)
     ap.add_argument("--max-iterations", type=int, default=3)
     ap.add_argument("--db-path", default=os.path.abspath("runs/mace_end_to_end.db"))
     args = ap.parse_args()
@@ -80,11 +88,14 @@ def main() -> int:
         include_dashboard=False,
     )
 
+    objective = args.objective or (
+        f"Verify the {args.workload} gate workload passes on a {args.mesh[0]}x{args.mesh[1]} mesh."
+    )
     spec = MaceSpec(
         workloads=(args.workload,),
-        objective=args.objective,
+        objective=objective,
         core=args.core,
-        target_mesh=(1, 1),
+        target_mesh=args.mesh,
         budget=Budget(max_iterations=args.max_iterations),
     )
     llm = make_llm(args.backend, **({"model": args.model} if args.model else {}))
