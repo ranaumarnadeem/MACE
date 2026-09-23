@@ -373,25 +373,17 @@ recovery loop's mechanism.
 \section{Limitations and Honest Findings}
 \label{sec:limits}
 
-\textbf{A launch-configuration gap we first misdiagnosed as a CHIA scheduler bug.} A task whose
-resource request could only be satisfied by a tailnet-relayed GCP worker never ran, even though that
-worker's own registration and heartbeat to the cluster's GCS worked the whole time. We ruled out a
-worker-startup failure (the node stayed \code{Alive} with correct resources) and scheduler slowness
-(a six-minute state-dump showed zero pending start requests). We first concluded this was a gap in
-CHIA's own scheduling and relay code and filed it upstream (\texttt{ucb-bar/chia\#72}). A CHIA
-maintainer's reply found the actual cause: CHIA sets three proxy environment variables on each node
-during \code{chia up}. A job submitted through \code{chia job submit} inherits them; a driver
-launched manually through \code{python driver.py}, which every run here uses, does not, unless the
-launching shell sets them itself. Exporting those values from the head's own live raylet took the
-same task from a six-minute hang to a two-second run: every fact we found was correct, only our
-first conclusion was not, corrected here rather than left standing. With dispatch fixed, 2x2 Ariane
-on GCP still has not reached a verdict, likely the same memory-pressure class as below.
+\textbf{A CHIA dispatch gap, found and fixed.} A task needing a tailnet-relayed GCP worker never ran,
+despite that worker's own registration and heartbeat to the cluster working throughout. The cause:
+CHIA sets three proxy environment variables on each node during \code{chia up}, which a job submitted
+through \code{chia job submit} inherits but a manually launched driver, which every run here uses,
+does not, unless the launching shell sets them itself. Exporting those values from the head's own
+live raylet took the task from a six-minute hang to a two-second run.
 
-A later, independent dispatch attempt on the same topology reproduced the stuck symptom, with the
-environment fix already confirmed in place, ruling out a repeat of the same cause. Both tailnet
-relays' logs and a raylet-level \code{strace} show zero new outbound activity, pointing at Ray's own
-scheduling code under a proxied topology, not a CHIA gap. We filed this as a follow-up; it remains
-open.
+A later, independent dispatch attempt on the same topology reproduced the stuck symptom, with that
+fix already confirmed in place, ruling out a repeat of the same cause. Both tailnet relays' logs and
+a raylet-level \code{strace} show zero new outbound activity, pointing at Ray's own scheduling code
+under a proxied topology, not a CHIA gap. We filed this as a follow-up; it remains open.
 
 \textbf{4x4 memory pressure, two causes, both fixed.} The one upstream-validated 4x4 shape first hit
 two memory-pressure failures. First, a Ray-reported out-of-memory condition (22.33GB/23.47GB used)
@@ -402,6 +394,15 @@ we confirmed both directly through \code{/proc}. Fixed by removing the bare \cod
 the boot ROM's own Makefile (a device-tree blob deleted by one parallel job's cleanup step before
 another job finishes reading it), invisible under fully serial compilation, which is why we still
 build 4x4 with \code{MAKEFLAGS=-j1} rather than any parallelism.
+
+\textbf{Future work: generality over one-off adapters.} Every core here needed its own hand-written
+OpenPiton/L15 adapter; PicoRV32's already existed upstream, Ariane's and SPARC's did not. Three cores
+in, the reusable pieces are clear: a per-core RTL directory, a transducer into L15 requests,
+decoder/encoder hooks in the tile's L15 RTL, and a new \code{TILE\_TYPE} generate arm. Turning that
+into a template and using it for 2-4 more cores is the direct next step, with \sys{}'s loop assisting
+a hardware engineer iterating that RTL against real simulation rather than generating it unassisted.
+A second direction is a dashboard over the run database, showing dispatch, build, and verification as
+they happen instead of through raw trace files.
 
 \balance
 \section{Conclusion}
