@@ -147,7 +147,9 @@ python examples/mace_end_to_end.py \
     --max-iterations 3
 ```
 
-Add `--piton-root-2 <second checkout>` to exercise real parallel fan-out.
+Add `--piton-root-2 <second checkout>` to exercise real parallel fan-out, and
+`--mesh 2x2` (or `4x4`) for a multi-tile run: the mesh sizes every task's
+build, while the objective text alone does not.
 Prints per-iteration results and the five metrics the proposal promises
 (successful tasks, iterations, failures recovered, execution time, compute
 cost) at the end. Everything is also recorded to

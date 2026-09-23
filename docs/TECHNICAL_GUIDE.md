@@ -566,6 +566,47 @@ Final, real, independently verified numbers: 2x2 Ariane passes in 58.9s,
 4x4 in 503.1s, both confirmed tile by tile via each tile's own execution
 trace, not just the monitor's aggregate `PASS` message.
 
+Those two numbers are direct adapter runs (`OpenPitonWorkspaceNode.build()`/
+`run()` called by hand), simulation time only, not the MACE loop. The
+earlier "2x2/4x4 loop passes" were really 1x1 runs: `examples/mace_end_to_end.py`
+hardcoded `target_mesh=(1, 1)`, and the objective text never sizes a build.
+It now takes `--mesh`, and the full loop was run at both sizes on
+2026-09-23/24 (all on the patched `/home/potato/openpiton`, one at a time):
+
+| run_id | core, mesh | result | notes |
+|---|---|---|---|
+| `9f1d0932cb6d` | ariane 2x2 | passed, 750.1s, 4/4 tasks | planner also built and verified an 8-way L1D variant |
+| `f8a01774f7a0` | ariane 4x4 | crashed | all six 16-tile sims passed; Vertex then rejected a `unit_test` task's tool list (see below) |
+| `fdd6c4322b17` | ariane 4x4 | passed, 250.9s, 2/2 tasks | rerun after the fix, cached builds |
+| `fd0c370667aa` | pico 2x2 `addi.S` | passed, 70.7s, 1 task | |
+| `c2d68cc5bef7` | pico 4x4 `addi.S` | budget_exceeded, 3 iterations | stale cached build (see below); triage blamed the RTL each time |
+| `4c9768c9a30a` | pico 4x4 `addi.S` | passed, 293.2s, 1 task | after moving the stale build aside |
+
+Every pass was checked tile by tile in its `sim.log`: one `Hit Good trap`
+per tile, and a full-width `finish_mask`. Two real bugs surfaced:
+
+- **Tool-name collision.** CHIA's API backends name each tool function
+  `f"{tool}__{fn}"[:64]`, and `TestbenchEditTool`'s functions are named
+  `f"{tool}_{method}"` with the tool named after the planner's task id. A
+  task id like `T6_UnitTestCoherenceLogic` truncated all three functions to
+  one name, and Vertex rejected the request ("Duplicate function
+  declaration found"). `mace/loop.py` now names the tool from a short hash
+  of the task id (`_unit_test_tool_name`, with a regression test).
+- **Stale cached build.** The pico 4x4 build (`mace_d8be38b3186c`) was
+  compiled before the `finish_mask` fix. A build ID covers the
+  configuration, not source edits, so the loop reused it: its 32-bit mask
+  never matched once all 16 pico tiles finished together, the absent
+  threads 1-3 timed out, and all three replans hit the same build. It was
+  moved aside (not deleted) to
+  `build/manycore/mace_d8be38b3186c.stale-pre-finish-mask-fix`; the clean
+  rebuild passed. Any build from before a monitor/RTL fix needs the same
+  treatment (`clean=True`, or move the build directory aside).
+
+The same 4x4 run's planner also asked for `CONFIG_RTL: ... |
+CONFIG_ENABLE_MESH_ATOMIC_FIX`, a define that appears nowhere in OpenPiton:
+harmless, but it cost a full extra 4x4 build, since nothing validates
+`CONFIG_RTL` flags against the RTL yet.
+
 ### Baselines and the paper
 
 - **(a) manual mesh scaling** — 1×1 proven (repeatedly), 2×2 real
