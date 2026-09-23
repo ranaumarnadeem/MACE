@@ -16,11 +16,13 @@ dist/
 runs/
 *.db
 
-# LaTeX build junk -- only paper/*.tex and paper/*.pdf are committed.
+# LaTeX build junk -- only paper/*.tex, paper/*.bib and paper/*.pdf are committed.
 paper/*.aux
 paper/*.log
 paper/*.out
 paper/*.toc
+paper/*.bbl
+paper/*.blg
 
 # Created by flake.nix's own shellHook on first `nix develop` -- a local,
 # machine-specific virtualenv, never committed.
