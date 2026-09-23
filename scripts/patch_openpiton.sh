@@ -539,6 +539,44 @@ CPPEOF
     fi
 )
 
+# 9. sims' own vlt_build step invokes a bare "make -j" (unlimited parallel
+#    jobs) to compile Verilator's generated C++, with no number after -j --
+#    a command-line "-j" always overrides MAKEFLAGS from the environment, no
+#    matter what it's set to, so a caller's own MAKEFLAGS=-j1 (set to avoid
+#    exactly the OOM this causes: many parallel cc1plus processes, each
+#    100MB-850MB, for a large multi-tile design) gets silently ignored. This
+#    is the confirmed cause of a real Ray-reported OOM (22GB+/23GB used)
+#    during a 4x4 Ariane build. Drop the bare -j so this make invocation
+#    falls back to ordinary GNU Make behavior: parallel only when MAKEFLAGS
+#    from the environment actually asks for it, serial otherwise.
+(
+    cd "$ROOT"
+    SIMS_PL="piton/tools/src/sims/sims,2.0"
+    if [ ! -f "$SIMS_PL" ]; then
+        echo "not found, skipping fix 9: $SIMS_PL"
+    elif grep -q 'build_cmd = "make -C \$model_path' "$SIMS_PL"; then
+        echo "already patched: $SIMS_PL (fix 9)"
+    else
+        python3 - "$SIMS_PL" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+
+old = '''      $build_cmd = "make -j -C $model_path/obj_dir -f V${vlt_top}.mk V${vlt_top}" ;'''
+new = '''      $build_cmd = "make -C $model_path/obj_dir -f V${vlt_top}.mk V${vlt_top}" ;'''
+count = content.count(old)
+if count != 1:
+    print(f"ERROR: expected exactly 1 match for the vlt_build make -j line, found {count}", file=sys.stderr)
+    sys.exit(1)
+content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: sims,2.0's vlt_build make step no longer hardcodes bare -j, MAKEFLAGS now actually controls it")
+PYEOF
+    fi
+)
+
 # Addition (not a bug fix): pico_reset_ut, a real, standalone unit test for
 # picorv32.v's self-boot behavior (finding 6) -- proves finding 8's -sys=
 # generalization end to end by authoring a genuinely NEW unit-test
