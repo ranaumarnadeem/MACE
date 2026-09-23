@@ -8,7 +8,7 @@ explained here rather than assumed — that's deliberate, so you can pick this
 up without a separate crash course.
 
 For a quick "how do I run this" without the depth, see [`README.md`](../README.md)
-instead — §9 and §10 below cover the same ground plus GCP clustering setup
+instead — Section 9 and Section 10 below cover the same ground plus GCP clustering setup
 and a full walkthrough, in more depth. This doc is the one to actually read
 start to end.
 
@@ -85,7 +85,7 @@ predefined — a cluster config or `ray.init(resources={...})` call declares
 them, and a task requesting more of a resource than any worker advertises
 just waits forever (not an error — a real gotcha the whole test suite works
 around with timeouts). `{"openpiton": 1}` here specifically means "reserve
-one whole checkout," not "one CPU core" or anything generic — see §4 below
+one whole checkout," not "one CPU core" or anything generic — see Section 4 below
 for why a checkout is the actual unit of concurrency.
 
 **Cache/bypass** is CHIA's replay mechanism: tag a `.chia_remote(...)` call
@@ -118,7 +118,7 @@ bespoke L15 adapter, hand-written for that specific core:
   pre-AXI cache-miss request stream instead. This core has a real coherent
   cache of its own, which is what makes its L15 integration substantial.
 - **`pico`** (PicoRV32, RV32I) — added to this project's adapter as an
-  extension (§7). Has no cache of its own (non-coherent), so its L15 adapter
+  extension (Section 7). Has no cache of its own (non-coherent), so its L15 adapter
   (`pico_l15_transducer.v`) is much simpler — but it existed in OpenPiton
   upstream, complete and unused, before this project touched it.
 
@@ -153,7 +153,7 @@ MACE/
   cluster/           CHIA cluster YAML (WSL head, optional GCP worker).
   paper/             The 4-page paper (mace_paper.tex / .pdf).
   docs/              This guide, the earlier handoff PDF, the filed CHIA issue draft.
-  dockerfiles/       A worker image — built once, not currently used (§8).
+  dockerfiles/       A worker image — built once, not currently used (Section 8).
   runs/              Metrics DBs and run logs. Gitignored.
 ```
 
@@ -177,10 +177,10 @@ MACE/
 | `integrator.py` | `integrate()` (one shared checkout, serial) and `integrate_parallel()` (one checkout per worker, dispatches a whole dependency-level's tasks before resolving any of them). This is also where replay tagging happens — see `_tag()` in `_run_batch`. |
 | `planner.py` | `plan(spec, llm, feedback)` — one LLM call → parsed into a validated task DAG. `feedback` from a previous iteration's triage is appended as extra context on a replan. |
 | `triage.py` | `triage(step_result, llm)` — one LLM call given a failing build/run's own log tail, asking for a `DIAGNOSIS:`/`FIX:` footer. Read-only tools only (grep/collect) — triage diagnoses, it never edits; an actual fix becomes a future Planner task. |
-| `orchestrator.py` | `run_mace_loop()` — the top-level entry point. See the call chain in §5. |
+| `orchestrator.py` | `run_mace_loop()` — the top-level entry point. See the call chain in Section 5. |
 | `metrics.py` | `SQLiteNode`-backed record of runs/iterations/tasks/failures. `summary()` derives the five metrics the proposal promises. |
 | `llm.py` | `make_llm()` picks a backend from the `MACE_LLM` env var (`opencode` default, or `claude`/`antigravity`/`vertex`). `extract_cost_usd()` reads a per-call dollar cost where the backend's response object carries it after a remote round-trip — always `0.0` for Claude, a documented real API-shape limitation (its cost lives on the LLM instance's own local state, invisible once dispatched remotely), not a bug silently swallowed. |
-| `replay.py` | Wraps CHIA's cache/bypass mechanism (see §2). Scoped honestly around its real limit — decisions only, never side effects. |
+| `replay.py` | Wraps CHIA's cache/bypass mechanism (see Section 2). Scoped honestly around its real limit — decisions only, never side effects. |
 | `workloads.py` + `workloads/` | Three real gate C programs (`barrier_atomic.c`, `producer_consumer.c`, `scatter_gather.c`) plus a `CHECKSUMS` file. `verify_checksums()` runs at the start of every loop run — a task that tampered with the gate itself (by accident or otherwise) must not get to grade its own work. |
 
 **A real, non-obvious hardware bug shaped `workloads.py`.** On this RTL/
@@ -282,7 +282,7 @@ and tested. Acceptance status:
 | # | Check | Status |
 |---|---|---|
 | 1 | Local Ariane: `configure(1,1)` → `build` → `run(hello_world.c)` → pass | **real hardware, proven** |
-| 2 | 2×2 Ariane build on a real GCP worker | **not yet green** — the dispatch blocker is resolved (§9), but the build itself hit a worker OOM/crash before reaching a verdict |
+| 2 | 2×2 Ariane build on a real GCP worker | **not yet green** — the dispatch blocker is resolved (Section 9), but the build itself hit a worker OOM/crash before reaching a verdict |
 | 3 | Fan-out: parallel builds across two checkouts | **real hardware, proven** — 176s vs 324s serial |
 | 4 | `chia viz` renders the example's task graph | proven |
 | 5 | Tier-0 suite green on fixtures | proven, currently green |
@@ -370,7 +370,7 @@ extreme value was genuinely used, not silently softened. It still passed.
 The `failures` table is confirmed completely empty across all seven real
 runs, checked directly against the database. Our read: this is a genuine,
 interesting finding about this RTL's coherence-protocol robustness to
-cache-capacity extremes, not a failed test design — see §11 item 5 for
+cache-capacity extremes, not a failed test design — see Section 11 item 5 for
 where a fifth attempt would need to look (mesh/NoC parameters, not cache
 geometry, since that lever now looks exhausted).
 
@@ -386,11 +386,11 @@ failure, not a real hardware RTL one, so it does **not** close the "one
 honest gap" above -- but the specific "completely empty" claim itself is no
 longer accurate and should not be quoted as current.
 
-### The PicoRV32 extension (§7 in the paper)
+### The PicoRV32 extension (Section 5 in the paper)
 
 Motivated by a bigger ask — could MACE take arbitrary core RTL and a spec and
 integrate a new core into OpenPiton automatically? Investigated first, before
-writing code: no, not as a general capability, because (as §2 above explains)
+writing code: no, not as a general capability, because (as Section 2 above explains)
 there's no reusable core-to-NoC bridge at all — every core needs its own
 bespoke L15 adapter written by hand. The real dividing line turned out to be
 "does the core have a coherent cache of its own" (Ariane's situation — would
@@ -572,12 +572,12 @@ trace, not just the monitor's aggregate `PASS` message.
   build-pass/run-hang (above), no 4×4 datapoint (above).
 - **(b) one-shot LLM, no tools, no iteration** — done,
   `examples/baseline_one_shot_llm.py`. The "229.1s, passed" number once
-  recorded here predates the rtl_timeout fix (§7's own item, and the same
+  recorded here predates the rtl_timeout fix (Section 7's own item, and the same
   bug the codebase review's baseline-comparison finding named) and is
   stale -- see README.md's own baseline section for the current, real
   result and framing.
 - **(c) full MACE loop** — done. A fresh same-day run under the current
-  code (§7's earlier four end-to-end runs predate the orchestrator
+  code (Section 7's earlier four end-to-end runs predate the orchestrator
   wall-time fix, so aren't directly comparable to this one) took 741.7s
   and passed, 4/4 tasks, one iteration -- see README.md.
 
@@ -827,7 +827,7 @@ bash /path/to/MACE/scripts/patch_openpiton.sh ~/openpiton
 
 Build the checkout on **native Linux storage**, not a Windows-mounted path —
 `chia_openpiton/README.md` measured a 1×1 Ariane build at 37s on ext4 versus
-several minutes on `/mnt/c`, and (§7 above) a Windows-mounted checkout is
+several minutes on `/mnt/c`, and (Section 7 above) a Windows-mounted checkout is
 where the symlink and CRLF bugs came from in the first place. If you're on
 WSL, clone into your Linux home directory (`~/openpiton`), not
 `/mnt/c/...`.
@@ -916,7 +916,7 @@ assume a teardown succeeded, verify it.
 ## 10. Run this yourself: a real Ariane walkthrough
 
 The safest, fastest thing to actually run and see pass — no GCP needed, just
-the local setup from §9.1.
+the local setup from Section 9.1.
 
 **Step 1 — drive the adapter directly** (a few minutes, mostly the build):
 
@@ -939,13 +939,13 @@ node.close()
 What you should see: `art.success` is `True`, and `res.verdict` is the
 literal string `"pass"` — read from `sim.log`'s own
 `Simulation -> PASS (HIT GOOD TRAP)` line, not from a process exit code
-(§2 explains why that distinction matters). If `res.verdict` is anything
+(Section 2 explains why that distinction matters). If `res.verdict` is anything
 else, check `res.sim_log_tail` first — it's the actual simulator transcript,
 and will tell you far more than a stack trace would.
 
 **Step 2 — run the full agentic loop** (30-40 minutes; it makes real LLM
 calls and real hardware builds, and currently prints nothing until the whole
-run finishes — see §12 below for why that's exactly the kind of thing a
+run finishes — see Section 12 below for why that's exactly the kind of thing a
 real CLI should fix):
 
 ```bash
@@ -968,7 +968,7 @@ for row in con.execute("SELECT run_id, status FROM runs"):
     print(row)
 ```
 
-**Step 3 — try the cluster version once §9 is set up:** the same
+**Step 3 — try the cluster version once Section 9 is set up:** the same
 `mace_end_to_end.py` command works unchanged once `chia up cluster/local.yaml`
 is running — `ray.init()` inside the script picks up whatever cluster is
 already live. Pass `--piton-root-2` pointing at a second checkout to see real
@@ -997,7 +997,7 @@ noted rather than silently deleted, so you can see what actually happened.
    With dispatch fixed, the actual 2×2 build still hasn't reached a verdict — it hit a worker
    OOM/crash mid-build, the same memory-pressure class as the 4×4 finding below, now also seen on
    GCP. That's the real remaining work on this front, not the dispatch question.
-2. **A real 4×4 fix** — §7 above has the exact diagnosis; forcing a real
+2. **A real 4×4 fix** — Section 7 above has the exact diagnosis; forcing a real
    `-j1` into Verilator's own generated build-step `make` invocation (not
    just the environment) would likely get an actual 4×4 pass/fail verdict,
    strengthening baseline (a). Not yet attempted.
@@ -1007,13 +1007,13 @@ noted rather than silently deleted, so you can see what actually happened.
    tracking for pico, a real-silicon BIST self-clear race); pico now
    genuinely passes. **2×2 Ariane is still genuinely open** and is the
    deeper remaining work here. Start from the exact divergence point
-   described in §7: boot/reset/IOB completes identically to a passing run,
+   described in Section 7: boot/reset/IOB completes identically to a passing run,
    then the core never traps.
 4. ~~`examples/mace_end_to_end.py`'s `--core` choices don't include `"pico"`~~
    — **done**: `--core=pico` and a `--workload` flag are both now exposed
    (the gate workload used to be silently hardcoded to `barrier_atomic.c`
    regardless of `--objective` text).
-5. **A real hardware proof of the fail→triage→replan→pass cycle** (§7's
+5. **A real hardware proof of the fail→triage→replan→pass cycle** (Section 7's
    "one honest gap") — still open, now checked four separate ways across
    seven real runs, worth reading before trying a fifth. Attempts so far,
    weakest to strongest: (a) an unfamiliar workload (`producer_consumer.c`,
@@ -1028,7 +1028,7 @@ noted rather than silently deleted, so you can see what actually happened.
    real runs as of when this was written -- **stale as of 2026-09-20**: the
    db is a live, appended-to local file, now at 14 runs with 3 failure rows
    (all a `budget_exceeded` run's real toolchain/environment failures, not a
-   hardware RTL one -- see §7's own update note for the current numbers).
+   hardware RTL one -- see Section 7's own update note for the current numbers).
    Our read on the original seven: this isn't a broken test design, it's a
    genuine finding that this RTL's coherence protocol doesn't functionally
    depend on L1D capacity for these access patterns, at least down to one
@@ -1037,7 +1037,7 @@ noted rather than silently deleted, so you can see what actually happened.
    direct-mapped cache risks testing "is a malformed parameter rejected"
    rather than genuine coherence robustness — a fundamentally different,
    less interesting question. A more promising lever untried so far: a mesh
-   shape or NoC parameter, rather than cache geometry. See §10's walkthrough
+   shape or NoC parameter, rather than cache geometry. See Section 10's walkthrough
    for how to kick one off, and `scripts/ariane_1x1_tiny_l1d_scatter_gather.py`
    for the exact script that produced finding (c).
 6. ~~The mystery file, `examples/run_barrier_atomic.py`~~ — **done**:
@@ -1048,10 +1048,10 @@ noted rather than silently deleted, so you can see what actually happened.
 8. **`docs/api/openpiton.rst`** — only matters if actually filing a PR to
    upstream CHIA; the checklist for that is in
    [`chia_openpiton/README.md`](../chia_openpiton/README.md)'s last section.
-9. **The CLI's own gaps** — §12 has the details: ~~`mace cluster up/down/status`
+9. **The CLI's own gaps** — Section 12 has the details: ~~`mace cluster up/down/status`
    isn't wired in yet~~ and ~~no non-interactive script-file mode~~ — both
    **done**: a thin subprocess wrapper over `chia up`/`chia down`/`ray status`
-   (§9's manual sequence still works too, this is just the same commands
+   (Section 9's manual sequence still works too, this is just the same commands
    behind the one CLI), and `shell --script`/`-c` (Yosys's own `-c script.ys`
    convention). Still open: `run`/`init` only have tier-0 test coverage so
    far, not a real end-to-end pass through `MaceShell` itself.
@@ -1120,7 +1120,7 @@ L15 adapter for — `ariane`, `sparc`, `pico` (see `mace/cli/session.py`'s
 `detect_core`). If it matches, `run` drives the real MACE loop against that
 core. If it doesn't, `run` does **not** attempt a fake integration or spend
 30 minutes of real hardware time to eventually shrug — it immediately
-produces the same structured `PostMortem` §11 item 5 already builds
+produces the same structured `PostMortem` Section 11 item 5 already builds
 (`assessment=likely_hardware_limitation`), explaining precisely why (no
 generic core-to-NoC bridge exists; every core needs hand-written coherence-
 adapter RTL) and what adding real support would actually take (see
@@ -1133,7 +1133,7 @@ about the environment.
 is a perfect square, matching every mesh this project has ever actually
 built) and immediately reports what's actually known about that shape —
 `KNOWN_MESH_OUTCOMES` in `mace/cli/session.py` encodes the real, hard-won
-findings from §7: 1 tile is validated repeatedly, 4 tiles builds but the run
+findings from Section 7: 1 tile is validated repeatedly, 4 tiles builds but the run
 hangs (likely a genuine RTL gap in an untested mesh shape), 16 tiles is the
 one multi-tile shape upstream has validated but this project hasn't
 completed end to end. Anything else is accepted but flagged as genuinely
@@ -1244,4 +1244,4 @@ deliberately not built yet" above).
 - `CHIA_proposal.pdf` — the original hackathon proposal.
 - `cluster/local.yaml` — read its header comments directly before your first
   `chia up`; they carry the exact machine type/zone/quota decisions and why,
-  in more operational detail than §9 above repeats.
+  in more operational detail than Section 9 above repeats.

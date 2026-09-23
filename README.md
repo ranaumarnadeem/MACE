@@ -63,7 +63,7 @@ requirements, then:
 ```bash
 git clone https://github.com/PrincetonUniversity/openpiton.git
 git -C openpiton submodule update --init --recursive piton/design/chip/tile/ariane
-bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 8 real
+bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 13
                                                        # toolchain/checkout/RTL bugs
 ```
 
@@ -119,7 +119,7 @@ mace> write_report > result.rpt
 `top_module` is checked against the cores chia_openpiton actually has a
 working adapter for (`ariane`/`sparc`/`pico`) — if it doesn't match one,
 `run` doesn't fake an attempt, it immediately explains why, structurally
-(see `docs/TECHNICAL_GUIDE.md` §12). Below are four more ways to use MACE
+(see `docs/TECHNICAL_GUIDE.md` Section 12). Below are four more ways to use MACE
 directly, from lowest-level to highest-level, if you want more control than
 the shell gives you.
 
@@ -154,7 +154,7 @@ cost) at the end. Everything is also recorded to
 `runs/mace_end_to_end.db` (`--db-path` to change it).
 
 **3. Run the baselines** — the same objective, without the loop, for
-comparison (see `paper/mace_paper.pdf` §6 for what these numbers mean):
+comparison (see the Evaluation section of `paper/mace_paper.pdf` for what these numbers mean):
 
 ```bash
 bash scripts/local_baselines_b_and_c_test.sh /path/to/openpiton
@@ -178,12 +178,14 @@ measurement suggested. One trial isn't proof a one-shot prompt can never
 solve this objective — LLM output varies run to run — but it's a concrete
 instance of the failure mode the loop exists to catch.
 
-The same (b)/(c) pair was also run for real against `sparc` and `pico`,
-completing a full 3-core × 2-baseline matrix (not in the paper, already at
-its page limit — see `docs/TECHNICAL_GUIDE.md`'s "The full 3-core ×
-2-baseline matrix" for the numbers and the two distinct failure modes the
-loop's own triage/post-mortem told apart: a fixable sparc build/config issue
-vs. a pico workload/mesh mismatch, neither an RTL bug).
+The same (b)/(c) pair was also run against `sparc` and `pico`, completing
+the 3-core × 2-baseline matrix in the paper's Figure 2 (numbers and details
+in `docs/TECHNICAL_GUIDE.md`'s "The full 3-core × 2-baseline matrix"). The
+loop's triage told the two failures apart; direct follow-up then found the
+actual causes. `barrier_atomic.c` relies on RISC-V inline assembly that
+OpenSPARC T1 cannot run, and a monitor bug (now fixed) hid sparc's verdict
+entirely. Pico's OpenPiton integration has no C compiler, so the diag never
+compiles. That is not the workload/mesh mismatch the triage first reported.
 
 Manual mesh scaling (baseline (a)) has no dedicated
 script; `scripts/local_2x2_build_test.py` is the closest thing, a hand-run
@@ -233,7 +235,7 @@ stated just as precisely.
   scheduler bug as first suspected, but a launch-configuration gap on our own side (a manually
   launched driver needs three proxy env vars that `chia job submit` sets automatically) —
   confirmed by a CHIA maintainer and verified directly, taking a task from a 6-minute hang to a
-  2-second real execution. See `docs/TECHNICAL_GUIDE.md` §11 for the full account.
+  2-second real execution. See `docs/TECHNICAL_GUIDE.md` Section 11 for the full account.
 
 ## More detail
 
