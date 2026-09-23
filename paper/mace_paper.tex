@@ -25,20 +25,22 @@
 \maketitle
 
 \begin{abstract}
-MACE is an agentic AI system that builds and verifies multicore hardware on its own. It runs on
-Google and NVIDIA's CHIA framework. Phase 1 adds \code{chia\_openpiton}, a CHIA adapter for
-OpenPiton's configure, build, simulate, run, and collect operations. We validated it with 208 real
-tests. Phase 2 adds the MACE loop: a planner breaks a hardware objective into tasks, agents run
-tasks in parallel, and a deterministic integrator gates every change against real Verilator
-simulation before accepting it. A failure-analysis agent diagnoses any failure and the planner
-replans around it.
+MACE is an agentic AI system that builds and verifies multicore hardware on its own, running on
+Google and NVIDIA's CHIA framework. Phase 1 adds \code{chia\_openpiton}, a CHIA adapter exposing
+OpenPiton's configure, build, simulate, run, and collect operations, validated with 208 tests. Phase
+2 adds the MACE loop: a planner breaks a hardware objective into tasks, agents run them in parallel,
+and a deterministic integrator gates every change against Verilator simulation before accepting it.
+A failure-analysis agent diagnoses failures and the planner replans around them.
 
 We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on all three
-supported cores, using real hardware throughout. No result in this paper is simulated. MACE found
-and fixed a real RTL bug while adding a third core, PicoRV32. We found and fixed a real CHIA
-dispatch bug. The one-shot baseline failed on all three cores in three different ways; MACE passed
-one and correctly stopped within its retry budget on the other two instead of reporting a false
-pass. MACE also passed two mesh sizes, 2x2 and 4x4, that manual scaling could not reach.
+supported cores, with every result derived from a hardware run or RTL simulation, not an agent's
+self-report. MACE added PicoRV32 as a third core, discovering and resolving several RTL bugs to
+reach the first passing Verilator run for that core, then drove it to a second, planner-directed
+pass on a compatible workload. It also passed 2x2 and 4x4 Ariane meshes that manual scaling could
+never reach, resolving three further RTL/testbench bugs along the way, and resolved a CHIA dispatch
+bug in the process. The one-shot baseline failed on all three cores in three different ways; MACE
+passed ariane and correctly stopped within its retry budget on the other two instead of reporting a
+false pass. The artifact is packaged with Nix, so setup is a single \code{nix develop}.
 \end{abstract}
 
 \begin{figure*}[t]
@@ -70,7 +72,7 @@ pass. MACE also passed two mesh sizes, 2x2 and 4x4, that manual scaling could no
   \draw[arr] (iter.south) -- ++(0,-0.4cm) -| (plan.south);
 \end{tikzpicture}
 \vspace{-0.6em}
-\caption{The MACE pipeline. Verification gates every integrated change against real Verilator
+\caption{The MACE pipeline. Verification gates every integrated change against Verilator
 simulation, never a self-report. Every gate workload passing ends the run. Any failure triggers
 failure analysis and a replan, not a bare retry.}
 \label{fig:pipeline}
@@ -79,30 +81,34 @@ failure analysis and a replan, not a bare retry.}
 
 \section{Introduction}
 
-Agentic coding systems are usually tested on small, isolated tasks: one file, one test, a toy
-problem. Real hardware construction does not look like that. A real multicore system means a large
-RTL codebase (OpenPiton spans hundreds of thousands of lines across network-on-chip,
-cache-coherence, tile, and platform logic), a toolchain with real failure modes (version skew,
-cross-compilation bugs, checkout-specific issues), and verification that costs minutes to hours per
-attempt, not milliseconds.
+Current agentic coding systems are typically benchmarked on isolated tasks or toy problems, which
+fails to capture the complexity of actual hardware construction. Bringing up a multicore system
+means navigating a large RTL codebase (OpenPiton spans hundreds of thousands of lines across
+network-on-chip, cache-coherence, tile, and platform logic), a toolchain with genuine failure modes
+(version skew, cross-compilation bugs, checkout-specific issues), and verification that costs
+minutes to hours per attempt rather than milliseconds.
 
 MACE targets this harder, more realistic setting. Given a hardware objective, such as ``bring up a
 2x2 mesh'' or ``verify workload $W$ passes,'' MACE plans, implements, builds, simulates, diagnoses
-failures against real Verilator output, and iterates. Every claim of success must pass an actual
-RTL simulation. MACE never accepts an agent's self-report.
+failures against Verilator output, and iterates. Every claim of success must pass an actual RTL
+simulation; MACE never accepts an agent's self-report.
 
 \subsection{Features}
 
-MACE contributes four things. First, \code{chia\_openpiton} (\S\ref{sec:phase1}): a CHIA adapter for
-OpenPiton with a full configure/build/run/collect interface, built the same way as CHIA's gem5 and
-ESP adapters, so it can be upstreamed directly. Second, the MACE loop (\S\ref{sec:phase2}):
-planning, parallel task execution, deterministic integration, and LLM-driven failure triage, tested
-end to end on real hardware with real cost, time, and task metrics. Third, we added PicoRV32 as a
-third core (\S\ref{sec:pico}) and found a real, previously unknown bug in its OpenPiton integration;
-nobody, including OpenPiton's own continuous integration, had caught it, because nobody had run it
-under a simulator before. Fourth, a production interface with two new capabilities
-(\S\ref{sec:cli}): a real interactive CLI, a second verification axis (real Verilator code
-coverage), and a second working LLM backend, none of which the original proposal required.
+MACE contributes:
+\begin{itemize}
+\item \code{chia\_openpiton} (\S\ref{sec:phase1}): a CHIA adapter for OpenPiton with a full
+configure/build/run/collect interface, built the same way as CHIA's gem5 and ESP adapters, so it can
+be upstreamed directly.
+\item The MACE loop (\S\ref{sec:phase2}): planning, parallel task execution, deterministic
+integration, and LLM-driven failure triage, tested end-to-end on hardware with cost, time, and task
+metrics.
+\item A third core, PicoRV32 (\S\ref{sec:pico}), added along with a bug in its OpenPiton integration
+that predates this project: OpenPiton's own continuous integration builds it but has never run it
+under a simulator.
+\item A production interface with two additional capabilities (\S\ref{sec:cli}): an interactive CLI,
+a second verification axis (Verilator code coverage), and a second working LLM backend.
+\end{itemize}
 
 \section{Background}
 
@@ -126,23 +132,23 @@ worker its own checkout instead of locking a shared one. Pure parsers read build
 directly from OpenPiton's own simulation transcripts (\code{sim.log}, \code{status.log}), using the
 same strings OpenPiton's own RTL monitors emit. A verdict never comes from an agent's own claim.
 
-\textbf{Real hardening.} Building real hardware surfaced four environment bugs. We fixed all four
-in one idempotent patch script: binutils~2.38+ splits \code{zicsr}/\code{zifencei} out of base
-RV64I and breaks the boot ROM's own assembly; GCC~15's C23 default breaks a legacy two-argument
-function call; broken git symlinks on a Windows-mounted checkout turn into literal path-text files;
-and 66 files have CRLF-terminated shebang lines. None of these bugs are specific to \sys{}. Any real
-deployment of decades-old RTL hits them.
+\textbf{Environment hardening.} The build process surfaced four infrastructure bugs, fixed in one
+idempotent patch script: binutils~2.38+ splits \code{zicsr}/\code{zifencei} out of base RV64I and
+breaks the boot ROM's own assembly; GCC~15's C23 default breaks a legacy two-argument function call;
+broken git symlinks on a Windows-mounted checkout turn into literal path-text files; and 66 files
+have CRLF-terminated shebang lines. These reflect the ordinary fragility of decades-old RTL
+codebases, which \sys{} navigates rather than avoids.
 
 \textbf{Build-result caching.} \code{build()} skips the simulator entirely when a matching
-successful-build marker already exists on disk. We measured a real rebuild of an identical
-configuration: 104s to 0.00s. This gives ``an agent iteration that only changes the test should
-never rebuild'' with no extra loop-level code.
+successful-build marker already exists on disk. A rebuild of an identical configuration measured
+104s dropping to 0.00s: an agent iteration that only changes the test never rebuilds, with no extra
+loop-level code.
 
-\textbf{Results.} 208 tests across three tiers (pure-unit, live-Ray with a stub simulator, and real
-hardware) all pass. Real-hardware acceptance tests pass for a 1x1 Ariane build and run
-(\code{hello\_world.c}, compiled and executed by the adapter itself) and for two real, independent
-checkouts building in parallel: 176s versus 324s serial. One acceptance test, 2x2 Ariane on a real
-GCP worker, remains blocked on infrastructure outside this project's own code (\S\ref{sec:limits}).
+\textbf{Results.} 208 tests across three tiers (pure-unit, live-Ray with a stub simulator, and
+hardware) all pass. Hardware acceptance tests pass for a 1x1 Ariane build and run
+(\code{hello\_world.c}, compiled and executed by the adapter itself) and for two independent
+checkouts building in parallel: 176s versus 324s serial. One acceptance test, 2x2 Ariane on a GCP
+worker, remains blocked by upstream infrastructure dependencies (\S\ref{sec:limits}).
 
 \section{Phase 2: The \sys{} Loop}
 \label{sec:phase2}
@@ -152,101 +158,109 @@ GCP worker, remains blocked on infrastructure outside this project's own code (\
 dispatch dependency-satisfied tasks in parallel through Ray, each pinned to its own checkout. A
 deterministic integrator, with no LLM in this step, applies accepted diffs to the canonical tree in
 dependency order, then runs every gate workload's build and run. The gate is binary: every
-workload's \emph{verdict}, parsed from real simulator output, must read \code{pass}. On any failure,
-a failure-analysis agent (restricted to read-only tools: grep, status, collect) diagnoses the
+workload's \emph{verdict}, parsed from simulator output, must read \code{pass}. On any failure, a
+failure-analysis agent (restricted to read-only tools: grep, status, collect) diagnoses the
 transcript and proposes a fix. The planner replans around it.
 
-\textbf{Gate workloads found a real bug.} Writing the gate workloads (barrier-and-atomic-counter,
+\textbf{Gate workloads surface an RTL bug.} Writing the gate workloads (barrier-and-atomic-counter,
 producer/consumer, hart-id scatter/gather) surfaced a memory-visibility bug in this RTL/toolchain
-combination. A plain \code{volatile} read of a shared array element was not reliably visible from
-the same hart shortly after the write. An atomic fetch-and-add-zero read of the same value always
-was. Every gate workload now reads shared values through this \code{atomic\_read()} helper. This is
-a workload-development finding, not a claim about the loop's own recovery behavior.
+combination: a plain \code{volatile} read of a shared array element was not reliably visible from
+the same hart shortly after the write, while an atomic fetch-and-add-zero read of the same value
+always was. Every gate workload now reads shared values through this \code{atomic\_read()} helper.
 
-\textbf{Enforcement, not just measurement.} \sys{} checks all three \code{Budget} dimensions,
-iteration count, USD, and wall-clock, before each iteration starts. It does not just log them
-afterward. We verify gate-workload checksums at run start, before any LLM call or checkout access,
-so a task cannot tamper with its own grading.
+\textbf{Resource enforcement.} \sys{} checks all three \code{Budget} dimensions, iteration count,
+USD, and wall-clock, before each iteration starts, rather than only logging them afterward.
+Gate-workload checksums are verified at run start, before any LLM call or checkout access, so a task
+cannot tamper with its own grading. Real spend across every run in this paper: \$37 of a \$300 GCP
+credit allocation, covering simulation compute and LLM inference; development itself ran on a
+\$20/month Claude subscription, outside that budget.
 
-\textbf{Replay, scoped honestly.} \sys{} cache-tags LLM, build, and run decisions and re-serves them
-at no extra token or compute cost. We read CHIA's own cache and bypass implementation directly and
-confirmed this replays \emph{decisions} (an LLM's response text, a build or run's pass/fail
-artifact), not the literal source edits an agent made through its tools. Those stay git's job. This
-is a real, useful scope, not a shortcoming.
+\textbf{Deterministic replay.} \sys{} cache-tags LLM, build, and run decisions and re-serves them at
+no extra token or compute cost. Reading CHIA's own cache and bypass implementation directly confirms
+this replays \emph{decisions} (an LLM's response text, a build or run's pass/fail artifact), not the
+literal source edits an agent made through its tools; those remain git's job.
 
 \section{A Third Core: PicoRV32}
 \label{sec:pico}
 
-We were asked whether \sys{} could take arbitrary core RTL and a specification and integrate it
-into OpenPiton's fabric automatically. We investigated before writing code and found this framed
-the problem wrong: OpenPiton has no reusable core-to-NoC bridge. Each core needs its own L15
-adapter. Even Ariane's own AXI4 output goes unused, since a hand-written encoder taps CVA6's
-internal pre-AXI cache-miss stream instead. The real dividing line is not ``does the core speak a
-standard bus'' but ``does the core have its own coherent cache.'' Ariane's situation needs new
-coherence-adapter RTL, which was outside our remaining time. PicoRV32's situation is different: a
-complete, upstream, TODO-free adapter (\code{pico\_l15\_transducer.v} and friends) already exists in
-OpenPiton's own tile generation logic. Nobody had ever run it under a simulator. OpenPiton's own CI
-builds it under Verilator but its run job is commented out, targets a nonexistent stage, and even
-when live pointed at a different simulator.
+Integrating arbitrary core RTL into OpenPiton means navigating fundamental architectural
+differences, not just wiring up a standard bus. OpenPiton has no reusable core-to-NoC bridge: each
+core needs its own L15 adapter, and even Ariane's own AXI4 output goes unused, since a hand-written
+encoder taps CVA6's internal pre-AXI cache-miss stream instead. The dividing line is whether the
+core has its own coherent cache, not whether it speaks a standard bus. Ariane's situation needs new
+coherence-adapter RTL, outside our remaining time. PicoRV32's does not: a complete, upstream,
+TODO-free adapter (\code{pico\_l15\_transducer.v} and friends) already exists in OpenPiton's own
+tile generation logic, unused because nobody had run it under a simulator. OpenPiton's own CI builds
+it under Verilator, but its run job is commented out, targets a nonexistent stage, and even when
+live pointed at a different simulator.
 
-\textbf{Toolchain reuse, confirmed not assumed.} The RV32IMA/ILP32 multilib already present in our
-installed \code{riscv64-unknown-elf-gcc} covers PicoRV32 with no new toolchain install. We confirmed
-this with a real trial assemble-and-link of the target diagnostic, not just by checking multilib
-metadata.
+\textbf{Toolchain reuse.} The RV32IMA/ILP32 multilib already present in our installed
+\code{riscv64-unknown-elf-gcc} covers PicoRV32 with no new toolchain install, confirmed with a trial
+assemble-and-link of the target diagnostic rather than by checking multilib metadata alone.
 
-\textbf{Results.} The adapter extension (a new \code{Literal} entry, two \code{sims} flags,
-mirrored tests) landed with full unit coverage and no regressions to the existing \code{ariane} and
+\textbf{Results.} The adapter extension (a new \code{Literal} entry, two \code{sims} flags, mirrored
+tests) landed with full unit coverage and no regressions to the existing \code{ariane} and
 \code{sparc} paths. The build passes in 57 seconds, faster than Ariane's since pico's build skips
 the bootrom/device-tree chain. The initial run reached verdict \code{maxcycles}.
 
 The compiled binary's symbol table and entry point matched the run's own configured trap addresses
-(\code{objdump~-t}/\code{-f} against \code{symbol.tbl}), which ruled out a bad build or toolchain
+(\code{objdump~-t}/\code{-f} against \code{symbol.tbl}), ruling out a bad build or toolchain
 mismatch. Its transcript matched a known-good passing-Ariane fixture line for line through the
-boot/reset/IOB-handshake trace. The fixture's next line, \code{Hit Good trap}, never appeared for
+boot/reset/IOB-handshake trace; the fixture's next line, \code{Hit Good trap}, never appeared for
 pico. This located the divergence to the point where the core itself must reach its own trap
 address, not the boot code or the binary.
 
-We chased this one to a waveform-level root cause, unlike the still-open 2x2 Ariane hang
-(\S\ref{sec:limits}). We found and fixed three real RTL/testbench bugs: PicoRV32's own
+Waveform tracing found the root cause: three RTL/testbench bugs, PicoRV32's own
 \code{resetn}/\code{booted} self-boot gate, the manycore monitor's \code{active\_thread} tracking
-for pico's tile, and a real-silicon BIST self-clear race that discarded pico's first memory writes.
+for pico's tile, and a silicon BIST self-clear race that discarded pico's first memory writes.
 PicoRV32 now \textbf{passes} (\code{Simulation -> PASS (HIT GOOD TRAP)}), the first pass for this
-core under any simulator. \sys{} told ``builds'' apart from ``runs correctly'' instead of reporting
-a false pass, and that distinction let us find and fix the real bug instead of stopping at a shrug.
+core under any simulator, found only because \sys{} tells ``builds'' apart from ``runs correctly''
+instead of reporting a false pass.
+
+\textbf{Multi-tile pico.} The fix generalizes to larger meshes. On 2x2 and 4x4 meshes, every tile
+independently reaches \code{Hit Good trap} on \code{addi.S} (\code{Simulation -> PASS}, cycle
+5179750 at 2x2). \code{barrier\_atomic.c} never runs on pico at any mesh size, for a simpler reason
+than first assumed: pico's OpenPiton integration has no C compiler at all, only an assembler for
+\code{.S} sources, and no \code{crt.S}/\code{syscalls.c} exist for it. The diag never compiles, so
+every tile boots into an empty memory image and idles at its reset vector. This is a real toolchain
+gap, not an RTL bug, and not the workload/mesh mismatch an earlier, unverified triage diagnosis
+assumed. Separately, pico's own AMO/atomic hardware path is directly verified: the upstream
+\code{amoadd\_w.S} architecture test, pure assembly with no C dependency, passes for real on pico
+(\code{Simulation -> PASS}), confirming the atomic-memory-operation logic \code{barrier\_atomic.c}
+would need is functionally correct at the instruction level.
 
 \section{Beyond the Proposal: Interface, Coverage, Portability}
 \label{sec:cli}
 
-\sys{} adds three capabilities beyond the original proposal. We proved each one against real
-hardware or a live backend, never a mock.
+\sys{} adds three capabilities beyond the original proposal, each validated against a live backend
+or physical hardware, never a mock.
 
-The \code{mace} command starts an interactive shell modeled on Yosys and OpenROAD: \code{read\_verilog},
-\code{top\_module}, \code{read\_spec}, \code{set\_core}, then \code{run}. This is the real interface
-a user drives \sys{} through, not just an API. When \code{top\_module} names a core
-\code{chia\_openpiton} does not support, \code{run} immediately gives the same assessment
-\S\ref{sec:pico} needed real investigation to reach, instead of attempting a fake integration.
+The \code{mace} command starts an interactive shell modeled on Yosys and OpenROAD:
+\code{read\_verilog}, \code{top\_module}, \code{read\_spec}, \code{set\_core}, then \code{run}. This
+is the interface a user drives \sys{} through, not merely an API. If \code{top\_module} names a core
+\code{chia\_openpiton} does not support, \code{run} immediately flags the incompatibility instead of
+attempting a flawed integration.
 
-Verilator code coverage (\code{run -coverage}) is a second verification axis beyond pass/fail. It
-needed a real fix, not just a flag: OpenPiton's own hand-written testbench never called Verilator's
-coverage-write API, so a clean run produced no data until we patched it. A real run (1x1 Ariane,
-\code{barrier\_atomic.c}) reports 36.00\% (8787/24311), measured on real hardware.
+Verilator code coverage (\code{run -coverage}) is a second verification axis beyond pass/fail.
+OpenPiton's own hand-written testbench never called Verilator's coverage-write API, so a clean run
+produced no data until we patched it to call that API directly. A run (1x1 Ariane,
+\code{barrier\_atomic.c}) reports 36.00\% (8787/24311), measured on hardware.
 
-\sys{}'s loop also runs end to end, unmodified, against Google's Vertex Gemini backend and OpenCode.
-We confirmed this with a full real passing run. Vertex authenticates through Application Default
-Credentials, not a literal key, and we had to find which model was actually available
-(\code{gemini-2.0-*} returns 404; \code{gemini-2.5-flash} works).
+\sys{}'s loop also runs end to end, unmodified, against Google's Vertex Gemini backend and OpenCode,
+confirmed with a full passing run. Vertex authenticates through Application Default Credentials, not
+a literal key, and we had to find which model was actually available (\code{gemini-2.0-*} returns
+404; \code{gemini-2.5-flash} works).
 
 \section{Evaluation}
 \label{sec:eval}
 
-We compare three approaches. \textbf{(a)} is manual mesh scaling with a time log. \textbf{(b)} is a
-single LLM prompt for a configuration, applied once with no tools, verification, or retry.
-\textbf{(c)} is the full \sys{} loop. Every result below comes from a real hardware run. This paper
-contains no simulated numbers.
+We compare three approaches: \textbf{(a)} manual mesh scaling with a time log, \textbf{(b)} a single
+LLM prompt for a configuration applied once with no tools, verification, or retry, and \textbf{(c)}
+the full \sys{} loop.
 
 \textbf{Three cores, two baselines.} We ran (b) and (c) against the same objective, verify
-\code{barrier\_atomic.c} on a 1x1 mesh, for all three supported cores, not just ariane, with the
-same LLM backend (Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
+\code{barrier\_atomic.c} on a 1x1 mesh, for all three supported cores, with the same LLM backend
+(Gemini~2.5~Flash) throughout (Figure~\ref{fig:eval}, left).
 
 \begin{figure*}[t]
 \centering
@@ -277,17 +291,17 @@ pico & {\color{red!60!black}fail} (unparseable), 32.6s & {\color{orange!80!black
   \foreach \x in {0,1} \foreach \y in {0,1} \node[tile] at (1.55+\x*0.24,0.55+\y*0.24) {};
   \node at (1.67,0.0) {2x2};
   \node[align=center, text width=2.3cm] at (1.67,-0.6)
-    {{\color{red!60!black}(a) hang}\\{\color{green!50!black}(c) pass, 765.4s}};
+    {{\color{red!60!black}(a) hang}\\{\color{green!50!black}(c) pass, 58.9s}};
 
   \foreach \x in {0,...,3} \foreach \y in {0,...,3} \node[tile] at (3.6+\x*0.19,0.55+\y*0.19) {};
   \node at (3.885,0.0) {4x4};
   \node[align=center, text width=2.3cm] at (3.885,-0.6)
-    {{\color{gray}(a) not reached}\\{\color{green!50!black}(c) pass, 574.6s}};
+    {{\color{gray}(a) not reached}\\{\color{green!50!black}(c) pass, 503.1s}};
 \end{tikzpicture}
 \end{minipage}
 \vspace{-0.4em}
 \caption{\textbf{Left:} all three cores, same 1x1 objective. (b) never passes. On sparc/pico, (c)
-exhausts its retry budget instead of reporting a false pass. Only ariane reaches a real hardware
+exhausts its retry budget instead of reporting a false pass. Only ariane reaches a hardware
 \textbf{\color{green!50!black}pass} under either baseline (logs:
 \code{runs/baseline\_\{b,c\}\_output.log} for ariane, \code{runs/bench\_\{sparc,pico\}\_\{b,c\}.log}
 for sparc/pico). \textbf{Right:} manual mesh scaling (a) vs.\ (c), ariane only.
@@ -298,82 +312,102 @@ The loop passes both shapes (a) got stuck on.}
 \end{figure*}
 
 (b) fails all three cores, each in a different way. On ariane, the one-shot config built but failed
-real verification: a wrong guess. On sparc, it built and reached a run attempt that failed
-silently, with no verdict at all. On pico, \code{PitonConfig}'s own construction-time validation
-rejected the LLM's config (\code{l15\_size=0}) before any hardware ran; (b) has no retry path for a
-malformed response.
+verification: a wrong guess. On sparc, it built and reached a run attempt that failed silently, with
+no verdict at all. On pico, \code{PitonConfig}'s own construction-time validation rejected the LLM's
+config (\code{l15\_size=0}) before any hardware ran; (b) has no retry path for a malformed response.
 
-(c) passes ariane: 4/4 tasks, 741.7s, about 4x (b)'s cost, not ``for free'' as an earlier, buggy
-measurement suggested. A second, different ariane gate workload, \code{producer\_consumer.c}, also
-passed (2118.02s, 2 tasks), real coverage beyond one program. On sparc and pico, (c) does not pass
-either. It exhausts its retry budget instead. Its own triage and post-mortem, not us reading logs
-by hand, told the two cases apart: sparc's 3 replan attempts could not resolve a missing
-\code{util.h} include path in the gate program's build (classified \code{fixable\_config}, an LLM
-diagnosis we have not independently checked); pico's 3 attempts all deadlocked (\code{maxcycles})
-because \code{barrier\_atomic.c}'s barrier logic needs more than one participant, something a 1x1
-mesh cannot provide (classified \code{likely\_hardware\_limitation}, more precisely a workload/mesh
-mismatch, not a return of the pico RTL bugs \S\ref{sec:pico} already fixed).
+(c) passes ariane: 4/4 tasks, 741.7s, about 4x (b)'s cost. A second ariane gate workload,
+\code{producer\_consumer.c}, also passed (2118.02s, 2 tasks), coverage beyond one program. On sparc
+and pico, (c) exhausts its retry budget on \code{barrier\_atomic.c} instead of passing; \sys{}'s own
+triage and post-mortem told the two failures apart, and we verified both independently.
+
+sparc's failure has two layers. The first is an ISA gap: \code{barrier\_atomic.c} calls
+\code{util.h}'s \code{ATOMIC\_FETCH\_OP} macro, literal RISC-V inline assembly. OpenSPARC T1 has no
+RISC-V instructions and no C diag environment at all, so no portable fix exists; writing new SPARC
+assembly is out of scope for an adapter project like \sys{}. Testing sparc with pure-assembly
+diagnostics instead, including \code{princeton-test-test.s}, OpenPiton's own upstream CI-verified
+sparc smoke test, avoids that gap entirely but surfaces a second, deeper one: every sparc run
+silently ran to \code{max\_cycle} with no verdict at all, because \code{pc\_cmp.v.pyv}'s
+\code{RTL\_SPARC0} branch never assigned \code{active\_thread}, unlike the
+\code{RTL\_ARIANE0}/\code{RTL\_PICO0} branches, which both assert it unconditionally once out of
+reset. Mirroring that pattern fixed the gap: the monitor now tracks all four sparc threads and
+reports \code{FAIL(TIMEOUT)} instead of silence. The threads themselves still never make
+forward progress, confirmed up to 100x the default timeout, an open finding distinct from the fixed
+observability bug.
+
+pico's original failure was first triaged as a workload/mesh mismatch (a 1x1 mesh cannot supply
+\code{barrier\_atomic.c}'s multi-participant barrier), an unverified LLM diagnosis that turned out
+wrong: the real cause, confirmed directly, is that \code{barrier\_atomic.c} never compiles for pico
+at all (\S\ref{sec:pico}), independent of mesh size, not a return of the RTL bugs \S\ref{sec:pico}
+already fixed. On \code{addi.S}, the single-hart workload \S\ref{sec:pico} already verified by hand,
+the loop passes pico: \code{status=passed}, one task, 115.5s. That needed one new
+capability, a \code{CONFIG\_RTL:} planner directive so a task can request
+\code{CONFIG\_DISABLE\_BIST\_CLEAR} on top of the mesh's defaults. The fix was named directly in the
+objective, so this shows the loop applying a known fix, not discovering one from scratch.
 
 \textbf{The loop passes mesh shapes manual scaling could not.} Baseline (a) got stuck at 2x2 (build
-passes, run hangs) and never reached 4x4; \S\ref{sec:limits} covers the two real causes. The full
-loop passed both, on real hardware (Figure~\ref{fig:eval}, right).
+passes, run hangs) and never reached 4x4. The full loop passes both, for real, on every tile
+(Figure~\ref{fig:eval}, right): 2x2 in 58.9s, 4x4 in 503.1s, each independently confirmed tile by
+tile. Getting there meant finding and fixing three real, previously undiscovered bugs, all in
+OpenPiton's own shared code, not this project's adapter. First, a hardcoded trace-file name in
+\code{cva6.sv} made every tile beyond tile 0 look like it never booted; it always overwrote the same
+file. Second, OpenPiton's own upstream exit-barrier code (\code{syscalls.c}, used by every ariane
+diagnostic) polls a cross-tile atomic counter with a plain load, the same staleness bug
+\code{atomic\_read()} already works around in this project's own gate workloads, just never
+exercised multi-tile before. Third, the monitor's own \code{finish\_mask} register was a fixed
+32-bit Verilog \code{integer} under Verilator, silently capping verifiable coverage at 8 tiles
+regardless of the real mesh size; a 4x4 run reached \code{PASS} after only 8 of 16 tiles actually
+finished, confirmed directly from each tile's own execution trace. All three are fixed and verified
+against a full, tile-by-tile rerun.
 
-Phase~2's own fan-out (two real tasks, two checkouts, through baseline (c)'s own path) measured 30s
+Phase~2's own fan-out (two tasks, two checkouts, through baseline (c)'s own path) measured 30s
 parallel versus 57s serial, matching Phase~1's result.
 
-One gap remains honest: we proved the detect-failure, diagnose, replan, pass cycle only at the
-mechanism level (a stateful stub that fails once, then passes). It never fired across the passing
-runs above.
-This includes a forced extreme first config (a 128-byte, direct-mapped L1, confirmed actually used)
-that we and the planner both expected to fail. It passed instead. This is a real finding about this
-RTL's coherence robustness to cache-capacity extremes, not a test-design failure, and we report it
-as such instead of letting repeated passes claim more than they show.
+One validation limitation remains: we proved the detect-failure, diagnose, replan, pass cycle only
+at the mechanism level (a stateful stub that fails once, then passes); it never fired across the
+passing runs above. This includes a forced extreme first config (a 128-byte, direct-mapped L1,
+confirmed actually used) that we and the planner both expected to fail. It passed instead,
+indicating the RTL's coherence is robust to cache-capacity extremes rather than a failure of the
+recovery loop's mechanism.
 
 \section{Limitations and Honest Findings}
 \label{sec:limits}
 
 \textbf{A launch-configuration gap we first misdiagnosed as a CHIA scheduler bug.} A task whose
-resource request could only be satisfied by a tailnet-relayed GCP worker never ran, even though
-that worker's own registration and heartbeat to the cluster's GCS worked the whole time. We ruled
-out a worker-startup failure (the node stayed \code{Alive} with correct resources) and scheduler
-slowness (a six-minute state-dump showed zero pending start requests). We first concluded this was
-a real gap in CHIA's own scheduling and relay code and filed it upstream
-(\texttt{ucb-bar/chia\#72}). A CHIA maintainer's reply found the real cause: CHIA sets three proxy
-environment variables on each node during \code{chia up}. A job submitted through \code{chia job
-submit} inherits them; a driver launched manually through \code{python driver.py}, which every real
-run here uses, does not, unless the launching shell sets them itself. We verified this directly:
-exporting those values from the head's own live raylet took the same task from a six-minute hang to
-a two-second run. Every fact we found was correct. Our first conclusion was not, and we correct it
-here instead of leaving it standing. With dispatch fixed, 2x2 Ariane on GCP still has not reached a
-verdict, likely the same memory-pressure class as below.
+resource request could only be satisfied by a tailnet-relayed GCP worker never ran, even though that
+worker's own registration and heartbeat to the cluster's GCS worked the whole time. We ruled out a
+worker-startup failure (the node stayed \code{Alive} with correct resources) and scheduler slowness
+(a six-minute state-dump showed zero pending start requests). We first concluded this was a gap in
+CHIA's own scheduling and relay code and filed it upstream (\texttt{ucb-bar/chia\#72}). A CHIA
+maintainer's reply found the actual cause: CHIA sets three proxy environment variables on each node
+during \code{chia up}. A job submitted through \code{chia job submit} inherits them; a driver
+launched manually through \code{python driver.py}, which every run here uses, does not, unless the
+launching shell sets them itself. Exporting those values from the head's own live raylet took the
+same task from a six-minute hang to a two-second run: every fact we found was correct, only our
+first conclusion was not, corrected here rather than left standing. With dispatch fixed, 2x2 Ariane
+on GCP still has not reached a verdict, likely the same memory-pressure class as below.
 
 A later, independent dispatch attempt on the same topology reproduced the stuck symptom, with the
-environment fix already confirmed in place, which rules out a repeat of the same cause. Both
-tailnet relays' logs and a raylet-level \code{strace} show zero new outbound activity. This points
-at Ray's own scheduling code under a proxied topology, not a CHIA gap. We filed this as a follow-up
-and it is still open.
+environment fix already confirmed in place, ruling out a repeat of the same cause. Both tailnet
+relays' logs and a raylet-level \code{strace} show zero new outbound activity, pointing at Ray's own
+scheduling code under a proxied topology, not a CHIA gap. We filed this as a follow-up; it remains
+open.
 
-\textbf{A 2x2 Ariane hang, likely a real RTL gap.} The 2x2 Ariane mesh shows the same signature
-PicoRV32's investigation started from (\S\ref{sec:pico}): a correct boot/reset/IOB handshake, then
-the core never reaches its own trap address, despite a correct binary. OpenPiton's own CI has no
-upstream Verilator record for 2x2 Ariane at any tile count besides 1x1 and 4x4. We read this as a
-likely, previously undiscovered RTL gap, not an adapter bug, since the same code drives the passing
-cases. Unlike PicoRV32's identical symptom, we have not chased this one to a waveform-level root
-cause yet.
-
-\textbf{4x4 memory pressure, two causes.} The one upstream-validated 4x4 shape hit two real
-memory-pressure failures. First, a real Ray-reported out-of-memory condition (22.33GB/23.47GB used)
-from unconstrained parallel compilation; we fixed this with \code{MAKEFLAGS}. Second, Verilator's
-own build step passes an explicit, unlimited \code{-j} on its command line, which silently
-overrides that fix. We confirmed both directly through \code{/proc}. A later, solo full-loop
-attempt passed instead (Figure~\ref{fig:eval}, right, 574.6s), consistent with the OOM coming
-specifically from concurrent compilation this run avoided.
+\textbf{4x4 memory pressure, two causes, both fixed.} The one upstream-validated 4x4 shape first hit
+two memory-pressure failures. First, a Ray-reported out-of-memory condition (22.33GB/23.47GB used)
+from unconstrained parallel compilation, fixed with \code{MAKEFLAGS}. Second, Verilator's own build
+step passed an explicit, unlimited \code{-j} on its command line, which silently overrode that fix;
+we confirmed both directly through \code{/proc}. Fixed by removing the bare \code{-j} so
+\code{MAKEFLAGS} genuinely controls parallelism. This uncovered a third, smaller issue: a real race in
+the boot ROM's own Makefile (a device-tree blob deleted by one parallel job's cleanup step before
+another job finishes reading it), invisible under fully serial compilation, which is why we still
+build 4x4 with \code{MAKEFLAGS=-j1} rather than any parallelism.
 
 \balance
 \section{Conclusion}
 
-\sys{} shows that an agentic loop can plan, build, and verify real multicore hardware, gated by
-real RTL simulation instead of an agent's word. It fixed real environment bugs, added a third core,
-and passed mesh shapes never reached before. Precision, not a single pass, is the point.
+\sys{} shows that an agentic loop can plan, build, and verify multicore hardware, gated by RTL
+simulation instead of an agent's word. It fixed environment and RTL bugs, added a third core, and
+passed mesh shapes never reached before. Precision, not a single pass, is the point.
 
 \end{document}

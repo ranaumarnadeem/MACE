@@ -428,37 +428,62 @@ own `--core` argparse choices are still hardcoded to `("ariane", "sparc")` —
 the adapter supports `pico` now, but the example script's CLI was never
 updated to expose it. Small, real, easy fix if you want it.
 
-### Two RTL-level findings, precisely characterized, deliberately not chased further
+### Two RTL-level findings, precisely characterized — both now root-caused and fixed
 
-Both the 2×2 Ariane mesh and the 1×1 PicoRV32 run show the **identical
-signature**: the generic OpenPiton boot/reset/IOB-handshake sequence
-completes exactly as it does in a known-good passing run (compared directly,
-line for line, against `chia_openpiton/test/fixtures/run_pass_sim.log`) — and
-then the core simply never reaches its own trap address. No crash, no error,
-just silence until the cycle budget runs out.
+Both the 2×2 Ariane mesh and the 1×1 PicoRV32 run originally showed the
+**identical signature**: the generic OpenPiton boot/reset/IOB-handshake
+sequence completes exactly as it does in a known-good passing run (compared
+directly, line for line, against `chia_openpiton/test/fixtures/run_pass_sim.log`)
+— and then the core simply never reaches its own trap address. No crash, no
+error, just silence until the cycle budget runs out. Pico's own three real
+RTL/testbench bugs are covered above. This section covers 2×2 Ariane, since
+resolved to a real, verified pass.
 
-This was **not** accepted at face value as "another environment bug." Real
-verification was done first: the compiled binary's symbol table and entry
-point were checked directly (`objdump -t`/`-f`) against the run's own
-configured trap addresses and `symbol.tbl` — both match exactly in both
-cases. That rules out a bad build or a toolchain mismatch. What's left is
-that the core itself, after a verifiably correct boot, never gets to its own
-code.
+**Update: chased to a full, verified root cause — two separate, real bugs,
+both fixed, both committed locally in the checkout.**
 
-Why this reads as a genuine RTL gap rather than an adapter bug: OpenPiton's
-own diagnostic lists show **2×2 has no upstream Verilator precedent at any
-tile count other than 1×1 and 4×4** — nobody has ever validated that
-particular mesh shape. And **nobody has ever run PicoRV32 under any simulator
-before**, so a first-ever attempt surfacing a first-ever bug in an
-unvalidated configuration is exactly what you'd expect, not a surprise.
+1. The "only `trace_hart_00.dasm` exists" evidence that originally looked
+   like "tiles 1-3 never boot" is a *different, unrelated* bug: `cva6.sv`'s
+   Verilator mock-tracer `initial` block hardcodes the filename
+   `trace_hart_00.dasm` regardless of `hart_id_i`, unlike the neighboring
+   dromajo DPI calls in the same block (which correctly pass `hart_id_i`) and
+   unlike `instr_tracer.sv`'s own `create_file()` (which does
+   `$sformat(fn, "trace_hart_%0.0f.log", hart_id)`). Every tile's core opens
+   the same file at time 0 with truncating semantics, so only whichever
+   tile's `initial` block runs last ends up owning it — on *any* multi-tile
+   Ariane build, independent of tile count. Fixed by parameterizing the
+   filename the same way `instr_tracer.sv` does (commit
+   `ariane: parameterize per-tile trace_hart_NN.dasm filename by hart_id_i`,
+   in the `ariane` submodule). With this fix, all N tiles produce their own
+   trace file, giving real per-tile evidence instead of a coincidental
+   artifact.
+2. The actual blocker: `piton/verif/diag/assembly/include/riscv/ariane/syscalls.c`
+   (OpenPiton's own shared, upstream exit-barrier code, used by *every*
+   ariane diagnostic, not just this project's gate workloads) polls
+   `finish_sync0`/`finish_sync1` — both `volatile static uint32_t`, each
+   bumped by another tile's `ATOMIC_OP` — with a **plain load**
+   (`while (finish_sync0 != nc);`), not an atomic read. This is the exact
+   same class of bug `mace/workloads/barrier_atomic.c` already documents and
+   works around with its own `atomic_read()` helper (a plain volatile load
+   right after another hart's atomic write does not reliably observe it on
+   this RTL/toolchain combination) — just sitting in shared, upstream code
+   nobody had exercised multi-tile before, since 1x1 (`nc=1`) always
+   satisfies this barrier with a hart's own write, trivially, and no real
+   ariane diagnostic had ever been run multi-tile until this project tried
+   2×2. Fixed by mirroring the `atomic_read()` pattern into both polling
+   loops in `syscalls.c` (same commit family, `ariane` submodule). Verified
+   directly: a real, clean 2×2 Ariane `barrier_atomic.c` pass, all four
+   tiles independently confirmed reaching `Hit Good trap`, in 58.9s (versus
+   1401-1515s for every failing attempt before the fix).
 
-Neither was chased to a waveform-level root cause — that's a materially
-deeper investigation (would mean tracing the reset/execution sequence signal
-by signal) than anything else fixed in this project, which has otherwise all
-been real-but-shallower environment and toolchain friction. If you want to
-pick this up: start by comparing a waveform dump (`+trace` / FST output, if
-enabled in the build) of the failing run against what you'd expect from the
-reset sequence description in OpenPiton's own tile RTL, hart by hart.
+Why the earlier "likely RTL gap, not chased further" framing was reasonable
+at the time: OpenPiton's own diagnostic lists show 2×2 has no upstream
+Verilator precedent at any tile count other than 1×1 and 4×4 — nobody had
+ever validated that shape, so a first-ever attempt surfacing a first-ever bug
+was expected, not a surprise. What changed is doing the actual waveform-free,
+trace-file-and-source-reading investigation (the same discipline already
+used for pico's own three bugs) rather than stopping at the "not chased
+further" line.
 
 ### 4×4 Ariane: never reached a verdict, two real causes now understood
 
@@ -480,13 +505,66 @@ reasons — not vague "the environment was flaky":
    `MAKEFLAGS`, silently. So fix #1 is real and correct, but doesn't reach
    this specific invocation.
 
-If you want a real 4×4 datapoint for the paper's baseline (a): the fix is to
-find where `sims` invokes Verilator's build (search for where it shells out
-to `verilator --build` or the generated `make` call) and force a real,
-non-overridable `-j1` there — a Makefile-level `MAKEFLAGS := -j1`
-override, or dropping `--build`'s own implicit parallelism, would both work.
-This is scoped, understood, and genuinely achievable — it just hadn't been
-done yet as of this writing, because baseline/paper work took priority.
+**Update: cause 2 fixed, applied to the checkout, confirmed reproducible.**
+`sims,2.0`'s own `vlt_build` step invoked a bare `make -j` (unlimited
+parallelism) to compile Verilator's generated C++, and a command-line `-j`
+always overrides an inherited `MAKEFLAGS`, no matter what it's set to — this
+is why cause 1's own `MAKEFLAGS=-j1` fix never actually reached this
+specific invocation. Fixed in `scripts/patch_openpiton.sh` (fix 9): the bare
+`-j` is dropped from that one `make` invocation, so `MAKEFLAGS` from the
+environment now genuinely controls it. Confirmed real: after this fix, a
+4x4 build with `MAKEFLAGS=-j2` hit a *different*, previously-hidden race in
+the bootrom's own Makefile (`startup.S` needs `rv64_platform.dtb`, which an
+earlier parallel job's own cleanup step deletes before `startup.o` consumes
+it — invisible under fully serial `-j1`, since there's no race to hit). The
+practical, still-recommended setting remains `MAKEFLAGS=-j1` for a 4x4
+build; a real fix for the bootrom race itself is a separate, small,
+not-yet-done Makefile dependency-ordering fix.
+
+**Update: 4x4 now genuinely passes, all 16 tiles independently confirmed —
+after finding and fixing a third real bug, a hardcoded 32-bit monitor
+register.** With causes 1 and 2 above fixed, a real 4x4 `barrier_atomic.c`
+run reached `Simulation -> PASS`, but only 8 of 16 tiles' own trace files
+(`trace_hart_N.dasm`, one per tile once the tracer-filename fix below was
+also applied) showed the core actually reaching the `pass` label; tiles 8-15
+were still executing unrelated code when the simulation declared victory.
+Root cause: `piton/verif/env/manycore/pc_cmp.v.pyv` declares `finish_mask`
+as a Verilog `integer` under `` `ifdef VERILATOR `` — always exactly 32 bits
+per the language spec — while the sibling `active_thread`/`good` registers a
+few lines below are correctly widened by this same template's own
+`PITON_NUM_TILES*4-1` substitution. Reading `finish_mask` beyond bit 31
+returns 0 regardless of what `-finish_mask=` string is passed, so
+`good == finish_mask` was satisfied the moment the first 8 tiles (32 bits
+÷ 4 thread-slots) finished, independent of the other 8. Fixed by giving
+`finish_mask` the same template-widened declaration as its siblings
+(committed locally in the checkout: `manycore monitor: widen finish_mask
+under Verilator to match active_thread/good`). Verified directly: a clean
+rebuild reached `PASS` with all 16 tiles' own trace files confirmed looping
+at the real `pass` label (`0x80000540`), not just the aggregate verdict.
+
+This was found alongside a second, unrelated real bug from the same
+investigation: `piton/design/chip/tile/ariane/core/cva6.sv`'s Verilator
+mock-tracer hardcoded `trace_hart_00.dasm` regardless of `hart_id_i`, so
+every tile's core silently shared and overwrote the same file — the
+original "only tile 0 has a trace" evidence that looked like "tiles 1-3
+never boot" for the 2x2 case above. Fixed by parameterizing the filename
+the same way `instr_tracer.sv` already does (`ariane` submodule commit:
+`ariane: parameterize per-tile trace_hart_NN.dasm filename by hart_id_i`).
+
+And a third, the actual reason 2x2/4x4 never passed at all before any of
+this: OpenPiton's own shared, upstream `syscalls.c` (used by every ariane
+diagnostic, not just this project's own gate workloads) polls its exit
+barrier (`finish_sync0`/`finish_sync1`) with a plain load, not an atomic
+read — the identical staleness bug `mace/workloads/barrier_atomic.c`
+already documents and works around with its own `atomic_read()` helper,
+just sitting in code nobody had exercised multi-tile before (1x1's `nc=1`
+trivially satisfies this barrier with a hart's own write). Fixed by
+mirroring `atomic_read()` into both polling loops (same `ariane` submodule
+commit family).
+
+Final, real, independently verified numbers: 2x2 Ariane passes in 58.9s,
+4x4 in 503.1s, both confirmed tile by tile via each tile's own execution
+trace, not just the monitor's aggregate `PASS` message.
 
 ### Baselines and the paper
 
@@ -542,11 +620,26 @@ neither baseline (b) nor a bare pass/fail number could show on its own:
 - **sparc (c):** the config task's own Verilator model build succeeded, but
   every one of 3 replan attempts still failed to *run* the gate workload --
   `command failed (rc=1)`, no verdict. The loop's own triage diagnosed a
-  missing `util.h` include path in the diagnostic program's own build (an
-  LLM inference we have not independently verified the way the pico RTL
-  bugs above were) and its post-mortem classified the whole run
-  `fixable_config`, not a hardware limitation -- consistent with there being
-  no other evidence of a sparc RTL gap anywhere in this project.
+  missing `util.h` include path in the diagnostic program's own build and
+  its post-mortem classified the whole run `fixable_config`, not a hardware
+  limitation.
+
+  **Update: independently verified, and the LLM's own diagnosis was wrong.**
+  This is not a missing include path -- it is a genuine ISA incompatibility
+  in `barrier_atomic.c` itself. Its `atomic_read()` helper calls
+  `util.h`'s `ATOMIC_FETCH_OP`/`ATOMIC_OP` macros, which expand to literal
+  RISC-V inline assembly (`amo<op>.<type>`, an AMO instruction) --
+  confirmed by reading
+  `piton/verif/diag/assembly/include/riscv/ariane/util.h` directly. OpenSPARC
+  T1 (this project's `sparc` core) has no RISC-V instructions at all, and
+  OpenPiton's own sparc diag suite
+  (`piton/verif/diag/assembly/include/`) is entirely assembly-based --
+  no C diag environment exists for sparc anywhere in the checkout, so there
+  is no portable path this include could have taken. A `find` across the
+  whole checkout for a sparc equivalent of these macros comes back empty.
+  Reported here as an honest, precisely-characterized limitation rather than
+  something to fix: fixing it would mean writing new SPARC assembly, out of
+  scope for an adapter/orchestration project like MACE.
 - **pico (c):** every one of 3 replan attempts reached verdict `maxcycles`
   (deadlock) on the 1×1 mesh. The loop's own post-mortem reasoned that
   `barrier_atomic.c`'s own barrier logic needs more than one participant to
@@ -557,6 +650,103 @@ neither baseline (b) nor a bare pass/fail number could show on its own:
   shaped for a single core. This is a *different* failure from the earlier,
   now-fixed pico boot/trap RTL bugs -- those were already fixed before this
   run, and this run's failure is about workload choice, not a regression.
+
+  **Update: the full loop now passes on pico for real, on a compatible
+  workload.** `barrier_atomic.c` still cannot pass on a 1×1 pico mesh (the
+  mismatch above is real and unrelated to what follows) -- but re-running
+  the loop against `addi.S` (the single-hart diagnostic already proven to
+  pass by hand, see the earlier update) gets a genuine pass, this time
+  driven by the Planner itself rather than a hand-built config. That needed
+  one real new feature: a `CONFIG_RTL:` planner directive (mirroring the
+  existing `CACHES:` one) so a task can ask for extra RTL defines --
+  `CONFIG_DISABLE_BIST_CLEAR` here -- on top of the mesh's defaults; before
+  this, the Planner had no way to express that fix at all. The fix was named
+  directly in the run's own objective text -- this demonstrates the Planner
+  *applying* a known fix when told what it is, not discovering it from
+  scratch, which generic triage alone still cannot do. Given that hint, the
+  Planner correctly emitted `CONFIG_RTL: pico_addi_1x1 |
+  CONFIG_DISABLE_BIST_CLEAR`, and the run passed: `status=passed`, verdict
+  `pass` (`Simulation -> PASS (HIT GOOD TRAP)`, cycle 3279750), one task, one
+  iteration, 115.5s (run ID `439cb52d67e5` in `runs/mace_end_to_end.db`).
+  This is PicoRV32's second real Verilator pass ever, and the first driven
+  by MACE's own loop rather than a standalone script.
+
+  One gotcha surfaced getting here: an earlier attempt split the work into a
+  `config` task plus a dependent `workload` task, and attached `CONFIG_RTL:`
+  only to the `config` task's id. Each task in a MACE DAG builds against its
+  own independently-computed `PitonConfig` (`mace.loop._config_for_task`) --
+  there is no inheritance from a dependency's config -- so the `config`
+  task's own smoke-test run passed while the dependent `workload` task
+  rebuilt with the default RTL defines and timed out, and the run reported
+  `budget_exceeded` despite the fix being correctly applied to one task. The
+  fix was to ask for a single task (the loop already builds and runs any
+  task, `config` or `workload` alike -- the kind label carries no structural
+  difference), not to patch around the per-task independence, since that
+  independence is also what lets two unrelated tasks use different cache
+  geometries in the same run.
+
+  **Update: the boot fix generalizes to larger meshes; `barrier_atomic.c`
+  never runs on pico at any mesh size, for a simpler and more fundamental
+  reason than first suspected.** On a 2x2 pico mesh, all four tiles
+  independently reach `Hit Good trap` on `addi.S` (`Simulation -> PASS`,
+  cycle 5179750) -- the boot fix holds at scale, confirmed at 4x4 too.
+  Switching to `barrier_atomic.c` on the same meshes, now with multiple real
+  participants available (unlike the 1x1 case above), still does not pass:
+  every core's PC advances through the reset vector once, then never moves
+  again. This first looked like a cross-tile atomic/coherence gap, since the
+  symptom is identical to what genuine cross-tile bugs looked like elsewhere
+  this session -- but a fresh diagnostic pass found the real cause is much
+  simpler: pico's OpenPiton integration has **no C compiler at all**, only
+  an assembler (`piton/tools/bin/rv32_as`) for `.S`/assembly sources. There
+  is no `rv32_cc`, and `piton/verif/diag/assembly/include/riscv/pico/` has
+  no `crt.S`/`syscalls.c` (both exist for `riscv/ariane`). `barrier_atomic.c`
+  is a `.c` file, so it never compiles -- confirmed directly: `rv32_as.log`
+  shows `cc1: fatal error: diag.S: No such file or directory`, and the
+  resulting `mem.image` is empty (2 lines, versus 34 for a real `addi.S`
+  build). Every tile boots into an empty memory image and idles at its reset
+  vector; this is a toolchain gap, not an RTL bug, and not a return of the
+  workload/mesh-mismatch framing above (that framing was itself never
+  independently verified and turns out to describe the wrong mechanism).
+  Building real `rv32_cc`/`crt.S`/`syscalls.c` support for pico was
+  considered and explicitly scoped out as substantial new engineering with
+  its own real risk (no template to copy verbatim for PicoRV32's own
+  boot/CSR conventions). Instead, pico's actual AMO/atomic hardware path was
+  verified directly and far more cheaply: the upstream `amoadd_w.S`
+  architecture test (pure assembly, no C dependency, part of OpenPiton's own
+  RV32 riscv-tests suite already in the checkout) passes for real on pico
+  (`Simulation -> PASS`), confirming the atomic-memory-operation logic
+  `barrier_atomic.c` would need is functionally correct at the instruction
+  level, without needing to build and trust an entirely new, untested
+  compilation path just to prove it.
+
+- **sparc, a second real finding beyond the ISA gap above: a monitor bug,
+  found and fixed, that was hiding the actual failure.** Testing sparc with
+  pure-assembly diagnostics (which never touch `util.h`'s RISC-V-only
+  macros, sidestepping the ISA gap entirely) still hung, including on
+  `princeton-test-test.s` -- OpenPiton's own upstream CI test for sparc at
+  1x1, confirmed passing in `.gitlab-ci.yml`. Reading
+  `piton/verif/env/manycore/pc_cmp.v.pyv` found why: its `RTL_SPARC0` branch
+  never assigns `active_thread` anywhere, unlike the `RTL_ARIANE0`/
+  `RTL_PICO0` branches just below it, which both unconditionally assert it
+  once out of reset (the same register `pico`'s own fix 7 targets, in
+  `docs/TECHNICAL_GUIDE.md`'s pico updates above). `active_thread` gates
+  every good/bad-trap and timeout check later in the file, so with it stuck
+  at its uninitialized 0, no sparc verdict was ever detected, regardless of
+  what the real hardware did.
+
+  Mirroring the ariane/pico pattern (a committed, local fix in the real
+  checkout, `sparc: track active_thread unconditionally for RTL_SPARC0`)
+  confirms the diagnosis directly: the monitor now tracks all four sparc
+  hardware threads and reports a genuine `FAIL(TIMEOUT)` instead of silent
+  `maxcycles`. That is real, verified progress -- a previously-undiscovered
+  observability gap, found and fixed. It also reveals a second, deeper,
+  still-open question: even with the monitor now working, none of the four
+  threads ever make forward progress. Ruled out as a "just needs more time"
+  issue by rerunning at 100x the default `rtl_timeout` (5,000,000) and a
+  100,000,000-cycle budget -- identical result, all four threads repeatedly
+  reporting `timeout happen` with zero progress. This is a genuine
+  execution-level stall, separate from the now-fixed monitor bug, and needs
+  waveform-level tracing to root-cause further.
 
 One-shot's two distinct failure modes are themselves informative. For sparc
 it produced a config that looked plausible and got as far as a real build,
