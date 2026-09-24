@@ -103,7 +103,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-BUD-7:** Before any LLM call or checkout access, MACE shall verify the SHA-256 digest of every C program in `mace/workloads/` against `mace/workloads/CHECKSUMS`.
 - **REQ-BUD-8:** MACE shall end the run with status `checksum_mismatch`, and run no iteration, when a digest differs or when the programs present differ from the programs `CHECKSUMS` lists.
 - **REQ-BUD-9:** MACE shall record a run with status `running` when it starts, and replace that status with `passed`, `failed`, `planning_failed`, `budget_exceeded`, `checksum_mismatch`, or `error` when the loop ends.
-- **REQ-BUD-10:** MACE shall record status `error` for a run that an exception ends between the checksum check and its final status update, then re-raise the exception.
+- **REQ-BUD-10:** MACE shall record status `error` for a run that an exception ends, then re-raise the exception.
 
 ### Deterministic Replay
 
