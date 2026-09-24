@@ -36,7 +36,7 @@ Neither mesh needed changes to the loop's planning or verification logic.
 
 ## Coverage
 
-A 2x2 Ariane run of `barrier_atomic.c`, on a build instrumented for line coverage, covers 35.00% of lines (9497 of 26900). All four tiles pass. See [Code Coverage](../01_mace_user/Code_Coverage.md).
+A 2x2 Ariane run of `barrier_atomic.c`, on a build instrumented for line coverage, covers 9497 of 26900 lines (35.3%). All four tiles pass. See [Code Coverage](../01_mace_user/Code_Coverage.md).
 
 ## Recovery
 

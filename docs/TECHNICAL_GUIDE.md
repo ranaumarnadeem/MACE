@@ -1301,8 +1301,8 @@ defines this macro to 0 or 1, never leaves it undefined — an earlier
 `#ifdef` form of this guard was always true regardless of value, a real
 bug this project hit and fixed: every plain, non-coverage build failed to
 link with "undefined reference to VerilatedCov::..."). Real result, not a
-mock: 36.00% (8787/24311) on a real passing 1x1 Ariane +
-`barrier_atomic.c` run, and 35.00% (9497/26900) on a passing 2x2 run
+mock: 36.1% (8787/24311) on a real passing 1x1 Ariane +
+`barrier_atomic.c` run, and 35.3% (9497/26900) on a passing 2x2 run
 (2026-09-24, build `mace_3b2325c22a9b`, 235s build, all four tiles hit their
 good trap; the paper's figure). See `scripts/local_coverage_1x1_build_test.py`'s own
 module docstring for the full account, including why the plan's original
