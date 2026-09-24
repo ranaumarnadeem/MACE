@@ -15,6 +15,9 @@ Two things make this possible without a live cluster:
   none of these tests touch it. ``_job_start`` even lazily initializes its own
   threading state on first use (see ``AsyncJobTool._ensure_job_state``), so a
   bare instance's build()/run()/job_status() work exactly like a real tool's.
+* What the MCP server is handed at construction is tested through the real
+  constructor, with ``ChiaTool.__post_init__`` stubbed by the same cloudpickle
+  round-trip Ray applies when it ships the tool to its server actor.
 """
 
 from __future__ import annotations
@@ -23,8 +26,10 @@ import os
 import time
 
 import pytest
+from chia.base.tools.ChiaTool import ChiaTool
+from ray import cloudpickle
 
-from chia_openpiton.state_def import PitonConfig, PitonRunResult
+from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from chia_openpiton.tools import PitonToolServer, _grep_lines, _render_config
 
 
@@ -203,19 +208,41 @@ class TestCollect:
         assert "skipped" in out and "x" * 1000 not in out
 
 
-class TestSetContext:
-    def test_points_grep_and_collect_at_the_given_run(self, stub_piton_root, cfg, tmp_path):
+class TestConstructionContext:
+    """The copy an MCP call reaches is the snapshot ``__post_init__`` ships to
+    the server actor, not the object the caller holds -- so a build/run the
+    read-only tools must see has to be on the tool by then."""
+
+    @pytest.fixture
+    def served(self, monkeypatch):
+        """Every snapshot ``__post_init__`` would have shipped, in order."""
+        copies = []
+        monkeypatch.setattr(
+            ChiaTool, "__post_init__", lambda tool: copies.append(cloudpickle.loads(cloudpickle.dumps(tool)))
+        )
+        return copies
+
+    def test_the_given_run_reaches_the_served_copy(self, stub_piton_root, cfg, tmp_path, served):
         run_dir = tmp_path / "run"
         run_dir.mkdir()
-        (run_dir / "sim.log").write_text("Simulation -> PASS (HIT GOOD TRAP)")
-        run = PitonRunResult(success=True, returncode=0, test="t", sim_type="vlt", run_dir=str(run_dir))
+        (run_dir / "sim.log").write_text("1234 : Simulation -> FAIL(HIT BAD TRAP)\n")
+        build = PitonBuildArtifact(
+            success=True, returncode=0, config=cfg, sim_type="vlt", model_dir="/x",
+            binary_path="/x/obj_dir/Vcmp_top", wall_time_s=1.0,
+        )
+        run = PitonRunResult(success=False, returncode=0, test="t", sim_type="vlt", run_dir=str(run_dir))
 
-        tool = bare_tool(str(stub_piton_root), cfg)
-        assert "no run yet" in tool.grep("sim_log", "x")
+        PitonToolServer("piton", str(stub_piton_root), cfg, expose=("grep",), last_build=build, last_run=run)
 
-        tool.set_context(None, run)
+        (copy,) = served
+        assert "HIT BAD TRAP" in copy.grep("sim_log", "Simulation")
+        assert copy._last_build == build
 
-        assert "PASS" in tool.grep("sim_log", "PASS")
+    def test_without_one_the_served_copy_has_no_run(self, stub_piton_root, cfg, served):
+        PitonToolServer("piton", str(stub_piton_root), cfg, expose=("grep",))
+
+        (copy,) = served
+        assert "no run yet" in copy.grep("sim_log", "x")
 
 
 class TestCompareToFixture:

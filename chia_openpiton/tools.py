@@ -85,7 +85,14 @@ class PitonToolServer(AsyncJobTool):
     edits configuration and hands off building to something else, or
     ``expose=("grep", "collect", "compare_to_fixture", "symbol_check")`` for
     a read-only diagnostic agent that inspects an already-completed failure
-    rather than driving a new build/run itself (see ``set_context``).
+    rather than driving a new build/run itself (pass that failure's build/
+    run as ``last_build``/``last_run``).
+
+    What the model sees is fixed at construction: ``ChiaTool.__post_init__``
+    ships a pickled snapshot of this object to the Ray actor that answers
+    every MCP call, so assigning to this (caller-side) object afterwards
+    never reaches it. That is why an already-completed build/run is a
+    constructor argument -- to inspect a different one, start a new server.
 
     Co-location: point ``task_options`` at the same bundle as whatever
     workspace node owns this checkout (``node.task_options``), so the tool's
@@ -103,6 +110,8 @@ class PitonToolServer(AsyncJobTool):
         run_timeout_s: int = 3600,
         expose: tuple[str, ...] | None = None,
         task_options: dict | None = None,
+        last_build: PitonBuildArtifact | None = None,
+        last_run: PitonRunResult | None = None,
     ):
         super().__init__(name, task_options=task_options)
         self.piton_root = _require_root(piton_root)
@@ -111,8 +120,10 @@ class PitonToolServer(AsyncJobTool):
         self.run_timeout_s = run_timeout_s
 
         self._config = config
-        self._last_build: PitonBuildArtifact | None = None
-        self._last_run: PitonRunResult | None = None
+        # Must be set before super().__post_init__() below snapshots this
+        # object for the server actor -- see the class docstring.
+        self._last_build: PitonBuildArtifact | None = last_build
+        self._last_run: PitonRunResult | None = last_run
 
         registry = {
             "build": self.build,
@@ -283,15 +294,6 @@ class PitonToolServer(AsyncJobTool):
     # sim.log against a known-good transcript and cross-checking the compiled
     # binary's own objdump output against the run's symbol.tbl. These two
     # tools hand a model the same raw data a human read by hand.
-
-    def set_context(self, build: PitonBuildArtifact | None, run: PitonRunResult | None) -> None:
-        """Point this tool at an already-completed build/run without going
-        through this instance's own ``build()``/``run()`` -- for a caller
-        (e.g. mace's orchestrator, triaging a StepResult it built through a
-        different OpenPitonWorkspaceNode entirely) that wants grep/collect/
-        compare_to_fixture/symbol_check to see a specific real failure."""
-        self._last_build = build
-        self._last_run = run
 
     def compare_to_fixture(self, fixture_name: str, max_context: int = 5) -> str:
         """Diff the current run's sim.log against a known-good reference
