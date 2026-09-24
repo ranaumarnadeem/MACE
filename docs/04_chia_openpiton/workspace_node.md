@@ -112,7 +112,7 @@ It returns the resulting `PitonConfig`, whose construction raises `ValueError` o
 ### build
 
 1. Rejects a `sim_type` outside `vlt`, `vcs`, `ncv`, `icv`, `msm`, and `riv` with `ValueError`. Only `vlt` (Verilator) is license-free.
-2. Raises `ValueError` when `git diff -- piton/verif/env/manycore` differs from `config.diff`, for example after another `configure(address_map=...)` call on the checkout. A directly constructed config has `diff=""`, so it passes only while that command prints nothing.
+2. Raises `ValueError` when `git diff -- piton/verif/env/manycore` differs from `config.diff`, for example after another `configure(address_map=...)` call on the checkout. The check runs only for a configuration that recorded the checkout's state, a non-empty `source_rev` or `diff`, as `configure()` sets. A directly constructed configuration, such as the ones MACE's loop builds, builds the checkout as it stands.
 3. Returns the cached model, if one exists.
 4. With `clean=True`, deletes the model's `obj_dir` and marker.
 5. For `sim_type="vlt"`, adds `--no-timing` when Verilator is version 5 or later, unless an `extra_build_args` entry already contains `timing`. The version comes from `config.verilator_version`, or from `verilator_version_text()`.

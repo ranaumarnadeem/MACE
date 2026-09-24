@@ -16,13 +16,6 @@ Run it once per checkout, on every worker that hosts one. The GCP worker in `clu
 The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 12 skip with a `not found, skipping fix N` message when their target file is absent.
 
 A model built before a fix stays in the build cache, because the build ID covers the configuration, not source edits (see [PitonConfig](piton_config.md)). Rebuild it with `build(..., clean=True)` or remove it with `clean()`.
-
-Fixes 7 and 10 edit `piton/verif/env/manycore/pc_cmp.v.pyv`. `build()` refuses a configuration whose recorded diff differs from that directory's uncommitted changes, and a directly constructed configuration, such as the ones MACE's loop builds, records none. Commit the two edits after patching:
-
-```bash
-git -C /path/to/openpiton commit -m "Apply MACE patches" -- piton/verif/env/manycore
-```
-
 ## Fixes
 
 | # | File(s) touched | What it fixes |

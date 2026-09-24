@@ -17,10 +17,12 @@ PitonToolServer(
     run_timeout_s: int = 3600,
     expose: tuple[str, ...] | None = None,
     task_options: dict | None = None,
+    last_build: PitonBuildArtifact | None = None,
+    last_run: PitonRunResult | None = None,
 )
 ```
 
-`piton_root` must be an existing local directory, and `config` is the starting [PitonConfig](piton_config.md). Every run receives `asm_diag_root`. Construction starts the MCP server in a Ray actor, and builds and runs execute in that actor. Pass the workspace node's `node.task_options` as `task_options` to place it on the worker that holds the checkout.
+`piton_root` must be an existing local directory, and `config` is the starting [PitonConfig](piton_config.md). Every run receives `asm_diag_root`. Construction starts the MCP server in a Ray actor, and builds and runs execute in that actor. Pass the workspace node's `node.task_options` as `task_options` to place it on the worker that holds the checkout. `last_build` and `last_run` point the inspection tools at a build and run produced elsewhere, as described under Inspecting an earlier run below.
 
 ## Tools
 
@@ -68,20 +70,16 @@ Before any job has started, `job_status` returns `{"done": False, "running": Fal
 
 `expose=None` registers all nine tools. A tuple registers only the named ones. For example, `("config_get", "config_set")` suits an agent that edits configuration and hands building to another component. An unknown name raises `ValueError`, listing the valid names, before the server starts.
 
-## set_context
+## Inspecting an earlier run
 
-```python
-set_context(build: PitonBuildArtifact | None, run: PitonRunResult | None) -> None
-```
-
-`set_context` is a Python method, not an MCP tool. It sets the build and run that `grep`, `collect`, `compare_to_fixture`, and `symbol_check` read, for a build and run produced elsewhere, such as by another `OpenPitonWorkspaceNode`. The server that answers MCP tool calls runs on a copy of the object taken at construction, so a later `set_context` call updates only the local object. MACE's orchestrator builds its read-only triage server this way (condensed from `mace/orchestrator.py`; see [Failure Analysis](../03_mace_design/failure_analysis.md)):
+`grep`, `collect`, `compare_to_fixture`, and `symbol_check` read the last build and run. To point them at a build and run produced elsewhere, such as by another `OpenPitonWorkspaceNode`, pass them as `last_build` and `last_run` at construction. The server that answers MCP tool calls works on a copy of the object taken when it starts, so what the tools see is fixed then; to inspect a different run, start a new server. MACE's orchestrator starts one such read-only server for each triage (condensed from `mace/orchestrator.py`; see [Failure Analysis](../03_mace_design/failure_analysis.md)):
 
 ```python
 tool_server = PitonToolServer(
     f"triage-{run_id}", piton_roots[0], PitonConfig(),
     expose=("grep", "collect", "compare_to_fixture", "symbol_check"),
+    last_build=failed.build, last_run=failed.run,
 )
-tool_server.set_context(failed.build, failed.run)
 ```
 
 ## Tool names
