@@ -22,6 +22,7 @@ one shared ``{name}_job_status``.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -32,6 +33,8 @@ from chia.base.tools.AsyncJobTool import AsyncJobTool
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode, _require_root
 from chia_openpiton.parse import first_divergence
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
+
+logger = logging.getLogger(__name__)
 
 # Which log a grep/collect call reads, and its filename under a run directory.
 _LOG_SOURCES: dict[str, str] = {
@@ -72,6 +75,16 @@ def _render_config(config: PitonConfig) -> str:
         f"extra_flags={list(config.extra_flags)}\n"
         f"build_id={config.build_id}"
     )
+
+
+def _job_error(job_type: str, exc: Exception) -> dict:
+    """Result for a build or run job whose node call raised.
+
+    AsyncJobTool stores no result when its job raises, so job_status would
+    report the job as running forever.
+    """
+    logger.error("%s job raised", job_type, exc_info=exc)
+    return {"job_type": job_type, "success": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 class PitonToolServer(AsyncJobTool):
@@ -168,9 +181,12 @@ class PitonToolServer(AsyncJobTool):
         config = self._config  # snapshot now: config_set must not race the build
 
         def _work() -> dict:
-            art = OpenPitonWorkspaceNode.build(
-                self.piton_root, config, clean=clean, timeout_seconds=self.build_timeout_s
-            )
+            try:
+                art = OpenPitonWorkspaceNode.build(
+                    self.piton_root, config, clean=clean, timeout_seconds=self.build_timeout_s
+                )
+            except Exception as e:
+                return _job_error("build", e)
             self._last_build = art
             return {
                 "job_type": "build",
@@ -210,17 +226,20 @@ class PitonToolServer(AsyncJobTool):
         config = self._config
 
         def _work() -> dict:
-            res = OpenPitonWorkspaceNode.run(
-                self.piton_root,
-                config,
-                test,
-                precompiled=precompiled,
-                asm_diag_root=self.asm_diag_root,
-                finish_mask=finish_mask,
-                rtl_timeout=rtl_timeout,
-                max_cycle=max_cycle,
-                timeout_seconds=self.run_timeout_s,
-            )
+            try:
+                res = OpenPitonWorkspaceNode.run(
+                    self.piton_root,
+                    config,
+                    test,
+                    precompiled=precompiled,
+                    asm_diag_root=self.asm_diag_root,
+                    finish_mask=finish_mask,
+                    rtl_timeout=rtl_timeout,
+                    max_cycle=max_cycle,
+                    timeout_seconds=self.run_timeout_s,
+                )
+            except Exception as e:
+                return _job_error("run", e)
             self._last_run = res
             return {
                 "job_type": "run",
@@ -239,6 +258,8 @@ class PitonToolServer(AsyncJobTool):
         Blocks up to *wait_seconds* (capped at 120s so the call always
         returns) for it to finish. ``done=False`` means keep polling; the
         result's ``job_type`` says whether a build or a run just finished.
+        If the job raised an exception, ``success`` is False and ``error``
+        gives the exception's type and message.
         """
         return self._job_status(wait_seconds)
 
