@@ -44,12 +44,12 @@ and a deterministic integrator gates every change against Verilator simulation b
 A failure-analysis agent diagnoses failures and the planner replans around them.
 
 We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on 2x2 and 4x4
-meshes, with every result gated by Verilator simulation of the RTL. We added PicoRV32 as a third
-core, resolving several RTL bugs that kept it from passing under Verilator, and traced what kept
-multi-tile meshes from passing, including a Verilator~5 scheduling bug that makes CVA6's cache adapter
-drop invalidations. With those issues addressed, MACE's loop passes 2x2 and 4x4 meshes of both
-Ariane and PicoRV32, while the one-shot baseline fails every configuration it attempts. The artifact
-pins its toolchain in a Nix flake, entered with a single \code{nix develop}.
+meshes, with every result gated by Verilator simulation of the RTL. Besides OpenPiton's Ariane and
+OpenSPARC T1 cores, we brought up PicoRV32, fixing two bugs in its OpenPiton integration and enabling
+an existing SRAM define. We also traced a Verilator~5 scheduling bug that makes CVA6's cache adapter
+drop invalidations, and worked around it with atomic barrier polling. With these changes, MACE's
+loop passes 2x2 and 4x4 meshes of both Ariane and PicoRV32, while the one-shot baseline fails every
+configuration it attempts.
 \end{abstract}
 
 \begin{figure*}[t]
@@ -87,8 +87,8 @@ be upstreamed directly.
 \item The MACE loop (Sec.~\ref{sec:phase2}): planning, parallel task execution, deterministic
 integration, and LLM-driven failure triage, tested end to end against full Verilator runs, with cost, time, and task
 metrics.
-\item A third core, PicoRV32 (Sec.~\ref{sec:pico}), brought up by fixing three bugs in its upstream
-OpenPiton integration.
+\item PicoRV32 support (Section~\ref{sec:pico}), next to Ariane and OpenSPARC T1, from two fixes to
+its upstream OpenPiton integration and one existing define.
 \item An interactive CLI and two further capabilities (Sec.~\ref{sec:cli}): Verilator code coverage as
 a second verification axis, and a second working LLM backend.
 \end{itemize}
@@ -251,7 +251,7 @@ or checkout access, so a task cannot tamper with its own grading.
 \textbf{Deterministic replay.} \sys{} tags each task's LLM, build, and run call, so CHIA's cache can
 record and re-serve those decisions at no token or compute cost once caching is enabled.
 
-\section{A Third Core: PicoRV32}
+\section{Adding PicoRV32}
 \label{sec:pico}
 
 Each core reaches its tile's L1.5 through its own adapter (Figure~\ref{fig:tile}), and a core with its
@@ -366,8 +366,8 @@ writes it. A dashboard over the run database would show dispatch, build, and ver
 \section{Conclusion}
 
 \sys{} shows that an agentic loop can plan, build, and verify multicore hardware, with every result
-gated by RTL simulation. Along the way we fixed RTL and testbench bugs and added a third core, and
-the loop then passed 2x2 and 4x4 meshes of both Ariane and PicoRV32. The next steps are a reusable
+gated by RTL simulation. Along the way we fixed RTL and testbench bugs and added PicoRV32 next to
+Ariane and OpenSPARC T1, and the loop then passed 2x2 and 4x4 meshes of both Ariane and PicoRV32. The next steps are a reusable
 adapter template for new cores and a recovery cycle proven on live failures.
 
 \bibliographystyle{IEEEtran}
