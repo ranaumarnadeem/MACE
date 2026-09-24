@@ -971,16 +971,12 @@ def shell(
     ),
     backend: str = typer.Option(
         "vertex", "--backend",
-        help="LLM backend: vertex (default -- Gemini on GCP, this project's funded "
-        "credits), opencode, claude, antigravity (no credits available for these -- "
-        "see mace.llm's own docstring).",
+        help="LLM backend: vertex (default, Gemini on Vertex AI), opencode, claude, or antigravity.",
     ),
     model: str = typer.Option(
         None, "--model",
-        help="Model name (sets MACE_LLM_MODEL). Defaults to gemini-2.5-flash "
-        "(confirmed reachable on this project's GCP project as of 2026-09-19) "
-        "when backend=vertex and no model is given; other backends use their "
-        "own default model unless one is given explicitly here.",
+        help="Model name (sets MACE_LLM_MODEL). Defaults to gemini-2.5-flash when "
+        "backend=vertex; other backends use their own default unless one is given here.",
     ),
     db_path: str = typer.Option("runs/mace_cli.db", help="Metrics database path"),
     script: str = typer.Option(

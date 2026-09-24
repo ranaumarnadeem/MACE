@@ -46,7 +46,7 @@ def main() -> int:
     ap.add_argument("--piton-root", required=True, help="First OpenPiton checkout")
     ap.add_argument("--piton-root-2", default=None, help="Second checkout, for fan-out")
     ap.add_argument("--core", default="ariane", choices=("ariane", "sparc", "pico"))
-    ap.add_argument("--backend", default="vertex", help="LLM backend -- vertex is this project's only funded one")
+    ap.add_argument("--backend", default="vertex", help="LLM backend (default: vertex)")
     ap.add_argument(
         "--model", default=None,
         help="Defaults to gemini-2.5-flash for --backend vertex; other backends use "
