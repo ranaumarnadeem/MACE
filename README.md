@@ -129,6 +129,10 @@ for code and runs, and `claude_docs.md` for writing.
 built with AI assistance. When you open a pull request, attach the instruction
 file your tool used, as [`.claude/README.md`](.claude/README.md) asks.
 
+## License
+
+MACE is released under the BSD 3-Clause License; see [`LICENSE`](LICENSE).
+
 ## Authors
 
 Rana Umar Nadeem, Samrah Mumtaz, and Muhammad Imran.

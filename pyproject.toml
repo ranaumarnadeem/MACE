@@ -2,6 +2,8 @@
 name = "mace"
 version = "0.1.0"
 description = "MACE: A Multicore Agentic Co-Design Engine"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.11"
 dependencies = ["typer>=0.12", "rich>=13", "ray>=2.54,<3"]
 
@@ -17,7 +19,7 @@ mace = "mace.cli:main"
 test = ["pytest==9.0.3"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # 77 added the SPDX `license` string
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
