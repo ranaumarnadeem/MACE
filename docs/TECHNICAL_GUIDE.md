@@ -1257,11 +1257,11 @@ about the environment.
 is a perfect square, matching every mesh this project has ever actually
 built) and immediately reports what's actually known about that shape —
 `KNOWN_MESH_OUTCOMES` in `mace/cli/session.py` encodes the real, hard-won
-findings from Section 7: 1 tile is validated repeatedly, 4 tiles builds but the run
-hangs (likely a genuine RTL gap in an untested mesh shape), 16 tiles is the
-one multi-tile shape upstream has validated but this project hasn't
-completed end to end. Anything else is accepted but flagged as genuinely
-unvalidated, not silently treated the same as a known-good shape.
+findings from Section 7: 1 tile is validated repeatedly, and 4 and 16 tiles
+(2x2, 4x4) pass for ariane (`barrier_atomic.c`) and pico (`addi.S`), with
+every tile reaching `Hit Good trap`. Anything else is accepted but flagged
+as genuinely unvalidated, not silently treated the same as a known-good
+shape.
 
 **Logging is verbose by default**, per the project owner's own instruction,
 not an opt-in flag (`-verbose`/`--verbose` are accepted for EDA-tool

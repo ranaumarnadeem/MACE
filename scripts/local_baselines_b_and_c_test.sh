@@ -17,6 +17,7 @@ set -x
 source ~/miniconda3/etc/profile.d/conda.sh 2>/dev/null || source ~/anaconda3/etc/profile.d/conda.sh 2>/dev/null
 conda activate chia_env
 cd "$(dirname "$0")/.."
+mkdir -p runs  # gitignored, so a fresh clone has no runs/ yet
 
 PITON_ROOT="${1:-/mnt/c/Users/Potato/Desktop/openpiton}"
 

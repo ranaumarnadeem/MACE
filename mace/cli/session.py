@@ -58,18 +58,16 @@ def detect_core(top_module: str) -> PitonCore | None:
 # evidence for -- see docs/TECHNICAL_GUIDE.md section 7 for the full account
 # behind each of these. Anything not listed here is accepted (chia_openpiton
 # itself places no restriction beyond MAX_TILES_PER_AXIS per side) but
-# printed as genuinely unvalidated, not silently treated the same as 1 or 16.
+# printed as genuinely unvalidated, not silently treated the same as 1, 4 or 16.
 KNOWN_MESH_OUTCOMES: dict[int, str] = {
     1: "validated -- passes repeatedly on real hardware",
     4: (
-        "builds successfully on real hardware, but the run hangs -- likely a "
-        "genuine RTL gap in an untested mesh shape (2x2 has no upstream "
-        "Verilator precedent), not a configuration problem"
+        "validated -- passes on real hardware for ariane (barrier_atomic.c) "
+        "and pico (addi.S), every tile reaching Hit Good trap"
     ),
     16: (
-        "the one multi-tile shape upstream itself has Verilator-validated -- "
-        "not yet completed end to end in this project, see "
-        "docs/TECHNICAL_GUIDE.md section 7"
+        "validated -- passes on real hardware for ariane (barrier_atomic.c) "
+        "and pico (addi.S), every tile reaching Hit Good trap"
     ),
 }
 
