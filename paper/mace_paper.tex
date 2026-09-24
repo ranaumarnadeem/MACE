@@ -49,8 +49,8 @@ pins its toolchain in a Nix flake, entered with a single \code{nix develop}.
 \centering
 \includegraphics[width=\textwidth]{mace_figure1}
 \caption{The MACE pipeline. Verification gates every integrated change against Verilator
-simulation. The run ends when every gate workload passes; any failure triggers failure analysis and a
-replan.}
+simulation. The run ends when every task passes its gate workload; any failure triggers failure
+analysis and a replan.}
 \label{fig:pipeline}
 \vspace{-0.4em}
 \end{figure*}
@@ -133,8 +133,9 @@ worker, remains blocked by upstream infrastructure dependencies (Sec.~\ref{sec:l
 \textbf{Pipeline.} Figure~\ref{fig:pipeline} shows the loop. A planning agent turns a
 \code{MaceSpec} (core, target mesh, gate workloads, objective, budget) into a task DAG, and workers
 dispatch ready tasks in parallel through Ray, each pinned to its own checkout. A deterministic
-integrator, with no LLM, applies accepted diffs in dependency order, then builds and runs every gate
-workload; each workload's \emph{verdict}, parsed from simulator output, must read \code{pass}. On
+integrator, with no LLM, runs the tasks in dependency order: each builds its own configuration,
+including any cache or RTL-define overrides the planner gave it, and runs the gate workload, whose
+\emph{verdict}, parsed from simulator output, must read \code{pass}. On
 any failure, a failure-analysis agent with read-only tools (log grep, file collection, a fixture
 diff, and an \code{objdump} symbol check) diagnoses the transcript, and the planner replans around
 its proposed fix.
@@ -149,9 +150,8 @@ write, while an atomic fetch-and-add-zero read always was. Every gate workload n
 wall-clock) before each iteration starts, and verifies gate-workload checksums before any LLM call
 or checkout access, so a task cannot tamper with its own grading.
 
-\textbf{Deterministic replay.} \sys{} cache-tags LLM, build, and run decisions and re-serves them at
-no token or compute cost. Through CHIA's cache, it replays \emph{decisions} (response text, pass/fail
-artifacts), while git tracks the source edits agents make.
+\textbf{Deterministic replay.} \sys{} tags each task's LLM, build, and run call, so CHIA's cache can
+record and re-serve those decisions at no token or compute cost once caching is enabled.
 
 \section{A Third Core: PicoRV32}
 \label{sec:pico}
