@@ -689,18 +689,13 @@ more than half of the billed output.
 
 ### Baselines and the paper
 
-- **(a) manual mesh scaling** — 1×1 proven (repeatedly), 2×2 real
-  build-pass/run-hang (above), no 4×4 datapoint (above).
-- **(b) one-shot LLM, no tools, no iteration** — done,
-  `examples/baseline_one_shot_llm.py`. The "229.1s, passed" number once
-  recorded here predates the rtl_timeout fix (Section 7's own item, and the same
-  bug the codebase review's baseline-comparison finding named) and is
-  stale -- see README.md's own baseline section for the current, real
-  result and framing.
-- **(c) full MACE loop** — done. A fresh same-day run under the current
-  code (Section 7's earlier four end-to-end runs predate the orchestrator
-  wall-time fix, so aren't directly comparable to this one) took 741.7s
-  and passed, 4/4 tasks, one iteration -- see README.md.
+- **(a) manual mesh scaling** — passes 2×2 and 4×4 for both Ariane and
+  PicoRV32, once patch fixes 10 and 11 are applied (Table 1 of the paper).
+- **(b) one-shot LLM, no tools, no iteration** —
+  `examples/baseline_one_shot_llm.py`. It fails all four 2×2/4×4 cells
+  (Table 1).
+- **(c) full MACE loop** — `examples/mace_end_to_end.py --mesh <X>x<Y>`.
+  It passes all four 2×2/4×4 cells (Table 1).
 
 The paper (`paper/mace_paper.tex` / `.pdf`) is typeset at exactly 4 pages.
 Figure 1 is the author's draw.io pipeline diagram
@@ -711,16 +706,12 @@ Table 1 is the 2x2/4x4 three-way comparison above.
 
 ### The full 3-core × 2-baseline matrix
 
-Everything above is Ariane only. The same (b)/(c) pair was also run for real
+Everything above is Ariane only. The same (b)/(c) pair was also run
 against `sparc` and `pico` -- same objective (1×1 mesh, `barrier_atomic.c`),
-same LLM backend (Gemini 2.5 Flash on Vertex) -- completing a genuine 3-core
-× 2-baseline matrix. This wall-time data is now in the paper too (Figure 2,
-left), alongside a second new figure comparing manual mesh scaling against
-the full loop on 2×2/4×4 (Figure 2, right) -- both real `pgfplots`/TikZ
-figures added when the paper was revised with real charts and diagrams,
-still fitting the exact 4-page limit. The fuller per-core discussion below
-is recorded here instead, in more depth than the paper's own tighter prose
-has room for. Raw logs: `runs/bench_{sparc,pico}_{b,c}.log`; the (c) runs
+same LLM backend (Gemini 2.5 Flash on Vertex) -- completing a 3-core
+× 2-baseline matrix. The paper reports only its 2×2/4×4 comparison
+(Table 1), so this matrix and the per-core discussion below are recorded
+only here. Raw logs: `runs/bench_{sparc,pico}_{b,c}.log`; the (c) runs
 are also in `runs/mace_end_to_end.db` (run IDs `e91cc625501a` sparc,
 `fc4309c57074` pico).
 

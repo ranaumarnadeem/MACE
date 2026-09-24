@@ -206,8 +206,8 @@ gcp_nodes:
                 https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2026.08.27/riscv64-elf-ubuntu-24.04-gcc.tar.xz
                 | sudo tar -xJ -C /opt/riscv --strip-components=1
             - echo 'export RISCV=/opt/riscv' >> ~/.bashrc
-            # OpenPiton, pinned to the commit + Ariane submodule this repo
-            # has validated (state_def.PitonConfig.source_rev/ariane_rev).
+            # OpenPiton, pinned to commit 1c6bfd2 and its Ariane submodule,
+            # the versions this repo was tested with.
             - test -d ~/openpiton ||
                 git clone https://github.com/PrincetonUniversity/openpiton.git ~/openpiton
             - cd ~/openpiton && git checkout 1c6bfd2 &&
