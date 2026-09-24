@@ -18,6 +18,9 @@
 \makeatletter
 \def\IEEEbibitemsep{0pt plus .5pt}
 \makeatother
+\newcommand{\pass}[1]{{\color{green!50!black}pass}, #1}
+\newcommand{\fail}[1]{{\color{red!60!black}fail}, #1}
+\newcommand{\bex}[1]{{\color{orange!80!black}budget}, #1}
 
 \title{MACE: A Multi-core Agentic Co-design Engine for Autonomous OpenPiton Bring-Up}
 \author{\IEEEauthorblockN{Rana Umar Nadeem}
@@ -39,8 +42,9 @@ A failure-analysis agent diagnoses failures and the planner replans around them.
 We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on all three
 supported cores, with every result taken from Verilator simulation of the RTL, not an agent's
 self-report. We added PicoRV32 as a third core, resolving several RTL bugs that kept it from passing
-under Verilator. We also found and fixed three OpenPiton bugs that kept 2x2 and 4x4 meshes from
-passing; with them fixed, MACE's loop passes both sizes for Ariane and PicoRV32. The one-shot baseline failed on all three cores in three different ways; MACE
+under Verilator. We also traced what kept 2x2 and 4x4 meshes from passing, including a Verilator~5
+scheduling bug that makes CVA6's cache adapter drop invalidations; with those issues addressed,
+MACE's loop passes both sizes for Ariane and PicoRV32. The one-shot baseline failed on all three cores in three different ways; MACE
 passed ariane and correctly stopped within its retry budget on the other two instead of reporting a
 false pass. The artifact pins its toolchain in a Nix flake, entered with a single \code{nix develop}.
 \end{abstract}
@@ -173,17 +177,15 @@ any failure, a failure-analysis agent with read-only tools (log grep, file colle
 diff, and an \code{objdump} symbol check) diagnoses the transcript, and the planner replans around
 its proposed fix.
 
-\textbf{Gate workloads surface an RTL bug.} Writing the gate workloads (barrier-and-atomic-counter,
-producer/consumer, hart-id scatter/gather) exposed a memory-visibility bug: a plain \code{volatile}
-read of a shared value was not reliably visible from the same hart shortly after the write, while an
-atomic fetch-and-add-zero read always was. Every gate workload now reads shared values through this
+\textbf{Gate workloads surface a memory-visibility bug.} Writing the gate workloads
+(barrier-and-atomic-counter, producer/consumer, hart-id scatter/gather) showed that a plain
+\code{volatile} read of a shared value was not reliably visible from the same hart shortly after the
+write, while an atomic fetch-and-add-zero read always was. Every gate workload now reads shared values through this
 \code{atomic\_read()} helper.
 
 \textbf{Resource enforcement.} \sys{} checks all three \code{Budget} dimensions (iterations, USD,
 wall-clock) before each iteration starts, and verifies gate-workload checksums before any LLM call
-or checkout access, so a task cannot tamper with its own grading. Every run in this paper together
-cost \$37 of a \$300 GCP credit allocation, covering simulation compute and LLM inference;
-development used a \$20/month Claude subscription, outside that budget.
+or checkout access, so a task cannot tamper with its own grading.
 
 \textbf{Deterministic replay.} \sys{} cache-tags LLM, build, and run decisions and re-serves them at
 no token or compute cost. Per CHIA's cache implementation, this replays \emph{decisions} (response
@@ -241,61 +243,37 @@ We compare three approaches: \textbf{(a)} manual mesh scaling with a time log, \
 LLM prompt for a configuration applied once with no tools, verification, or retry, and \textbf{(c)}
 the full \sys{} loop.
 
-\textbf{Three cores, two baselines.} We ran (b) and (c) on the same objective, verify
-\code{barrier\_atomic.c} on a 1x1 mesh, for all three cores, with Gemini~2.5~Flash throughout
-(Figure~\ref{fig:eval}, left).
+\textbf{Three approaches, three cores.} We ran all three approaches on the same objective, verifying
+\code{barrier\_atomic.c}, with Gemini~2.5~Flash throughout (Table~\ref{tab:eval}).
 
-\begin{figure*}[t]
+\begin{table*}[t]
 \centering
-\vspace{-0.8em}
-\begin{minipage}{0.5\textwidth}
-\centering
+\caption{Verilator verdict and end-to-end wall time per approach. All runs share one build cache,
+so an approach pays for a build only when it picks a new configuration; (a) counts machine time
+only. Ariane 2x2 and 4x4 follow the fixes in Section~\ref{sec:eval}. Budget = retry budget
+exhausted. $^\dagger$Invalid configuration (L1.5 size 0), rejected before any build.}
+\label{tab:eval}
 \footnotesize
-\begin{tabular}{@{}lll@{}}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
-\textbf{Core} & \textbf{(b) one-shot LLM} & \textbf{(c) full loop} \\
+ & \multicolumn{3}{c}{\textbf{ariane}} & \textbf{sparc} & \textbf{pico} \\
+\cmidrule(lr){2-4}
+\textbf{Approach} & 1x1 & 2x2 & 4x4 & 1x1 & 1x1 \\
 \midrule
-ariane & {\color{red!60!black}fail}, 186.5s & \textbf{\color{green!50!black}pass}, 741.7s \\
-sparc & {\color{red!60!black}fail}, 766.0s & {\color{orange!80!black}budget\_exceeded}, 966.3s \\
-pico & {\color{red!60!black}fail} (unparseable), 32.6s & {\color{orange!80!black}budget\_exceeded}, 1250.5s \\
+(a) Manual & \pass{6.4s} & \pass{33.9s} & \pass{271.9s} & \fail{13.9s} & \fail{18.2s} \\
+(b) One-shot LLM & \fail{186.5s} & \fail{10.4s}$^\dagger$ & \fail{3820.9s} & \fail{766.0s} &
+  \fail{32.6s}$^\dagger$ \\
+(c) \sys{} loop & \pass{741.7s} & \pass{750.1s} & \pass{250.9s} & \bex{966.3s} & \bex{1250.5s} \\
 \bottomrule
 \end{tabular}
-\end{minipage}%
-\hfill
-\begin{minipage}{0.46\textwidth}
-\centering
-\footnotesize\textbf{ariane}, \code{barrier\_atomic.c}\\[2pt]
-\begin{tikzpicture}[tile/.style={draw, fill=gray!15, minimum size=0.22cm, inner sep=0}, font=\scriptsize]
-  \node[tile] at (0,0.55) {};
-  \node at (0,0.0) {1x1};
-  \node[align=center, text width=1.6cm] at (0,-0.55)
-    {{\color{green!50!black}(a) pass}\\{\color{green!50!black}(c) pass}};
+\end{table*}
 
-  \foreach \x in {0,1} \foreach \y in {0,1} \node[tile] at (1.55+\x*0.24,0.55+\y*0.24) {};
-  \node at (1.67,0.0) {2x2};
-  \node[align=center, text width=2.3cm] at (1.67,-0.6)
-    {{\color{green!50!black}(a) pass}\\{\color{green!50!black}(c) pass, 750.1s}};
-
-  \foreach \x in {0,...,3} \foreach \y in {0,...,3} \node[tile] at (3.6+\x*0.19,0.55+\y*0.19) {};
-  \node at (3.885,0.0) {4x4};
-  \node[align=center, text width=2.3cm] at (3.885,-0.6)
-    {{\color{green!50!black}(a) pass}\\{\color{green!50!black}(c) pass, 250.9s}};
-\end{tikzpicture}
-\end{minipage}
-\vspace{-0.4em}
-\caption{\textbf{Left:} all three cores, same 1x1 objective. (b) never passes. On sparc/pico, (c)
-exhausts its retry budget instead of reporting a false pass; only ariane
-\textbf{\color{green!50!black}passes}, under (c). \textbf{Right:} ariane mesh scaling after the
-three upstream fixes: manual scaling (a) and the loop (c) both pass, every tile confirmed; (c) times
-are end to end. Before the fixes, (a) hung at 2x2 and never reached 4x4.}
-\label{fig:eval}
-\vspace{-0.4em}
-\end{figure*}
-
-(b) fails all three cores, each in a different way. On ariane, the one-shot config built but failed
+(b) fails in several distinct ways. On ariane at 1x1, the one-shot config built but failed
 verification: a wrong guess. On sparc, it built and reached a run attempt that failed silently, with
-no verdict at all. On pico, \code{PitonConfig}'s construction-time validation rejected the LLM's
-config (\code{l15\_size=0}) before any simulation ran; (b) has no retry path for a malformed response.
+no verdict at all. On pico, and on ariane at 2x2, \code{PitonConfig}'s construction-time validation
+rejected the LLM's config (\code{l15\_size=0}) before any build; (b) has no retry path for a
+malformed response. At 4x4 it chose oversized caches, including a 4\,MB L2 per tile: the build took
+35 minutes and the simulation timed out with no tile finished.
 
 (c) passes ariane: 4/4 tasks, 741.7s, about 4x (b)'s cost. A second ariane gate workload,
 \code{producer\_consumer.c}, also passed (2118.02s, 2 tasks), coverage beyond one program. On sparc
@@ -321,12 +299,16 @@ capability, a \code{CONFIG\_RTL:} planner directive so a task can request
 objective, so this shows the loop applying a known fix, not discovering one.
 
 \textbf{Mesh scaling to 2x2 and 4x4.} Manual scaling (a) first stalled at 2x2 and never reached 4x4,
-which led us to latent upstream bugs, chiefly a stale-read exit barrier in \code{syscalls.c} and a
-32-bit \code{finish\_mask} that capped verification at 8 tiles. After we patched them by hand, manual
-runs pass both sizes, and the loop planned and verified both meshes, every tile confirmed, with no
-changes to its planning or verification logic (Figure~\ref{fig:eval}, right): 2x2 in 750.1s across
-four tasks, including an L1D-associativity variant the planner chose to verify, and 4x4 in 250.9s on
-a cached build.
+for two reasons. Under Verilator~5, a known scheduling bug~\cite{verilator5829} makes CVA6's L1.5
+adapter drop cache invalidations, so the plain-load exit barrier in \code{syscalls.c} never sees other
+tiles' updates; OpenPiton pins a CVA6 that predates the upstream workaround~\cite{cva6pr2809}.
+Porting that workaround alone passes 2x2 with the unmodified barrier (4 of 4 tiles, 24s), while the
+original adapter times out with one tile done. Separately, the monitor's 32-bit \code{finish\_mask}
+capped verification at 8 tiles. Our runs poll the barrier with atomic reads rather than port the
+adapter fix, and widen the mask. With both in place, manual runs pass both sizes, and the loop planned
+and verified both meshes, every tile confirmed, with no changes to its planning or verification logic
+(Table~\ref{tab:eval}): 2x2 in 750.1s across four tasks, including an L1D-associativity variant the
+planner chose to verify, and 4x4 in 250.9s on a cached build.
 
 Phase~2's fan-out (two tasks, two checkouts, through baseline (c)'s path) measured 30s parallel
 versus 57s serial, matching Phase~1's result.
@@ -338,6 +320,19 @@ that we and the planner both expected to fail. The one real failure it met, a pi
 before the \code{finish\_mask} fix, it did not recover from: a build ID covers configuration, not
 source edits, so all three replans reused the stale build while triage blamed the RTL. A clean
 rebuild passed.
+
+\section{Cost}
+\label{sec:cost}
+
+Every run in this paper together cost \$37 of a \$300 GCP credit allocation, covering simulation
+compute and LLM inference; development used a \$20/month Claude subscription, outside that budget.
+A single loop run is cheap. At 2x2, an ariane run costs about \$0.12 (\$0.04 of LLM tokens and
+\$0.08 of compute) and a pico run about \$0.02, while a sparc run that exhausts its three-iteration
+budget would cost an estimated \$0.25, mostly for its one-time build. We price compute as
+\code{e2-highmem-8} time (\$0.36/hour) over each run's wall time, and tokens at Gemini~2.5~Flash's
+\$0.30 and \$2.50 per million input and output tokens. \sys{}'s own cost counter records nothing:
+CHIA's Vertex backend reports no price and omits thinking tokens, which are more than half of the
+billed output here, so we measured tokens by re-sending representative planner and task prompts.
 
 \section{Limitations and Open Issues}
 \label{sec:limits}
