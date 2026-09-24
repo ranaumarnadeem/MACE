@@ -29,6 +29,7 @@ import pytest
 from chia.base.tools.ChiaTool import ChiaTool
 from ray import cloudpickle
 
+from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from chia_openpiton.tools import PitonToolServer, _grep_lines, _render_config
 
@@ -93,6 +94,25 @@ class TestBuildJob:
         assert result["success"] is False
         assert result["failure_reason"]
 
+    def test_build_that_raises_reports_the_error(self, stub_piton_root, cfg, monkeypatch):
+        """build() raises ValueError when a later configure() call changed the
+        checkout. job_status reports that error as the job's result."""
+        monkeypatch.setattr(
+            OpenPitonWorkspaceNode,
+            "_git",
+            lambda root, args, timeout_seconds=60: "+ a map added by a later configure() call",
+        )
+        tool = bare_tool(str(stub_piton_root), cfg)
+        tool.build()
+        deadline = time.time() + 10
+        result = tool.job_status(wait_seconds=1)
+        while not result["done"] and time.time() < deadline:
+            result = tool.job_status(wait_seconds=1)
+        error = result.pop("error", "")
+        assert result == {"done": True, "running": False, "job_type": "build", "success": False}
+        assert error.startswith("ValueError: ") and "no longer matches" in error
+        assert tool._last_build is None
+
     def test_config_set_after_dispatch_does_not_change_the_running_build(
         self, stub_piton_root, cfg, sims_argv
     ):
@@ -140,6 +160,19 @@ class TestRunJob:
         assert result["job_type"] == "run"
         assert result["verdict"] == "pass"
         assert result["success"] is True
+
+    def test_run_that_raises_reports_the_error(self, tmp_path, cfg):
+        """run() raises ValueError when the checkout is gone."""
+        tool = bare_tool(str(tmp_path / "removed"), cfg)
+        tool.run("hello_world.c")
+        deadline = time.time() + 10
+        result = tool.job_status(wait_seconds=1)
+        while not result["done"] and time.time() < deadline:
+            result = tool.job_status(wait_seconds=1)
+        error = result.pop("error", "")
+        assert result == {"done": True, "running": False, "job_type": "run", "success": False}
+        assert error.startswith("ValueError: ") and "piton_root is not a directory" in error
+        assert tool._last_run is None
 
 
 class TestGrep:
