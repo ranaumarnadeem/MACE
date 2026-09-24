@@ -74,7 +74,10 @@ available_node_types:
     # depend on machine size, so a second GCP worker here would only add
     # cost without proving anything new.
     openpiton_gcp:
-        resources: {"openpiton": 8}
+        # One unit matches the one checkout, ~/openpiton (REQ-PLAT-4).
+        # More checkouts would let builds run in parallel.
+        # This node already needs MAKEFLAGS=-j1 to stay within memory.
+        resources: {"openpiton": 1}
         num_workers: 1
         compatible_ips: ["@openpiton_gcp:0"]
         # MAKEFLAGS=-j1: a real 2x2 Ariane build attempt crashed this worker
