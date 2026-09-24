@@ -612,7 +612,8 @@ It now takes `--mesh`, and the full loop was run at both sizes on
 | `fdd6c4322b17` | ariane 4x4 | passed, 250.9s, 2/2 tasks | rerun after the fix, cached builds |
 | `fd0c370667aa` | pico 2x2 `addi.S` | passed, 70.7s, 1 task | |
 | `c2d68cc5bef7` | pico 4x4 `addi.S` | budget_exceeded, 3 iterations | stale cached build (see below); triage blamed the RTL each time |
-| `4c9768c9a30a` | pico 4x4 `addi.S` | passed, 293.2s, 1 task | after moving the stale build aside |
+| `4c9768c9a30a` | pico 4x4 `addi.S` | passed, 293.2s, 1 task | after moving the stale build aside; includes the forced rebuild |
+| `d7c5ccaee522` | pico 4x4 `addi.S` | passed, 100.6s, 1 task | warm rerun on the rebuilt cache (~16s of it is simulation) |
 
 Every pass was checked tile by tile in its `sim.log`: one `Hit Good trap`
 per tile, and a full-width `finish_mask`. Two real bugs surfaced:
@@ -645,7 +646,27 @@ End-to-end wall time, all approaches sharing one build cache (a
 configuration built earlier is reused; an approach pays for a build only
 when it picks a new one). Manual (a) is machine time only, measured today
 by building (cached) and running the default config through the adapter by
-hand; sparc/pico run `barrier_atomic.c`.
+hand. The paper reports only the multi-tile meshes: ariane runs
+`barrier_atomic.c`, pico runs `addi.S` with the BIST define named in every
+approach's objective, and sparc is left out (it does not run under
+Verilator 5, see the sparc section).
+
+| core, mesh | (a) manual | (b) one-shot | (c) MACE loop |
+|---|---|---|---|
+| ariane 2x2 | pass 33.9s | fail 10.4s (l15_size=0) | pass 750.1s |
+| ariane 4x4 | pass 271.9s | fail 3820.9s | pass 250.9s |
+| pico 2x2 | pass 9.8s | fail 12.0s (l15_size=0) | pass 70.7s |
+| pico 4x4 | pass 53.9s | fail 13.4s (l15_size=0) | pass 100.6s |
+
+Pico's fix is an RTL define, so the one-shot `CONFIG:` line gained an
+optional `config_rtl` field before the pico (b) runs (the ariane (b) runs
+predate it and need no define). Both pico one-shots included
+`CONFIG_DISABLE_BIST_CLEAR` and still zeroed the L1.5. An earlier pico 4x4
+one-shot without the field picked valid caches but could not request the
+define; it was stopped mid-build. Logs: `runs/baseline_a_pico.log`,
+`runs/baseline_b_pico_{2x2,4x4}_rtl.log`, `runs/loop_pico_4x4_warm.log`.
+
+The earlier single-tile record, kept here but no longer in the paper:
 
 | approach | ariane 1x1 | ariane 2x2 | ariane 4x4 | sparc 1x1 | pico 1x1 |
 |---|---|---|---|---|---|
@@ -681,15 +702,12 @@ more than half of the billed output.
   wall-time fix, so aren't directly comparable to this one) took 741.7s
   and passed, 4/4 tasks, one iteration -- see README.md.
 
-The paper (`paper/mace_paper.tex` / `.pdf`) is drafted, typeset, and exactly 4
-pages, covering all of the above honestly — including (b) failing real
-hardware verification while (c) passes at roughly 4x its wall-clock cost,
-discussed directly rather than hidden (see README.md's own baseline
-section for the real numbers this and the paper both reflect). The author
-byline is a real name (Rana Umar Nadeem), not a placeholder, and there are
-real figures throughout: the pipeline diagram (Figure 1), a real-data bar
-chart of the 3-core × 2-baseline matrix, and a manual-vs-loop mesh-scaling
-comparison diagram (both Figure 2 -- see the next section).
+The paper (`paper/mace_paper.tex` / `.pdf`) is typeset at exactly 4 pages.
+Figure 1 is the author's draw.io pipeline diagram
+(`paper/mace_figure1.drawio.svg`, editable in draw.io), rendered to
+`paper/mace_figure1.pdf` with headless Chrome in the light color scheme:
+its labels are HTML `foreignObject`s, which SVG-to-PDF converters drop.
+Table 1 is the 2x2/4x4 three-way comparison above.
 
 ### The full 3-core × 2-baseline matrix
 
@@ -1284,7 +1302,9 @@ defines this macro to 0 or 1, never leaves it undefined — an earlier
 bug this project hit and fixed: every plain, non-coverage build failed to
 link with "undefined reference to VerilatedCov::..."). Real result, not a
 mock: 36.00% (8787/24311) on a real passing 1x1 Ariane +
-`barrier_atomic.c` run. See `scripts/local_coverage_1x1_build_test.py`'s own
+`barrier_atomic.c` run, and 35.00% (9497/26900) on a passing 2x2 run
+(2026-09-24, build `mace_3b2325c22a9b`, 235s build, all four tiles hit their
+good trap; the paper's figure). See `scripts/local_coverage_1x1_build_test.py`'s own
 module docstring for the full account, including why the plan's original
 `--report hier` idea doesn't work on this machine (that flag doesn't exist
 on the *stable* Verilator's `verilator_coverage`, only the broken one's).
