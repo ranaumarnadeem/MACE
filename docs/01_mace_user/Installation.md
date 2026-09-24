@@ -114,13 +114,6 @@ It applies twelve fixes:
 | 11 | Ariane `syscalls.c` | Polls the multi-hart exit barrier with atomic reads. |
 | 12 | CVA6 `cva6.sv` | Writes one `trace_hart_<id>.dasm` file per tile. |
 
-Fixes 7 and 10 edit `piton/verif/env/manycore/pc_cmp.v.pyv`.
-The adapter refuses to build when that directory's uncommitted changes differ from what the configuration recorded, and the loop's configurations record none, so commit those edits in the checkout:
-
-```bash
-git -C ~/openpiton commit -m "Apply MACE patches" -- piton/verif/env/manycore
-```
-
 The script also adds `pico_reset_ut`, a standalone unit-test environment for PicoRV32's reset behavior.
 Models built before a fix are not rebuilt on their own; see [Troubleshooting](Troubleshooting.md).
 [Environment Patches](../04_chia_openpiton/environment_patches.md) describes each fix in detail.

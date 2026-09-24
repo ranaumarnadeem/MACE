@@ -25,7 +25,7 @@ A failed `unit_test` build whose stderr contains `%Error-PINNOTFOUND` skips the 
 
 ## Diagnostic Tools
 
-When Ray is initialized, the orchestrator starts one `PitonToolServer` per run, named `triage-<run ID>`, on the first checkout.
+When Ray is initialized, the orchestrator starts a `PitonToolServer` named `triage-<run ID>` on the first checkout for each triage, handing it the failed task's build and run at construction and stopping the previous one first.
 It exposes four read-only tools:
 
 | Tool | Returns |
@@ -35,10 +35,9 @@ It exposes four read-only tools:
 | `compare_to_fixture` | The first divergence between `sim.log` and a reference transcript in `chia_openpiton/test/fixtures/` |
 | `symbol_check` | `objdump -f` and `-t` output for the run's `diag.exe`, beside its `symbol.tbl` |
 
-Before each triage call, the orchestrator calls `set_context(failed.build, failed.run)` on the server.
-The MCP server works on a copy of the tool server taken when it started, so that context does not yet reach tool calls made over MCP.
 A task that failed at build has no run, and the tools report an error for it.
 Triage receives the caller's tools plus this server, and the run continues without the server if it fails to start.
+The last server also serves the post-mortem and stops when the run ends.
 See [Tool Server](../04_chia_openpiton/tool_server.md).
 
 ## Replanning
