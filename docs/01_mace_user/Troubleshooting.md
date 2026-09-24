@@ -5,10 +5,10 @@
 ## Stale cached builds
 
 Each model lives in `$PITON_ROOT/build/manycore/<build_id>`, with a build ID of `mace_` plus 12 hex digits.
-A successful build leaves a `.mace_build_ok` marker, and a later build with the same ID reuses the model without running `sims`.
+A successful build leaves a `.mace_build_ok` marker, and later builds with the same ID reuse the model without running `sims`.
 
 A build ID covers the configuration, not source edits.
-The loop builds its `PitonConfig` from the spec alone, so its IDs depend only on the core, mesh, network, RTL defines, cache geometry, and extra flags.
+The loop constructs its `PitonConfig` from the spec alone, so its IDs depend only on the core, mesh, network, RTL defines, cache geometry, and extra flags.
 After an RTL or monitor edit, or a new fix from `scripts/patch_openpiton.sh`, the loop still reuses models built before the change.
 A typical symptom is the same failure on every replan while triage blames the RTL.
 
@@ -72,8 +72,6 @@ A build that fails with `%Error-NEEDTIMINGOPT` (tag `verilator_needs_timing_flag
 | 5.040, 5.048 | Their `verilated.mk` sets `CFG_CXXFLAGS_PCH` without `-c`, so every build fails to link the precompiled header with ``undefined reference to `main'`` (tag `pch_link_failure`). |
 | 5.049 devel | Builds, but its `verilator_coverage` faults on `--version`. |
 | 5.052 | Pinned by `flake.nix`; clears the problems above. |
-
-OpenSPARC T1 builds but does not run under Verilator 5 in this flow.
 
 ## Tool name length
 
