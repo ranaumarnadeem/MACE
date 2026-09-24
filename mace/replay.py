@@ -25,20 +25,22 @@ job (the integrator's applied diffs), not replay's.
 
 Practical consequence for what to tag: only tag calls whose entire
 contribution to the loop's decisions is captured in their return value --
-``llm.prompt`` (its QueryResult text, not what it did with its tools) and
-``OpenPitonWorkspaceNode.build``/``run`` (their artifacts, which already
-fully determine pass/fail). Don't tag anything a later task's correctness
-depends on beyond that return value.
+an LLM's ``prompt`` (its QueryResult text, not what it did with its tools)
+and OpenPitonWorkspaceNode's ``build``/``run`` (their artifacts, which
+already fully determine pass/fail). Don't tag anything a later task's
+correctness depends on beyond that return value.
 
 YAML shape (chia's own convention -- see chia/base/test/bypass_test_all.yaml
 for the closest real example; no file combining both sections exists
-upstream yet):
+upstream yet). CHIA matches each key against the called function's
+``__name__``, so the keys are bare names -- ``prompt``, ``build``, ``run``
+-- never ``llm.prompt``:
 
     cache:
-      llm.prompt:
+      prompt:
         cache: true
     bypass:
-      llm.prompt:
+      prompt:
         bypass: true
 
 A single ``Bypass`` instance is a process-global singleton (chia's own
