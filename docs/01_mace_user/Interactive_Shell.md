@@ -9,7 +9,7 @@ Its `shell` subcommand works like the Yosys and OpenROAD shells: commands accumu
 
 | Command | Purpose |
 |---|---|
-| `mace init` | Write backend credentials to an env file and check the environment. |
+| `mace init` | Set up backend credentials and check the environment. |
 | `mace shell` | Start the interactive shell, or run a command script. |
 | `mace results` | Read the run database; see [Results and Metrics](Results_and_Metrics.md). |
 | `mace cluster up CONFIG_FILE` | Run `chia up CONFIG_FILE`. `--yes`/`-y` skips the prompt, and `--dry-run` prints the plan without provisioning. |
@@ -33,7 +33,7 @@ mace init --backend opencode --api-key <key> --env-file .env.mace
 
 For a key-based backend, `init` merges one line into the env file, sets owner-only permissions, and prints the variable it wrote: `OPENCODE_API_KEY`, `ANTHROPIC_API_KEY`, or `ANTIGRAVITY_API_KEY`.
 The repository's `.gitignore` excludes `.env.mace`, so `--env-file .env.mace` keeps a project-local credentials file out of git.
-For `vertex`, `init` writes no file and checks for the credentials file of `gcloud auth application-default login`, `~/.config/gcloud/application_default_credentials.json` on Linux.
+For `vertex`, `init` writes nothing and checks for the credentials that `gcloud auth application-default login` saves, `~/.config/gcloud/application_default_credentials.json` on Linux.
 
 `init` then checks that `verilator`, `riscv64-unknown-elf-gcc`, and `git` are on `PATH` and that `ray` and `chia_openpiton` import, and prints the `mace shell` command to run next.
 
@@ -70,9 +70,10 @@ The shell starts its own local Ray instance.
 | `help [command]`, `h` | Lists the commands, or shows the help of one. |
 | `exit`, `quit`, Ctrl-D | Leaves the shell. |
 
-After each iteration, `run` prints every task's build status and model or run directory, with the simulation log tail for workload tasks, and it ends with the run ID, status, and any post-mortem.
+After each iteration, `run` prints each task's build status and its model or run directory, plus the simulation log tail for `workload` tasks.
+When the loop ends, it prints the run ID, the status, and any post-mortem, then the per-module table and the coverage report when they apply.
 Ctrl-C during `run` returns to the prompt with the session intact.
-Command history is kept in `~/.mace/.shell_history`.
+The shell keeps command history in `~/.mace/.shell_history`.
 
 ## Core compatibility checks
 
@@ -84,15 +85,17 @@ Command history is kept in `~/.mace/.shell_history`.
 | `sparc`, `opensparc` | `sparc` |
 | `picorv32`, `pico` | `pico` |
 
-When nothing matches, `run` builds nothing and prints a static post-mortem with the assessment `likely_hardware_limitation`: OpenPiton has no generic core-to-NoC bridge, so each core needs a hand-written L15 adapter.
+When nothing matches, `run` builds nothing and prints a static post-mortem with the assessment `likely_hardware_limitation`.
+OpenPiton has no generic core-to-NoC bridge, so each core needs a hand-written L15 adapter.
 [Adding a Core](../05_mace_cores/adding_a_core.md) describes that work.
 
 ## Session defaults
 
-For each setting you did not give, `run` uses the workload `barrier_atomic.c`, the objective `Verify the gate workload passes.`, the core `ariane`, a 1x1 mesh, and the default `Budget` of 10 iterations, 20 USD, and 3600 s.
-It builds against the single `--piton-root` checkout.
+For each setting you did not give, `run` uses the workload `barrier_atomic.c`, the objective `Verify the gate workload passes.`, the core `ariane`, and a 1x1 mesh.
+It always uses the default `Budget` from [Running the Loop](Running_the_Loop.md), and it builds against the single `--piton-root` checkout.
 
-`set_core N` picks a square mesh when N is a perfect square and otherwise the factor pair closest to square, such as 4x2 for 8 tiles, with at most 256 tiles per axis.
+`set_core N` picks the factor pair of N closest to square, such as 2x2 for 4 tiles and 4x2 for 8 tiles.
+Each axis holds at most 256 tiles.
 It prints the note stored in `KNOWN_MESH_OUTCOMES` (`mace/cli/session.py`) for 1, 4, and 16 tiles, and marks other counts as unvalidated.
 
 `read_spec` reads `objective:`, `workloads:` (comma-separated), and `core:` lines.
@@ -107,7 +110,7 @@ core: ariane
 ## Script mode
 
 `--script` runs one command per line and skips blank lines and full-line `#` comments.
-A failing line is reported, and the script continues.
+The shell reports a failing line and moves on to the next.
 
 ```text
 # session.mace

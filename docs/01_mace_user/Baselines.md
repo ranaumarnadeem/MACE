@@ -2,7 +2,7 @@
 
 # Baselines
 
-MACE is compared against two baselines that use the same core, objective, and gate workload as the loop:
+Two baselines run the same core and gate workload as the loop:
 
 - Baseline (a), manual mesh scaling: configure, build, and run a mesh by hand through the adapter.
 - Baseline (b), one-shot LLM: one prompt proposes a configuration, which is built and run once, with no tools, no verification loop, and no retry.
@@ -12,8 +12,7 @@ The full loop is approach (c).
 
 ## Baseline (a): manual mesh scaling
 
-Baseline (a) has no dedicated script.
-Drive `OpenPitonWorkspaceNode` directly:
+Baseline (a) drives `OpenPitonWorkspaceNode` directly:
 
 ```python
 import ray
@@ -53,7 +52,7 @@ It sends one prompt with no tools, parses one configuration from the reply, then
 | `--objective` | `Verify the barrier_atomic gate workload passes on a 1x1 mesh.` |
 | `--backend` | `vertex` |
 | `--model` | `gemini-2.5-flash` on `vertex` |
-| `--project` | `mace-508004`, written to `GOOGLE_CLOUD_PROJECT` only when that variable is unset |
+| `--project` | `mace-508004`; see [LLM Backends](LLM_Backends.md) |
 
 The script has no `--mesh` flag.
 The LLM chooses `x_tiles` and `y_tiles`, so state the mesh in `--objective`.
@@ -68,14 +67,14 @@ CONFIG: x_tiles=<int> | y_tiles=<int> | l1i_size=<bytes> | l1i_assoc=<int> | l1d
 
 The script uses the last `CONFIG:` line in the reply.
 The `config_rtl` field is optional.
-Defines it lists are added to the default `MINIMAL_MONITORING`, and a missing field or `none` adds nothing.
+The script adds the listed defines to the default `MINIMAL_MONITORING`, and a missing field or `none` adds none.
 Each define must match `^[A-Z][A-Z0-9_]*$`.
-A reply with no `CONFIG:` line, a missing field, a malformed define, or a value that `PitonConfig` rejects, such as a cache size of 0, stops the script before any build with `BASELINE (one-shot): FAILED TO PARSE A CONFIG`.
+The script stops before any build and prints `BASELINE (one-shot): FAILED TO PARSE A CONFIG` when the reply has no `CONFIG:` line, a missing field, or a malformed define.
+A value that `PitonConfig` rejects, such as a cache size of 0, stops it the same way.
 
 A parsed configuration builds with a 15000 s timeout, and the workload runs with `rtl_timeout=RECOMMENDED_RTL_TIMEOUT`.
 After the run, the script prints a summary with `status`, `llm_calls: 1`, `execution_time_s`, `compute_usd (lower bound)`, and `verdict`.
 It exits with 0 only on a pass.
-It writes nothing to the run database.
 
 ```bash
 python examples/baseline_one_shot_llm.py \
@@ -88,13 +87,13 @@ python examples/baseline_one_shot_llm.py \
 ## Running (b) and (c) back to back
 
 ```bash
-mkdir -p runs
 bash scripts/local_baselines_b_and_c_test.sh ~/openpiton
 ```
 
 The script activates the `chia_env` conda environment from `~/miniconda3` or `~/anaconda3`.
 It runs `examples/baseline_one_shot_llm.py`, then `examples/mace_end_to_end.py`, against the same checkout, one after the other because they share it.
-Output and exit codes go to `runs/baseline_b_output.log` and `runs/baseline_c_output.log`; the script does not create `runs/`.
-It passes only `--piton-root`, so both scripts run with their default core, workload, and 1x1 mesh.
+Output and exit codes go to `runs/baseline_b_output.log` and `runs/baseline_c_output.log` in the repository root.
+It passes only `--piton-root`, so both scripts use their default core and workload.
+(c) builds its default 1x1 mesh, and (b)'s default objective asks for one.
 Always pass the checkout path, because the built-in default is a path on the authors' machine.
 For 2x2 and 4x4 comparisons, run the two scripts directly with matching flags.

@@ -18,8 +18,9 @@ See [Workspace Node](../04_chia_openpiton/workspace_node.md).
 
 ## Dispatch
 
-`topological_levels()` groups the tasks into levels, and the levels run in order.
-A level with more tasks than checkouts runs in batches of `len(piton_roots)`, one batch after another, and the i-th task of a batch runs on the i-th checkout.
+Levels run in order (see [Integration and Verification](integrator.md)).
+A level with more tasks than checkouts runs in batches of `len(piton_roots)`, one after another.
+The i-th task of a batch runs on the i-th checkout.
 
 Within a batch, each `config` or `workload` task runs on its own thread as three CHIA remote calls, each resolved with `get()` before the next:
 
@@ -27,9 +28,9 @@ Within a batch, each `config` or `workload` task runs on its own thread as three
 - `node.build.chia_remote()` with the task's configuration;
 - `node.run.chia_remote()` with the first gate workload, if the build succeeded.
 
-Each call carries a replay tag when a run ID is given, and the orchestrator always gives one (see [Budgets and Replay](budget_and_replay.md)).
+Each call carries a replay tag (see [Budgets and Replay](budget_and_replay.md)).
 Tasks in a batch advance through these stages independently.
-The optional `on_task_progress(task_ids, stage)` callback reports the stages `prompting`, `building`, and `running`.
+The optional `on_task_progress(task_ids, stage)` callback reports `prompting`, `building`, and `running`.
 
 A `unit_test` task skips this pipeline and runs locally through `mace.loop.run_mace_step()` on its slot's checkout.
 A batch's `unit_test` tasks run one after another before its remote tasks start.
@@ -43,20 +44,20 @@ A batch's `unit_test` tasks run one after another before its remote tasks start.
 - `caches` takes the task's `CACHES:` override, and sims applies its defaults to the caches the override omits;
 - `config_rtl` is the sorted union of the default `("MINIMAL_MONITORING",)` and the task's `CONFIG_RTL:` flags.
 
-A task's configuration depends only on the spec and the task's own overrides, never on its dependencies.
+A task's configuration depends only on the spec and the task's own overrides.
 Two tasks in one level can therefore build different cache geometries.
 
 ## Unit-Test Tasks
 
 `_run_unit_test_step()` reads `task.spec` as an RTL path.
 It scaffolds an environment named by `unit_test_env_name()` with OpenPiton's `create_env.py`, reads the module's ports, and prompts the agent to fix the scaffolded `<env>_top.v`.
-It then builds `PitonConfig(sys=env_name)`, and the task passes when that build succeeds.
+It then builds `PitonConfig(sys=env_name)`.
 
 When Ray is initialized, the step creates a `mace.tools.TestbenchEditTool` for the LLM call and stops it afterward.
 The tool exposes `{name}_read_testbench`, `{name}_write_testbench`, and `{name}_read_dut_source`, and none of them takes a path.
-Through this tool the agent can rewrite the one testbench and read the one module source.
+The agent can rewrite that testbench and read that module's source, and no other file.
 
-`_unit_test_tool_name(task.id)` names the tool:
+`_unit_test_tool_name(task.id)` gives it a fixed-length name:
 
 ```python
 f"ut_edit_{hashlib.sha1(task_id.encode()).hexdigest()[:8]}"

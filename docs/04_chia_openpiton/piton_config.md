@@ -19,7 +19,7 @@
 | `source_rev` | `str` | `""` | Checkout commit, set by `configure()` |
 | `ariane_rev` | `str` | `""` | Ariane submodule commit, set by `configure()` |
 | `verilator_version` | `str` | `""` | `verilator --version` text, set by `configure()` |
-| `diff` | `str` | `""` | Uncommitted diff under `piton/verif/env/manycore`, set by `configure()` |
+| `diff` | `str` | `""` | Unstaged diff under `piton/verif/env/manycore`, set by `configure()` |
 
 ## Constants
 
@@ -34,7 +34,7 @@ MAX_TILES_PER_AXIS = 256
 COVERAGE_LINE_FLAG = "-vlt_build_args=--coverage-line"
 ```
 
-`DEFAULT_CACHES` mirrors `piton/tools/src/sims/manycore.config`. Each key fills the `<key>` in `-config_<key>_size` and `-config_<key>_associativity`. `MAX_TILES_PER_AXIS` matches the limit `sims` enforces with `DIE. x_tiles can be at most 256`. Adding `COVERAGE_LINE_FLAG` to `extra_flags` turns on Verilator line coverage (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
+`DEFAULT_CACHES` mirrors `piton/tools/src/sims/manycore.config`. Each cache name fills the `<name>` in `-config_<name>_size` and `-config_<name>_associativity`. `MAX_TILES_PER_AXIS` matches the limit `sims` enforces with `DIE. x_tiles can be at most 256`. Adding `COVERAGE_LINE_FLAG` to `extra_flags` turns on Verilator line coverage (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
 
 ## Validation
 
@@ -49,7 +49,7 @@ COVERAGE_LINE_FLAG = "-vlt_build_args=--coverage-line"
 | Unknown cache name | `unknown cache 'l3'; valid: ['l15', 'l1d', 'l1i', 'l2']` |
 | Size or associativity not positive | `cache l2 size/associativity must be positive, got (0, 4)` |
 
-`sys` is not validated.
+`__post_init__` does not check `sys`.
 
 ## Derived values
 
@@ -65,7 +65,7 @@ COVERAGE_LINE_FLAG = "-vlt_build_args=--coverage-line"
 
 `key` hashes a JSON object, serialized with sorted keys, that holds `sys`, `core`, `x_tiles`, `y_tiles`, `network_config`, `config_rtl` (sorted), `caches` (sorted by name), `extra_flags` (in order), `source_rev`, `ariane_rev`, `verilator_version`, and `diff`. [build()](workspace_node.md) passes `build_id` to `sims` as `-build_id`. `sims` writes every model to `rel-0.1` by default, so without a per-configuration ID two configurations overwrite each other's model.
 
-The key covers configuration, not source edits. `configure()` records the committed revision, the Ariane submodule commit, the Verilator version, and the uncommitted diff under `piton/verif/env/manycore`. Edits anywhere else in the working tree leave the key unchanged. A directly constructed `PitonConfig` leaves those four fields empty, so its key depends on the configuration fields alone. After an RTL or testbench change, rebuild with `build(..., clean=True)` or remove the model with `clean()`; otherwise the build cache serves the earlier model.
+Beyond the configuration fields, the key covers only what `configure()` records: the committed revision, the Ariane submodule commit, the Verilator version, and the unstaged diff under `piton/verif/env/manycore`. Edits anywhere else in the working tree leave the key unchanged. A directly constructed `PitonConfig` leaves those four fields empty, so its key depends on the configuration fields alone. After an RTL or testbench change that the key does not cover, rebuild with `build(..., clean=True)` or remove the model with `clean()`; otherwise the build cache serves the earlier model.
 
 ## sims_flags()
 
@@ -98,4 +98,4 @@ The default configuration produces:
 
 For any other `sys`, `sims_flags()` returns `-sys=<sys>` followed by `extra_flags`. The mesh, core, and cache fields still count toward `key`.
 
-`extra_flags` carries anything else `sims` accepts. For example, `-rv64_march=rv64imafdc_zicsr_zifencei` lets OpenPiton's diags assemble under binutils 2.38 and later, and `COVERAGE_LINE_FLAG` instruments the model for line coverage.
+`extra_flags` carries anything else `sims` accepts. For example, `-rv64_march=rv64imafdc_zicsr_zifencei` lets OpenPiton's diags assemble under binutils 2.38 and later.

@@ -43,7 +43,7 @@ make -C docs SPHINXOPTS="-W --keep-going"
 ## Code
 
 - `chia_openpiton` imports nothing from `mace`, so it can move into CHIA as `chia/openpiton/` unchanged. CI checks this.
-- Each fix in `scripts/patch_openpiton.sh` has a number, is safe to run twice, and has a test in `chia_openpiton/test/test_patch_openpiton.py`.
+- Each fix in `scripts/patch_openpiton.sh` has a number and is safe to run twice. Add a test for a new fix in `chia_openpiton/test/test_patch_openpiton.py`.
 - Run the tier-0 tests before every commit.
 
 ## Runs

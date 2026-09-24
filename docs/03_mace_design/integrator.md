@@ -2,7 +2,7 @@
 
 # Integration and Verification
 
-`mace/integrator.py` makes no LLM call.
+`mace/integrator.py` writes no prompt of its own: it sends each `config` or `workload` task's instruction to the LLM as written.
 It decides the order in which tasks run and whether an iteration continues.
 
 ## Dependency Order
@@ -19,7 +19,7 @@ The drivers in the repository, `examples/mace_end_to_end.py` and the `mace` shel
 
 `OpenPitonWorkspaceNode.build()` runs `sims <flags> -build_id=<build ID> -vlt_build`, passing `--no-timing` to Verilator 5 and later.
 A build succeeds when `sims` exits 0 within 7200 s and the model binary exists.
-When the marker and binary of an earlier successful build with the same build ID exist, `build()` returns that build with `reused=True` and skips `sims`.
+When an earlier successful build with the same build ID left its binary and its `.mace_build_ok` marker, `build()` skips `sims` and returns that build with `reused=True`.
 
 `_config_for_task()` constructs its `PitonConfig` directly rather than through `configure()`, so the source-revision, Verilator-version, and diff fields stay empty.
 A loop task's build ID therefore covers its configuration only.
@@ -30,7 +30,7 @@ A source edit leaves the build ID unchanged, and the loop reuses the earlier bui
 For a `config` or `workload` task, `run()` simulates the first entry of `MaceSpec.workloads` in a new directory under the model's `runs/`.
 It passes `-rtl_timeout=1000000` and an `-asm_diag_root` pointing at `mace/workloads/`, which sims searches in addition to the checkout's own diags.
 The finish mask holds one `1` per tile, so a multi-tile run passes only when every tile reaches the good trap.
-The planner prompt lists every gate workload; the integrator runs the first.
+The planner prompt lists every gate workload.
 
 ## Verdict
 
@@ -56,4 +56,4 @@ A return code of -1 marks a timeout or a failed launch; any other exit code is i
 A `config` or `workload` task passes when its run succeeds, and fails with `run=None` when its build fails.
 A `unit_test` task passes when its build succeeds.
 An iteration passes when it produced results and all of them passed.
-`record_iteration()` stores each task row with the cache geometry its build used.
+`record_iteration()` stores each task row with its build's `PitonConfig.caches`: the four defaults, or only the overridden caches for a task with a `CACHES:` line.

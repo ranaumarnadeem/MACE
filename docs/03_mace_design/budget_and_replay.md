@@ -36,7 +36,7 @@ A changed file, a file missing from `CHECKSUMS`, or a listed file that no longer
 | `failed` | An iteration returned no task results |
 | `planning_failed` | `plan()` raised `PlanningError` |
 | `budget_exceeded` | A limit ran out before any iteration passed |
-| `checksum_mismatch` | The gate workloads do not match `CHECKSUMS` |
+| `checksum_mismatch` | A C program in `mace/workloads/` does not match `CHECKSUMS` |
 | `error` | An exception escaped the loop; it is recorded, then re-raised |
 
 ## Deterministic Replay
@@ -48,16 +48,16 @@ f"{run_id}/iter{iteration}/{task_id}/{phase}"  # phase: "prompt", "build", or "r
 ```
 
 `run_mace_loop()` passes its run ID and iteration number, so the remote calls of every run are tagged.
-A later call with the same run ID, iteration, task id, and phase resolves to the entry the original call wrote.
+Tags take effect once a caller enables CHIA's cache and bypass.
+A later call with the same run ID, iteration, task id, and phase then resolves to the entry the original call wrote.
 `run_mace_loop()` draws a new run ID for each run, so running the loop again writes new entries.
 
-Tags take effect once a caller enables CHIA's cache and bypass.
-`enable_caching(cache_dir_path, size=8, units="GB", yaml_path=None)` starts CHIA's cache actor, which stores the return value of every tagged call to a function the YAML file marks `cache: true`.
+`enable_caching(cache_dir_path, *, size=8, units="GB", yaml_path=None)` starts CHIA's cache actor, which stores the return value of every tagged call to a function the YAML file marks `cache: true`.
 `enable_replay(yaml_path, func_names)` registers `cache_provider` for the named functions; their calls that the YAML file marks `bypass: true` are then served from the cache without running.
 A bypassed call with no cache entry fails with a `KeyError` naming the missing tag.
 The tier-1 test `mace/test/cluster/replay_e2e_test.py` checks this round trip on a toy CHIA function.
 The drivers in the repository call neither function.
 
-Replay reproduces decisions: the LLM's `QueryResult` and the build and run artifacts that fix each task's pass or fail.
-CHIA's cache holds return values only, so replay does not re-apply edits an agent made through its tools; git records a checkout's source state.
+Replay reproduces decisions: the LLM's `QueryResult` and the build and run artifacts that decide whether each task passed.
+CHIA's cache holds return values only, so replay does not re-apply edits an agent made through its tools.
 Planner, triage, and post-mortem calls and `unit_test` tasks run locally and carry no tag.

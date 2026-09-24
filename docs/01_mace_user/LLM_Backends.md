@@ -3,31 +3,35 @@
 # LLM Backends
 
 MACE calls LLMs through CHIA's model classes.
-`mace/llm.py` maps a backend name to a class, so the planner, task execution, and triage see only an `LLMCallBase`, and switching backends needs no code change.
+`mace/llm.py` maps each backend name to one of them.
+The planner, task execution, triage, and post-mortem see only an `LLMCallBase`, so switching backends needs no code change.
 
 ## Backends
 
 | Backend | CHIA class | Credential | Default model | Cost reported |
 |---|---|---|---|---|
-| `vertex` | `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash` | No |
+| `vertex` | `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash`, set by the drivers | No |
 | `opencode` | `chia.models.opencode.OpenCodeLLM` | `OPENCODE_API_KEY` | the class's own | Yes |
 | `claude` | `chia.models.claude.ClaudeCodeLLM` | `ANTHROPIC_API_KEY` | the class's own | No |
 | `antigravity` | `chia.models.antigravity.AntigravityLLM` | `ANTIGRAVITY_API_KEY` | the class's own | Yes |
 
-`vertex` is the default of `mace init`, `mace shell`, and the example scripts.
-The key variables are the ones `mace init` writes.
-`BACKEND_ENV_VARS` in `mace/cli/config.py` is a best-effort mapping, and `init` prints the variable it wrote so you can compare it with what the backend reads.
+`vertex` is the default backend of `mace init`, `mace shell`, `examples/mace_end_to_end.py`, and `examples/baseline_one_shot_llm.py`.
+For the three key-based backends, the table lists the variable `mace init` writes.
+For `vertex`, `mace init` writes no file and only checks for Application Default Credentials.
+`BACKEND_ENV_VARS` in `mace/cli/config.py` holds this mapping on a best-effort basis.
+`init` prints the name it used, so you can check it against what the backend reads.
 
 ## Selecting a backend and model
 
 `make_llm(backend=None, **overrides)` builds the backend named by `backend`, or by the `MACE_LLM` environment variable when `backend` is `None`.
 With neither set, it builds `opencode`.
 `MACE_LLM_MODEL`, when set, becomes the model, and a `model=` override takes precedence over it.
-An unknown name raises `UnknownLLMBackendError`.
+An unknown name raises `UnknownLLMBackendError`, and `make_llm("vertex")` raises `TypeError` when no model is set.
 
 `default_model_for_backend(model, backend)` returns `model` when one is given, `gemini-2.5-flash` for `vertex`, and `None` for any other backend, which then uses its own default.
-`mace shell` and the example scripts apply it to `--model`.
-The shell writes the result to `MACE_LLM_MODEL` and sets `MACE_LLM` to the backend when it is unset.
+`mace shell` and the two scripts above apply it to `--model`.
+When the result is not `None`, the shell writes it to `MACE_LLM_MODEL`.
+It also sets `MACE_LLM` to the backend if `MACE_LLM` is unset.
 
 The drivers declare a `<backend>_creds` Ray resource next to `openpiton`, such as `vertex_creds`.
 Declare the same resource in your own driver.
@@ -43,9 +47,10 @@ mace shell --piton-root ~/openpiton --backend vertex
 ```
 
 `VertexGeminiLLM` reads the project from `GOOGLE_CLOUD_PROJECT`.
-When that variable is unset, `mace shell` and the scripts' `--project` default set it to `mace-508004`, so export your own project.
-To use a service-account key file instead, put `GOOGLE_APPLICATION_CREDENTIALS=<path to key file>` in an env file and pass it with `--api`.
-The shell requires that variable in any file passed with `--backend vertex`.
+If it is unset, `mace shell` sets it to `mace-508004`, and the scripts set it from `--project`, which has the same default.
+Export your own project first.
+To authenticate with a service account instead, put `GOOGLE_APPLICATION_CREDENTIALS=<path>` in an env file and pass it with `--api`.
+With `--backend vertex`, the shell exits if that file does not set this variable.
 
 ## Key-based backends
 
@@ -62,9 +67,10 @@ The prerequisites of the `opencode`, `claude`, and `antigravity` classes are doc
 
 `extract_cost_usd()` reads `usage["cost_usd"]` from a call's result.
 OpenCode and Antigravity results carry it.
-Claude keeps its cost on the LLM instance, which a remote call does not return, so its calls read 0.
-`VertexGeminiLLM` returns a plain `QueryResult` with no usage field, so every Vertex call reads 0, and `compute_usd` stays 0.0 for a Vertex run.
+Claude keeps its cost on the LLM instance, which a remote call does not return, so its calls count as 0.
+`VertexGeminiLLM` returns a plain `QueryResult` with no usage field, so every Vertex call also counts as 0.
 
-On every backend the loop's tally counts per-task calls only, not planner, triage, or post-mortem calls, so `compute_usd` is a lower bound.
-On Vertex the tally never rises above 0, so `Budget.max_usd` cannot stop a Vertex run; rely on `max_iterations` and `max_wall_s`.
-[Cost](../06_mace_evaluation/cost.md) gives measured per-run costs.
+On every backend, the loop's tally counts per-task calls only and skips planner, triage, and post-mortem calls, so `compute_usd` is a lower bound.
+On Vertex the tally stays at 0, so `Budget.max_usd` cannot stop a run.
+Rely on `max_iterations` and `max_wall_s`.
+[Cost](../06_mace_evaluation/cost.md) gives estimated per-run costs.

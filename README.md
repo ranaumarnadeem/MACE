@@ -56,8 +56,8 @@ or conda with tools you install yourself.
 ```bash
 conda create -n chia_env -c conda-forge --override-channels python=3.10.19
 conda activate chia_env
-git clone https://github.com/ucb-bar/chia.git
-pip install -e ./chia
+git clone https://github.com/ucb-bar/chia.git ../chia
+pip install -e ../chia
 pip install -e ".[test]"
 pytest chia_openpiton/test mace/test --ignore=chia_openpiton/test/cluster --ignore=mace/test/cluster
 ```

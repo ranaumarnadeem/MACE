@@ -2,9 +2,9 @@
 
 # Transcript Parsers
 
-`chia_openpiton/parse.py` holds pure functions that take text and return data. They do no I/O, start no subprocesses, and need no Ray. These functions decide whether a simulation passed, so they are tested against captured logs in `chia_openpiton/test/fixtures/` with no toolchain present.
+`chia_openpiton/parse.py` holds pure functions that take text and return data. They do no I/O, start no subprocesses, and need no Ray. Because they decide whether a simulation passed, the tier-0 tests run them against captured logs in `chia_openpiton/test/fixtures/`, with no toolchain present.
 
-The patterns come from OpenPiton's source. `piton/verif/env/manycore/pc_cmp.v.pyv` prints the PASS line once every hart in the finish mask hits the good trap. `piton/verif/env/manycore/monitor.v.pyv` owns the `fail` task and the max-cycles abort. regreport renders `status.log` and the regression summary.
+The patterns come from OpenPiton's source. `piton/verif/env/manycore/pc_cmp.v.pyv` prints the PASS line once every hart in the finish mask hits the good trap. `piton/verif/env/manycore/monitor.v.pyv` owns the `fail` task and the max-cycles abort. OpenPiton's `regreport` tool renders `status.log` and the regression summary.
 
 ## Verdicts
 
@@ -72,7 +72,7 @@ first_divergence(reference: str, actual: str) -> tuple[int, str, str] | None
 | `diaglist_group` | The tests of one diaglist group, as `DiagEntry` values |
 | `first_divergence` | The 1-based line number and both lines at the first line where the texts differ. `None` when one text is a line-for-line prefix of the other, which includes identical texts |
 
-[run()](workspace_node.md) calls `sim_verdict` and `sim_time` on the full `sim.log`, and `cycles` and `exec_cycles` on `status.log`. The `status.log` from these configurations has no `Cyc=` field, so `sim_time` is the duration measure. `build()` calls `needs_no_timing` and `build_failure_reason`. [PitonToolServer](tool_server.md) calls `first_divergence`, and the MACE shell calls `coverage_summary` (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
+[run()](workspace_node.md) calls `sim_verdict` and `sim_time` on the full `sim.log`, and `cycles` and `exec_cycles` on `status.log`. `build()` calls `needs_no_timing` and `build_failure_reason`. [PitonToolServer](tool_server.md) calls `first_divergence`, and the MACE shell calls `coverage_summary` (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
 
 ## Build failure tags
 

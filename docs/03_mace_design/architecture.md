@@ -2,8 +2,7 @@
 
 # Architecture
 
-MACE runs the same pipeline in every iteration of a run.
-`mace.orchestrator.run_mace_loop()` drives it.
+`mace.orchestrator.run_mace_loop()` checks a run's inputs once, then repeats the stages from Planning to Iteration in each iteration.
 
 ```text
      Requirement             MaceSpec, verify_checksums()   -> checksum_mismatch
@@ -41,23 +40,22 @@ Each stage maps to the modules below.
 | Iteration | `mace/orchestrator.py` | `run_mace_loop()` feeds each diagnosis into the next plan |
 
 `mace/metrics.py` records runs, iterations, tasks, failures, and post-mortems in SQLite.
-`mace/report.py` writes a post-mortem for a run that ends without passing.
-`mace/replay.py` builds the tags that make remote calls replayable.
+`mace/report.py` writes a post-mortem for a run that ends with `failed` or `budget_exceeded`.
+`mace/replay.py` builds replay tags and turns on CHIA's cache and bypass.
 
 ## Control Flow
 
-`run_mace_loop(piton_roots, spec, llm, db, tools=(), on_iteration=None, on_task_progress=None)` records the run as `running` and verifies the gate workloads against their checksums.
+`run_mace_loop(piton_roots, spec, llm, db, tools=(), on_iteration=None, on_task_progress=None)` records the run as `running` and checks the C programs in `mace/workloads/` against `CHECKSUMS`.
 Each iteration then checks the wall-clock and USD limits, calls `plan()` with the feedback gathered so far, and hands the task DAG to `integrate_parallel()`.
 The orchestrator opens one `OpenPitonWorkspaceNode` per checkout when the first iteration reaches execution, reuses the nodes in later iterations, and closes them after the loop.
 
 `record_iteration()` stores each iteration's results, and the optional `on_iteration(iteration, results)` callback reports them to the caller.
 When every task passed, the run ends with `passed`.
-Otherwise `triage()` diagnoses the first failed task, `record_failure()` stores the diagnosis, and a feedback line joins the history that every later `plan()` call receives.
-When `max_iterations` iterations end without a pass, the run ends with `budget_exceeded`.
+Otherwise `triage()` diagnoses the first failed task, and `record_failure()` stores the diagnosis for later plans (see [Failure Analysis](failure_analysis.md)).
+Budget limits end the run with `budget_exceeded` (see [Budgets and Replay](budget_and_replay.md)).
 
 `mace/loop.py` also holds `run_mace_step()`, which runs a single task without the planner.
-`mace/integrator.py` also offers `integrate()`, a serial applier over one checkout.
-The orchestrator uses `integrate_parallel()`.
+`integrate()` in `mace/integrator.py` applies tasks serially on one checkout, and the orchestrator does not call it.
 
 ## Package Boundary
 

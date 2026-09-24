@@ -19,10 +19,11 @@ pip install -e ".[test]"
 pytest chia_openpiton/test -q --ignore=chia_openpiton/test/cluster
 ```
 
-These tier-0 tests need neither Ray nor an OpenPiton checkout. The tests in
-`test/cluster/` run tier 1 on a local Ray instance with a stub `sims`, and tier 2
-against a patched checkout when `OPENPITON_TEST_REAL=1` and `OPENPITON_ROOT` are
-set. The test module's docstring gives the full commands.
+These tier-0 tests start no Ray instance and need no OpenPiton checkout. The
+tests in `test/cluster/` add tier 1, which checks node placement on a local Ray
+instance, and tier 2, which builds and runs diags on a patched checkout when
+`OPENPITON_TEST_REAL=1` and `OPENPITON_ROOT` are set. The test module's
+docstring gives the full commands.
 
 ## Worker requirements
 

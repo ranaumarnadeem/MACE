@@ -2,7 +2,7 @@
 
 # Installation
 
-MACE needs a Python 3.10 environment with CHIA and MACE installed, Verilator, a RISC-V GCC toolchain, and a patched OpenPiton checkout.
+MACE needs a Python 3.10 environment with CHIA installed, Verilator, a RISC-V GCC toolchain, and a patched OpenPiton checkout.
 The Nix flake provides Verilator and the toolchain.
 The conda route uses tools you install yourself.
 Both routes finish with the OpenPiton checkout and patch steps at the end of this page.
@@ -34,7 +34,7 @@ pip install -e '.[test]'
 ```
 
 Later entries reuse `.venv`.
-When `PITON_ROOT` names a checkout, the shell also reports whether `scripts/patch_openpiton.sh` has been applied to it.
+When `PITON_ROOT` names a checkout, the shell also checks it for fix 5 of `scripts/patch_openpiton.sh` and reports whether the checkout is patched.
 
 To use only the pinned Verilator in another environment, build the flake's `verilator` package and put it first on `PATH`:
 
@@ -47,11 +47,13 @@ export PATH="$VERILATOR_STORE/bin:$PATH"
 ## Option 2: conda and pip
 
 ```bash
+git clone https://github.com/ranaumarnadeem/MACE.git
+cd MACE
 conda create -n chia_env -c conda-forge --override-channels python=3.10.19
 conda activate chia_env
 
-git clone https://github.com/ucb-bar/chia.git
-pip install -e ./chia
+git clone https://github.com/ucb-bar/chia.git ../chia
+pip install -e ../chia
 pip install -e ".[test]"
 ```
 
@@ -83,10 +85,10 @@ git checkout 1c6bfd2
 git submodule update --init --recursive piton/design/chip/tile/ariane
 ```
 
-Keep the checkout on native Linux storage, such as `~/openpiton` inside WSL, not on a Windows-mounted path such as `/mnt/c`.
-Builds on `/mnt/c` are slow and have shown read-after-write coherency gaps during the boot ROM step.
+Keep the checkout on native Linux storage, such as `~/openpiton` inside WSL.
+Builds on a Windows-mounted path such as `/mnt/c` are slow and have shown read-after-write coherency gaps during the boot ROM step.
 
-A checkout holds one build at a time, because OpenPiton writes generated `.tmp.v` files into the source tree during a build.
+A checkout holds one build at a time, because OpenPiton writes generated `.tmp.v` files into its source tree while it builds.
 For parallel runs with `--piton-root-2`, clone a second checkout.
 
 ## Patch the checkout
@@ -96,7 +98,7 @@ bash scripts/patch_openpiton.sh ~/openpiton
 ```
 
 With no argument, the script uses `PITON_ROOT`.
-It is idempotent, so running it again is safe.
+Running it again is safe.
 It applies twelve fixes:
 
 | Fix | File | Change |
@@ -115,5 +117,5 @@ It applies twelve fixes:
 | 12 | CVA6 `cva6.sv` | Writes one `trace_hart_<id>.dasm` file per tile. |
 
 The script also adds `pico_reset_ut`, a standalone unit-test environment for PicoRV32's reset behavior.
-Models built before a fix are not rebuilt on their own; see [Troubleshooting](Troubleshooting.md).
+The loop keeps reusing models built before a fix; [Troubleshooting](Troubleshooting.md) shows how to rebuild them.
 [Environment Patches](../04_chia_openpiton/environment_patches.md) describes each fix in detail.

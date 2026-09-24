@@ -19,13 +19,13 @@ Patch the checkout before you build with coverage; see [Installation](Installati
 COVERAGE_LINE_FLAG = "-vlt_build_args=--coverage-line"
 ```
 
-`sims` passes `--coverage-line` to Verilator, which instruments line coverage only, not toggle or user coverage.
+`sims` passes `--coverage-line` to Verilator, which then instruments line coverage only.
 Enable it in one of three places:
 
 | Where | How |
 |---|---|
 | Interactive shell | `run -coverage`. It applies to this and every later `run` in the session. |
-| Loop from Python | `MaceSpec(..., coverage=True)`. Every task's build gets `COVERAGE_LINE_FLAG` in its `extra_flags`. |
+| Loop from Python | `MaceSpec(..., coverage=True)`. Each `config` and `workload` task's build gets `COVERAGE_LINE_FLAG` in its `extra_flags`; `unit_test` builds do not. |
 | Adapter | `node.configure.chia_remote(..., extra_flags=(COVERAGE_LINE_FLAG,))`. |
 
 The flag is part of the build ID, so a coverage model gets its own directory beside the plain model of the same mesh.
@@ -56,8 +56,8 @@ Total coverage (<hit>/<total>) <percent>%
 See lines with '%00' in <run_dir>/coverage_annotated
 ```
 
-Use the `verilator_coverage` that belongs to the Verilator that built the model, because the `coverage.dat` format is internal to a Verilator version.
-MACE uses `--annotate` rather than `--report`, because older `verilator_coverage` releases such as 5.020 have no `--report`.
+Use the `verilator_coverage` of the Verilator that built the model, since the `coverage.dat` format is tied to the version that wrote it.
+MACE uses `--annotate`, because older releases such as 5.020 have no `--report`.
 
 `chia_openpiton.parse.coverage_summary(text)` parses the total line into `{"hit": int, "total": int, "percent": float}`.
 All three values are `None` when the text has no total line, for example when `verilator_coverage` failed.
@@ -67,4 +67,3 @@ All three values are `None` when the text has no total line, for example when `v
 After a `run -coverage` that passes, the shell finds the newest `coverage.dat` of the run, annotates it into `coverage_annotated/` beside the file, and prints the total.
 `write_report` includes the total in the report.
 The shell runs the first `verilator_coverage` on `PATH` if it answers `--version`, and `/usr/bin/verilator_coverage` otherwise.
-A run that does not pass produces no coverage report.

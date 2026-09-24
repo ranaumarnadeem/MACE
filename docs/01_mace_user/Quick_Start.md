@@ -31,9 +31,9 @@ python examples/mace_end_to_end.py \
     --db-path runs/mace_end_to_end.db
 ```
 
-`--mesh` sets the size of every build in the run; the objective text does not.
+`--mesh` sets the size of every `config` and `workload` build; the objective text does not.
 With no `--objective`, the script writes one from the workload and mesh, here `Verify the barrier_atomic.c gate workload passes on a 2x2 mesh.`
-The first run of each configuration compiles a Verilator model, and later runs with the same configuration reuse it.
+Each configuration compiles its Verilator model once, and later runs reuse it.
 
 ## Flags
 
@@ -43,18 +43,18 @@ The first run of each configuration compiles a Verilator model, and later runs w
 | `--piton-root-2` | none | Second checkout; independent tasks in one DAG level run on the two checkouts in parallel. |
 | `--core` | `ariane` | `ariane`, `sparc`, or `pico`. |
 | `--mesh` | `1x1` | Target mesh as `XxY`, such as `2x2` or `4x4`. |
-| `--workload` | `barrier_atomic.c` | Gate workload that every task runs. |
+| `--workload` | `barrier_atomic.c` | Gate workload that `config` and `workload` tasks simulate. |
 | `--objective` | generated | Objective text for the planner. |
 | `--backend` | `vertex` | LLM backend. |
 | `--model` | `gemini-2.5-flash` on `vertex` | Model name; other backends use their own default. |
 | `--project` | `mace-508004` | Written to `GOOGLE_CLOUD_PROJECT` only when that variable is unset. |
 | `--max-iterations` | `3` | Iteration cap. The USD and wall-clock caps keep their `Budget` defaults. |
-| `--db-path` | `runs/mace_end_to_end.db` | Run database, resolved to an absolute path. |
+| `--db-path` | `runs/mace_end_to_end.db` | Run database. The default resolves against the current directory. |
 
 ## Read the output
 
 The script prints the run ID and status, one block per iteration, and the five summary metrics.
-A run that ends without passing also prints its post-mortem assessment.
+A run that ends `failed` or `budget_exceeded` also prints its post-mortem.
 The exit code is 0 only for a passed run.
 
 ```text
@@ -63,7 +63,7 @@ run_id=<run_id> status=passed
 --- iteration 0 ---
   <task_id> (<kind>): passed=True build.success=True verdict=pass
 
---- summary (db=<absolute db path>) ---
+--- summary (db=runs/mace_end_to_end.db) ---
   successful_tasks: <n>
   iterations: <n>
   failures_recovered: <n>
@@ -72,7 +72,7 @@ run_id=<run_id> status=passed
 ```
 
 `compute_usd` reads 0.0 on Vertex because the backend reports no cost.
-List past runs, and trace one run's plan, dispatch, and triage, with `mace results`:
+`mace results` lists past runs, and `--trace` shows one run's plan, dispatch, and triage:
 
 ```bash
 mace results --db-path runs/mace_end_to_end.db
@@ -81,7 +81,7 @@ mace results --db-path runs/mace_end_to_end.db --run-id <run_id> --trace
 
 ## Other cores and meshes
 
-For PicoRV32, run `addi.S` and name the `CONFIG_DISABLE_BIST_CLEAR` RTL define in the objective, so the planner can request it with a `CONFIG_RTL:` line:
+For PicoRV32, run `addi.S` and name the `CONFIG_DISABLE_BIST_CLEAR` RTL define in the objective:
 
 ```bash
 python examples/mace_end_to_end.py \
@@ -93,4 +93,4 @@ python examples/mace_end_to_end.py \
 ```
 
 Before a 4x4 run, export `MAKEFLAGS=-j1` to limit the memory the Verilator C++ compile uses; [Troubleshooting](Troubleshooting.md) explains why.
-[Running the Loop](Running_the_Loop.md) covers the spec, budget, and planner directives in detail.
+[Running the Loop](Running_the_Loop.md) covers the spec, the budget, and planner directives.

@@ -2,7 +2,7 @@
 
 # PitonToolServer
 
-`PitonToolServer`, in `chia_openpiton/tools.py`, is the MCP tool server an LLM agent uses to drive one OpenPiton checkout. It subclasses CHIA's `AsyncJobTool` and calls [OpenPitonWorkspaceNode](workspace_node.md) members in-process, following the convention of CHIA's `Gem5ToolServer`. Construction binds the operational state: the checkout root, the timeouts, and the diag search directory. The model chooses what to run, never where or how.
+`PitonToolServer`, in `chia_openpiton/tools.py`, is the MCP tool server an LLM agent uses to drive one OpenPiton checkout. It subclasses CHIA's `AsyncJobTool` and calls [OpenPitonWorkspaceNode](workspace_node.md) members in-process, following the convention of CHIA's `Gem5ToolServer`. Construction binds the operational state: the checkout root, the timeouts, and the diag search directory. The model chooses only what to run.
 
 ## Construction
 
@@ -22,7 +22,7 @@ PitonToolServer(
 )
 ```
 
-`piton_root` must be an existing local directory, and `config` is the starting [PitonConfig](piton_config.md). Every run receives `asm_diag_root`. Construction starts the MCP server in a Ray actor, and builds and runs execute in that actor. Pass the workspace node's `node.task_options` as `task_options` to place it on the worker that holds the checkout. `last_build` and `last_run` point the inspection tools at a build and run produced elsewhere, as described under Inspecting an earlier run below.
+`piton_root` must be an existing local directory, and `config` is the starting [PitonConfig](piton_config.md). Every run receives `asm_diag_root`. Construction starts the MCP server in a Ray actor, and builds and runs execute in that actor. Pass the workspace node's `node.task_options` as `task_options` to place it on the worker that holds the checkout. `last_run` points the inspection tools at a run produced elsewhere, as described under Inspecting an earlier run below. No tool reads `last_build`.
 
 ## Tools
 
@@ -49,11 +49,11 @@ symbol_check() -> str
 | `grep` | Searches one log of the last run with a Python regex and returns each match with `context` lines around it, capped at `max_lines`. `source` is `"sim_log"` (`sim.log`), `"status_log"` (`status.log`), or `"fake_uart"` (`fake_uart.log`, the program's console output) |
 | `collect` | Returns the text of the files in the last run's directory that match `pattern`; `**` is recursive. Files over `max_bytes` are listed with their size instead |
 | `config_get` | Renders the current configuration: core, mesh, network, `config_rtl`, caches, `extra_flags`, and `build_id` |
-| `config_set` | Changes the given fields, keeps the rest, including the caches, and re-runs `configure()` against the checkout, so the next build uses the recomputed `build_id`. Returns `OK, config updated:` and the new rendering |
+| `config_set` | Changes the given fields and keeps the rest, including the caches, except `sys`, which returns to `"manycore"`. Re-runs `configure()` against the checkout, so the next build uses the recomputed `build_id`. Returns `OK, config updated:` and the new rendering |
 | `compare_to_fixture` | Compares the last run's `sim.log` line by line against a captured transcript in `chia_openpiton/test/fixtures/`, such as `run_pass_sim.log`, using [first_divergence](parsers.md). Reports `identical to <fixture> through all <n> shared line(s)`, or the line number where the texts diverge, with that line and up to `max_context` lines before it from both texts. `fixture_name` must name a file directly inside that directory |
 | `symbol_check` | Returns `objdump -f` and `objdump -t` output for the last run's `diag.exe`, followed by the run's `symbol.tbl` |
 
-`symbol_check` returns raw data, not a verdict, because `good_trap` and `bad_trap` in `symbol.tbl` are not symbols in the binary. The model matches them by address; for example, the `good_trap` address appears as `pass` in the objdump symbol table.
+`symbol_check` returns raw data and leaves the matching to the model, because `good_trap` and `bad_trap` in `symbol.tbl` are not symbols in the binary. The model matches them by address; for example, the `good_trap` address appears as `pass` in the objdump symbol table.
 
 ## Build and run jobs
 
@@ -72,7 +72,7 @@ Before any job has started, `job_status` returns `{"done": False, "running": Fal
 
 ## Inspecting an earlier run
 
-`grep`, `collect`, `compare_to_fixture`, and `symbol_check` read the last build and run. To point them at a build and run produced elsewhere, such as by another `OpenPitonWorkspaceNode`, pass them as `last_build` and `last_run` at construction. The server that answers MCP tool calls works on a copy of the object taken when it starts, so what the tools see is fixed then; to inspect a different run, start a new server. MACE's orchestrator starts one such read-only server for each triage (condensed from `mace/orchestrator.py`; see [Failure Analysis](../03_mace_design/failure_analysis.md)):
+`grep`, `collect`, `compare_to_fixture`, and `symbol_check` read the last run's directory. To inspect a run produced elsewhere, such as by another `OpenPitonWorkspaceNode`, pass it as `last_run` at construction. The server answers from a copy of the object made at construction, so later assignments to the caller's object never reach it. To inspect a different run, start a new server. MACE's orchestrator starts one such read-only server for each triage (condensed from `mace/orchestrator.py`; see [Failure Analysis](../03_mace_design/failure_analysis.md)):
 
 ```python
 tool_server = PitonToolServer(
@@ -99,4 +99,4 @@ The inspection tools return strings and do not raise on bad input. Errors start 
 | `objdump` not installed | `ERROR: 'objdump' was not found on PATH` |
 | `objdump` failed | `ERROR: 'objdump -f <binary>' failed (exit <n>): <stderr>`, or the same for `-t` |
 
-Missing data comes back as a note in parentheses, such as `(no lines match '<pattern>')`, `(no sim.log in this run)`, or `(no diag.exe in this run directory)`. A failed build or run is reported through `job_status` with `success=False`, not raised. `config_set` does not catch validation errors: an invalid value raises the `ValueError` from `PitonConfig`.
+Missing data comes back as a note in parentheses, such as `(no lines match '<pattern>')`, `(no sim.log in this run)`, or `(no diag.exe in this run directory)`. A failed build or run shows up in `job_status` with `success=False`. `config_set` does not catch validation errors: an invalid value raises the `ValueError` from `PitonConfig`.

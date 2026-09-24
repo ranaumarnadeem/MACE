@@ -2,7 +2,7 @@
 
 # OpenPitonWorkspaceNode
 
-`OpenPitonWorkspaceNode`, in `chia_openpiton/openpiton_workspace.py`, drives one OpenPiton checkout on one worker. Its members wrap `sims`.
+`OpenPitonWorkspaceNode`, in `chia_openpiton/openpiton_workspace.py`, drives one OpenPiton checkout on one worker. `sims`, `build`, `run`, and `regress` call OpenPiton's `sims` tool. The other members query or edit the checkout directly.
 
 ```python
 from chia.base.ChiaFunction import get
@@ -37,7 +37,7 @@ As a context manager, the node releases a placement group it reserved. `node.tas
 
 ## Calling members
 
-Each member declares `resources={"openpiton": 1}`. A node instance binds the root:
+Each member declares `resources={"openpiton": 1}` and has five call forms:
 
 | Call | Behaviour |
 |---|---|
@@ -92,7 +92,7 @@ clean(piton_root: str, config: PitonConfig) -> bool
 | `regress` | Calls `run` serially for each entry of `tests`. `success` holds when at least one test ran and none failed. It is a single-worker fallback; fan `run` out across workers for parallel regressions |
 | `put_file` | Writes `content` to `<piton_root>/<relpath>`, creates parent directories, and returns the path. A `relpath` that escapes the checkout raises `ValueError` |
 | `collect` | Globs `patterns` under `base_dir`, which is absolute or relative to the root; `**` is recursive. Skips matches outside `base_dir`. Files over `max_bytes_per_file` go to `skipped`; `0` skips every non-empty file, and `None` sets no cap |
-| `clean` | Removes the configuration's model directory and returns whether it existed. `sims -clean` removes only VCS output (`csrc`, `simv`, `simv.daidir`, `AxisWork`), never `obj_dir` |
+| `clean` | Removes the configuration's model directory and returns whether it existed. `sims -clean` removes only VCS output (`csrc`, `simv`, `simv.daidir`, `AxisWork`) and leaves `obj_dir` in place |
 
 `verilator_version_text(root, core="ariane", timeout_seconds=120) -> str` is a plain static method. It returns `verilator --version` as seen inside OpenPiton's environment and caches successful results per `(root, core)`.
 
@@ -112,7 +112,7 @@ It returns the resulting `PitonConfig`, whose construction raises `ValueError` o
 ### build
 
 1. Rejects a `sim_type` outside `vlt`, `vcs`, `ncv`, `icv`, `msm`, and `riv` with `ValueError`. Only `vlt` (Verilator) is license-free.
-2. Raises `ValueError` when `git diff -- piton/verif/env/manycore` differs from `config.diff`, for example after another `configure(address_map=...)` call on the checkout. The check runs only for a configuration that recorded the checkout's state, a non-empty `source_rev` or `diff`, as `configure()` sets. A directly constructed configuration, such as the ones MACE's loop builds, builds the checkout as it stands.
+2. Raises `ValueError` when `git diff -- piton/verif/env/manycore` differs from `config.diff`, for example after another `configure(address_map=...)` call on the checkout. The check runs only for a configuration that recorded the checkout's state, a non-empty `source_rev` or `diff`, as `configure()` sets. A configuration with both fields empty, such as each one MACE's loop constructs, builds the checkout as it stands.
 3. Returns the cached model, if one exists.
 4. With `clean=True`, deletes the model's `obj_dir` and marker.
 5. For `sim_type="vlt"`, adds `--no-timing` when Verilator is version 5 or later, unless an `extra_build_args` entry already contains `timing`. The version comes from `config.verilator_version`, or from `verilator_version_text()`.
@@ -122,13 +122,13 @@ It returns the resulting `PitonConfig`, whose construction raises `ValueError` o
 sims <config.sims_flags()> -build_id=<config.build_id> -<sim_type>_build [-<sim_type>_build_args=<arg> ...]
 ```
 
-`success` requires exit status 0 and the model binary. A failed build carries a [build_failure_reason](parsers.md) tag, or `no_model_binary` when `sims` exits 0 without a binary.
+`success` requires exit status 0 and the model binary. A failed build carries a [build_failure_reason](parsers.md) tag, or `no_model_binary` when no tag matches, as when `sims` exits 0 without a binary.
 
 ### Build cache
 
-A successful build writes the marker file `.mace_build_ok`, containing `config.key`, into the model directory. With `clean=False`, `build` returns at once, without running `sims`, when the marker and the binary both exist. That artifact has `reused=True` and `wall_time_s=0.0`. The marker is the signal, not the binary, because a worker killed mid-link can leave a truncated binary.
+A successful build writes the marker file `.mace_build_ok`, containing `config.key`, into the model directory. With `clean=False`, `build` returns at once, without running `sims`, when the marker and the binary both exist. That artifact has `reused=True` and `wall_time_s=0.0`. `build` trusts the marker over the binary, because a worker killed mid-link can leave a truncated binary.
 
-`config.build_id` covers configuration, not source edits (see [PitonConfig](piton_config.md)). After an RTL or testbench change, rebuild with `clean=True` or remove the model with `clean()`.
+The cache does not see every source edit. [PitonConfig](piton_config.md) says when to rebuild.
 
 ### run
 
@@ -141,12 +141,12 @@ sims <config.sims_flags()> -build_id=<config.build_id> [-precompiled] [-asm_diag
 
 `finish_mask` defaults to `config.finish_mask`, one `1` per tile, so a multi-tile run passes only when every hart hits the good trap. `precompiled=True` makes `sims` look in `$ARIANE_ROOT/tmp/riscv-tests/build` for a prebuilt riscv-tests ELF instead of compiling the source. `asm_diag_root` adds a directory to search for the diag source. For another `sys`, `run` drops the manycore options and the test name; pass test selection in `extra_run_args`.
 
-The verdict comes from `parse.sim_verdict()` over the full `sim.log`, or over stdout when there is no `sim.log`. A call that timed out without a verdict gets `"timeout"`. `success` is `returncode != -1 and verdict == "pass"`, because an RTL simulation exits 0 whether or not the program passed.
+The verdict comes from `parse.sim_verdict()` over the full `sim.log`, or over stdout when there is no `sim.log`. A call that timed out without a verdict gets `"timeout"`.
 
 ## Directory layout
 
 ```text
-$PITON_ROOT/build/                     working directory for sims and build()
+$PITON_ROOT/build/                     working directory for build() and the sims() member
   manycore/                            config.sys
     mace_<12 hex digits>/              config.build_id (model_dir)
       .mace_build_ok                   success marker
@@ -168,11 +168,11 @@ The run directory name replaces `/` in the test name with `_`. For another `sys`
 | `run` | 3600 |
 | `regress` | 3600, per test |
 
-Each command runs under `bash -lc` in its own session. On timeout, the adapter kills the whole process group, keeps the partial output, returns `returncode=-1`, and appends `sims timed out after <N>s` to stderr. A launch failure also returns `-1`, without that marker. On `KeyboardInterrupt`, the adapter kills the process group and re-raises.
+Every `sims` and `verilator --version` command runs under `bash -lc` in its own session. On timeout, the adapter kills the whole process group, keeps the partial output, returns `returncode=-1`, and appends `sims timed out after <N>s` to stderr. A launch failure also returns `-1`, without that marker. On `KeyboardInterrupt`, the adapter kills the process group and re-raises. The `git` probes run without a shell and return `""` on timeout.
 
 ## Environment
 
-Each command starts by exporting `PITON_ROOT` and sourcing `piton/piton_settings.bash`. The `sparc` and `pico` cores need nothing more. For `core="ariane"`, the prologue also sets:
+Each `bash -lc` command exports `PITON_ROOT` and sources `piton/piton_settings.bash`. The `sparc` and `pico` cores need nothing more. For `core="ariane"`, the prologue sets these variables before sourcing:
 
 | Variable | Value |
 |---|---|
@@ -191,38 +191,38 @@ After sourcing, the Ariane prologue prepends `$RISCV/bin`, and `$VERILATOR_ROOT/
 | Field | Type | Meaning |
 |---|---|---|
 | `success` | `bool` | Exit status 0 and model binary present |
-| `returncode` | `int` | `sims` exit status; `-1` on timeout |
+| `returncode` | `int` | `sims` exit status; `-1` on timeout or launch failure |
 | `config` | `PitonConfig` | The configuration built |
 | `sim_type` | `str` | Simulator selector |
 | `model_dir` | `str` | `$PITON_ROOT/build/<sys>/<build_id>` |
-| `binary_path` | `str` | Model binary; `""` when the build failed |
+| `binary_path` | `str` | Model binary; `""` when none exists after the build |
 | `wall_time_s` | `float` | Build wall time; `0.0` when reused |
 | `verilator_version` | `str` | Version text behind the `--no-timing` decision |
 | `cache_key` | `str` | `config.key` |
 | `failure_reason` | `str` | Failure tag; `""` on success |
 | `reused` | `bool` | `True` when served from the build cache |
-| `stdout`, `stderr` | `str` | Last 8000 characters of each stream |
+| `stdout`, `stderr` | `str` | Tail of each stream |
 
 ### PitonRunResult
 
 | Field | Type | Meaning |
 |---|---|---|
 | `success` | `bool` | `returncode != -1` and `verdict == "pass"` |
-| `returncode` | `int` | `sims` exit status; `-1` on timeout |
+| `returncode` | `int` | `sims` exit status; `-1` on timeout or launch failure |
 | `test` | `str` | Diag name |
 | `sim_type` | `str` | Simulator selector |
 | `run_dir` | `str` | This run's directory |
-| `verdict` | `Verdict` or `None` | `"pass"`, `"fail"`, `"timeout"`, or `"maxcycles"`; `None` when no verdict line matched |
+| `verdict` | `Verdict` or `None` | `"pass"`, `"fail"`, `"timeout"`, or `"maxcycles"`; `None` when the transcript has no verdict and the call did not time out |
 | `sim_time` | `int` or `None` | Simulation time stamped on the verdict line |
 | `cycles` | `int` or `None` | `Cyc=` from `status.log` |
 | `exec_cycles` | `int` or `None` | `ExecCyc=` from `status.log` |
 | `wall_time_s` | `float` | Run wall time |
-| `sim_log_tail` | `str` | Last 8000 characters of `sim.log` |
-| `status_log` | `str` | Last 8000 characters of `status.log` |
-| `fake_uart` | `str` | Last 8000 characters of `fake_uart.log`, the program's UART output |
-| `stdout`, `stderr` | `str` | Last 8000 characters of each stream |
+| `sim_log_tail` | `str` | Tail of `sim.log`, or of stdout when there is no `sim.log` |
+| `status_log` | `str` | Tail of `status.log` |
+| `fake_uart` | `str` | Tail of `fake_uart.log`, the program's UART output |
+| `stdout`, `stderr` | `str` | As in `PitonBuildArtifact` |
 
-The `status.log` from these configurations has no `Cyc=` field, so `sim_time` is the duration measure. The static method `PitonRunResult.decide(returncode, verdict)` holds the pass rule.
+Each tail keeps the last 8000 characters. For the configurations this adapter builds, `status.log` has no `Cyc=` field, so `cycles` stays `None` and `sim_time` measures run length. The static method `PitonRunResult.decide(returncode, verdict)` holds the pass rule.
 
 ### Other results
 

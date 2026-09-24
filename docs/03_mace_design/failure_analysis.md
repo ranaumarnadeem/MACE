@@ -3,13 +3,14 @@
 # Failure Analysis
 
 When an iteration holds a failed task, the orchestrator diagnoses the first failed result with `mace.triage.triage()` and feeds the diagnosis into the next plan.
-Other failures in the same level are recorded but not diagnosed.
+Other failed tasks in that level get a row in the `tasks` table and no triage.
 
 ## Triage
 
 `triage(result, llm, tools=())` makes one LLM call.
 The prompt gives the task's id, kind, and instruction, the build outcome, and the run verdict.
-A failed build adds the failure reason and the last 1500 characters of stderr; a failed run adds the last 1500 characters of the simulation log and the status log.
+A failed build adds the failure reason and the last 1500 characters of stderr.
+A failed run adds the last 1500 characters of the simulation log and up to 8000 characters of the status log.
 The prompt asks for two directive lines:
 
 ```text
@@ -25,7 +26,8 @@ A failed `unit_test` build whose stderr contains `%Error-PINNOTFOUND` skips the 
 
 ## Diagnostic Tools
 
-When Ray is initialized, the orchestrator starts a `PitonToolServer` named `triage-<run ID>` on the first checkout for each triage, handing it the failed task's build and run at construction and stopping the previous one first.
+When Ray is initialized, the orchestrator starts a `PitonToolServer` named `triage-<run ID>` on the first checkout for each triage.
+It stops the previous server first and hands the new one the failed task's build and run.
 It exposes four read-only tools:
 
 | Tool | Returns |
@@ -36,7 +38,8 @@ It exposes four read-only tools:
 | `symbol_check` | `objdump -f` and `-t` output for the run's `diag.exe`, beside its `symbol.tbl` |
 
 A task that failed at build has no run, and the tools report an error for it.
-Triage receives the caller's tools plus this server, and the run continues without the server if it fails to start.
+Triage gets the caller's tools plus this server.
+If the server fails to start, the run goes on without it.
 The last server also serves the post-mortem and stops when the run ends.
 See [Tool Server](../04_chia_openpiton/tool_server.md).
 
@@ -50,16 +53,15 @@ Task <id> (<instruction>) failed: diagnosis=<label>, suggested fix=<fix>
 
 Every later `plan()` call receives the whole history.
 If the run then passes, `mark_all_recovered()` marks all of its failures recovered.
-A replanned DAG need not reuse task ids, so recovery is tracked per run, not per task.
+A replanned DAG can use new task ids, so recovery is tracked per run.
 
 A tier-1 test, `mace/test/cluster/orchestrator_e2e_test.py`, exercises the detect, diagnose, and replan cycle with a stub `sims` that fails its first run and passes after that.
-No passing hardware run has needed the cycle.
+No passing 2x2 or 4x4 run has needed the cycle.
 
 ## Post-Mortem
 
 A run that ends with `failed` or `budget_exceeded` after at least one iteration gets one more LLM call, `mace.report.generate_post_mortem()`.
 Its prompt holds the objective, core, mesh, stop reason, and one line per task tried, with the diagnosis on the triaged task.
-The diagnostic server, when running, serves this call too.
 The prompt asks for three directive lines:
 
 ```text
@@ -70,4 +72,3 @@ NEXT_STEPS: <what to try next, or why nothing more is worth trying>
 
 `record_post_mortem()` stores the result in the `post_mortems` table.
 A response without `ASSESSMENT:` is dropped, and the run status stands.
-Runs that end with `passed`, `checksum_mismatch`, or `planning_failed` get no post-mortem.

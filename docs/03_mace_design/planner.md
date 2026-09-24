@@ -29,7 +29,8 @@ CACHES: l1d_8way | l1d=8192,8
 The parsers in `mace/agents.py` share three rules.
 A tag starts its line, after optional whitespace and an optional list marker (`-`, `*`, `•`, `1.`, `1)`), and matches case-insensitively.
 A value ends at the end of its line or before another known tag on the same line.
-A malformed line is dropped, never raised.
+A malformed line is dropped without an error.
+Triage and post-mortem directives follow the same rules, and each keeps its last match (see [Failure Analysis](failure_analysis.md)).
 
 `TASK:` lines accumulate in response order.
 Each needs four `|`-separated fields: a non-empty id, a `deps=` field, a `kind=` field naming a known kind, and the instruction.
@@ -39,11 +40,11 @@ Several lines for one task merge, and a later value for the same cache wins.
 The prompt lists the defaults: `l1i=16384,4 l1d=8192,4 l15=8192,4 l2=65536,4`.
 
 `CONFIG_RTL:` accepts upper-snake-case identifiers such as `CONFIG_DISABLE_BIST_CLEAR`.
-Several lines for one task merge into a sorted union.
+The flags from all of a task's lines form a sorted union.
 The flags add to the default RTL defines and never replace them.
 No allowlist applies, so any well-formed name reaches the build.
 
-An override line applies only to the task it names, and dependents do not inherit it (see [Parallel Task Execution](task_execution.md)).
+An override line applies only to the task it names (see [Parallel Task Execution](task_execution.md)).
 
 ## Validation
 
@@ -58,8 +59,6 @@ The orchestrator then ends the run with status `planning_failed`.
 |---|---|---|
 | `config` | A configuration or RTL change | Build the task's configuration, run the first gate workload |
 | `workload` | Running or fixing a gate workload | Same as `config` |
-| `unit_test` | One module's RTL path, relative to the checkout root | Scaffold a unit-test environment, adapt its testbench, build it |
+| `unit_test` | One module's RTL path relative to the checkout root, such as `piton/design/chip/tile/pico/rtl/picorv32.v` | Scaffold a unit-test environment, adapt its testbench, build it |
 
 `config` and `workload` share one execution path; the label records intent.
-A `unit_test` instruction holds only the path, for example `piton/design/chip/tile/pico/rtl/picorv32.v`.
-The same parsers read the `DIAGNOSIS:` and `FIX:` lines from triage and the `ASSESSMENT:`, `EXPLANATION:`, and `NEXT_STEPS:` lines from the post-mortem, keeping the last match of each.
