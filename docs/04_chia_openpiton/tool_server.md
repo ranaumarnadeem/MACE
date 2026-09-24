@@ -99,4 +99,13 @@ The inspection tools return strings and do not raise on bad input. Errors start 
 | `objdump` not installed | `ERROR: 'objdump' was not found on PATH` |
 | `objdump` failed | `ERROR: 'objdump -f <binary>' failed (exit <n>): <stderr>`, or the same for `-t` |
 
-Missing data comes back as a note in parentheses, such as `(no lines match '<pattern>')`, `(no sim.log in this run)`, or `(no diag.exe in this run directory)`. A failed build or run is reported through `job_status` with `success=False`, not raised. `config_set` does not catch validation errors: an invalid value raises the `ValueError` from `PitonConfig`.
+Missing data comes back as a note in parentheses, such as `(no lines match '<pattern>')`, `(no sim.log in this run)`, or `(no diag.exe in this run directory)`. `config_set` does not catch validation errors: an invalid value raises the `ValueError` from `PitonConfig`.
+
+A failed build or run shows up in `job_status` with `success=False`. So does an exception from `OpenPitonWorkspaceNode.build()` or `run()`, such as the `ValueError` that `build()` raises when another `configure()` call has changed the checkout since the configuration was made (see [OpenPitonWorkspaceNode](workspace_node.md)). The job's result then has only `job_type`, `success=False`, and `error`, which holds the exception's type and message:
+
+```python
+{"done": True, "running": False, "job_type": "build", "success": False,
+ "error": "ValueError: checkout at '<piton_root>' no longer matches build_id '<build_id>''s recorded file edits ..."}
+```
+
+The job logs the traceback at ERROR level through the `chia_openpiton.tools` logger. The inspection tools keep reading the previous run.
