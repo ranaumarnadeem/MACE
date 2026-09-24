@@ -60,13 +60,13 @@ def detect_core(top_module: str) -> PitonCore | None:
 # itself places no restriction beyond MAX_TILES_PER_AXIS per side) but
 # printed as genuinely unvalidated, not silently treated the same as 1, 4 or 16.
 KNOWN_MESH_OUTCOMES: dict[int, str] = {
-    1: "validated -- passes repeatedly on real hardware",
+    1: "validated -- passes repeatedly in Verilator simulation",
     4: (
-        "validated -- passes on real hardware for ariane (barrier_atomic.c) "
+        "validated -- passes in Verilator simulation for ariane (barrier_atomic.c) "
         "and pico (addi.S), every tile reaching Hit Good trap"
     ),
     16: (
-        "validated -- passes on real hardware for ariane (barrier_atomic.c) "
+        "validated -- passes in Verilator simulation for ariane (barrier_atomic.c) "
         "and pico (addi.S), every tile reaching Hit Good trap"
     ),
 }
