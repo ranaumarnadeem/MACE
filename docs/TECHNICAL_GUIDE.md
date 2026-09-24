@@ -562,6 +562,38 @@ trivially satisfies this barrier with a hart's own write). Fixed by
 mirroring `atomic_read()` into both polling loops (same `ariane` submodule
 commit family).
 
+**Update (2026-09-24): `syscalls.c` was never the bug; the atomic polling
+is a workaround.** The root cause is a Verilator 5 scheduling bug,
+[verilator#5829](https://github.com/verilator/verilator/issues/5829)
+(partial assignments to one packed struct across processes get the wrong
+evaluation order). CVA6's `core/cache_subsystem/wt_l15_adapter.sv` hits it
+exactly: `dcache_rtrn_o.inv.vld/.all` come from continuous `assign`s while
+`p_rtrn_logic` reads them to raise `dcache_rtrn_vld_o`, so invalidations
+from the coherence network are sometimes dropped and the L1D keeps stale
+lines. Plain loads then miss other tiles' updates, while atomics (served at
+L2) see them. Upstream CVA6 fixed this on 2025-03-06 with
+[cva6#2809](https://github.com/openhwgroup/cva6/pull/2809) (commit
+`c511b2191`, moves those four fields into the always block), but OpenPiton
+pins CVA6 at `4c01614f8` (2022-10-13), which predates it.
+
+A/B in `/home/potato/openpiton-b`, upstream plain-load `syscalls.c`,
+Verilator 5.020 `--no-timing`, clean 2x2 build, `barrier_atomic.c`, with
+only the adapter differing:
+
+| CVA6 adapter | result |
+|---|---|
+| cva6#2809 ported (4 lines moved into `p_rtrn_logic`) | pass, 4 of 4 tiles, 24s |
+| original, as OpenPiton pins it | timeout, 1 of 4 tiles, 431s |
+
+The upstream patch does not apply cleanly to the 2021-era file, so it was
+ported by hand: add the four `icache_rtrn_o/dcache_rtrn_o.inv.vld/.all`
+assignments to the top of `p_rtrn_logic` and delete their four `assign`
+lines. `openpiton-b` is back on the original adapter. The published 2x2/4x4
+results used the `syscalls.c` workaround (patch fix 11), which remains in
+`scripts/patch_openpiton.sh` so those numbers reproduce exactly. The
+proper fix is porting cva6#2809, which also likely explains the gate
+workloads' own `atomic_read()` requirement.
+
 Final, real, independently verified numbers: 2x2 Ariane passes in 58.9s,
 4x4 in 503.1s, both confirmed tile by tile via each tile's own execution
 trace, not just the monitor's aggregate `PASS` message.
@@ -606,6 +638,33 @@ The same 4x4 run's planner also asked for `CONFIG_RTL: ... |
 CONFIG_ENABLE_MESH_ATOMIC_FIX`, a define that appears nowhere in OpenPiton:
 harmless, but it cost a full extra 4x4 build, since nothing validates
 `CONFIG_RTL` flags against the RTL yet.
+
+### Three-way comparison and cost (2026-09-24, the paper's Table 1)
+
+End-to-end wall time, all approaches sharing one build cache (a
+configuration built earlier is reused; an approach pays for a build only
+when it picks a new one). Manual (a) is machine time only, measured today
+by building (cached) and running the default config through the adapter by
+hand; sparc/pico run `barrier_atomic.c`.
+
+| approach | ariane 1x1 | ariane 2x2 | ariane 4x4 | sparc 1x1 | pico 1x1 |
+|---|---|---|---|---|---|
+| (a) manual | pass 6.4s | pass 33.9s | pass 271.9s | fail 13.9s | fail 18.2s |
+| (b) one-shot | fail 186.5s | fail 10.4s (l15_size=0) | fail 3820.9s | fail 766.0s | fail 32.6s (l15_size=0) |
+| (c) MACE loop | pass 741.7s | pass 750.1s | pass 250.9s | budget 966.3s | budget 1250.5s |
+
+One-shot 4x4 (`runs/baseline_b_4x4.log`) chose L1 32KB/4, L1.5 256KB/8, L2
+4MB/8: a 2079s build, then `FAIL(TIMEOUT)` after 1729s of simulation with no
+tile finished. Logs: `runs/baseline_a_manual.log`, `runs/baseline_b_{2x2,4x4}.log`.
+
+Per-run cost at 2x2 (Gemini 2.5 Flash at $0.30/$2.50 per M input/output
+tokens, thinking billed as output; compute as `e2-highmem-8` at $0.36/hour
+over the run's wall time): ariane ~$0.12 ($0.043 LLM + $0.075 compute),
+pico ~$0.02, a failing sparc run an estimated ~$0.25. Tokens were measured
+by re-sending the planner and task prompts once, because the recorded
+`compute_usd` is always 0: `VertexGeminiLLM` returns no cost, and its token
+counter (`candidates_token_count`) skips `thoughts_token_count`, which was
+more than half of the billed output.
 
 ### Baselines and the paper
 
