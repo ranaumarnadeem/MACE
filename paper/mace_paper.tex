@@ -118,13 +118,6 @@ reserved through one \code{openpiton} resource unit, instead of locking a shared
 read build and run verdicts from OpenPiton's transcripts (\code{sim.log}, \code{status.log}), using
 the strings its RTL monitors emit.
 
-\textbf{Environment hardening.} The build surfaced four infrastructure bugs, fixed in one
-idempotent patch script: binutils~2.38+ splitting \code{zicsr}/\code{zifencei} out of base RV64I,
-which breaks the boot ROM's assembly; GCC~15's C23 default breaking a legacy function call; broken
-git symlinks on a Windows-mounted checkout; and CRLF shebangs in 66 files. A Nix
-flake~\cite{nix} pins the toolchain, including a Verilator release (5.052) that avoids two Verilator
-bugs this RTL triggers.
-
 \textbf{Build-result caching.} \code{build()} skips the simulator when a matching successful-build
 marker exists: rebuilding an identical configuration dropped from 104s to 0.00s, so an iteration
 that only changes the test never rebuilds.
@@ -163,30 +156,16 @@ artifacts), while git tracks the source edits agents make.
 \section{A Third Core: PicoRV32}
 \label{sec:pico}
 
-Integrating arbitrary core RTL into OpenPiton means navigating fundamental architectural
-differences rather than wiring up a standard bus. OpenPiton has no reusable core-to-NoC bridge:
-under BYOC, each core reaches the L15 through its own transducer, and Ariane's AXI4 output goes
-unused because a hand-written encoder taps CVA6's internal pre-AXI cache-miss stream. The dividing
-line is whether the core has its own coherent cache: a new core with one, as Ariane has, needs new
-coherence-adapter RTL. PicoRV32 does not, and a complete upstream transducer
-(\code{pico\_l15\_transducer.v} and friends) already exists, although OpenPiton's CI builds it under
-Verilator without running it.
+OpenPiton has no reusable core-to-NoC bridge: under BYOC, each core reaches the L1.5 through its own
+transducer, and a core with its own coherent cache, as Ariane has, needs new coherence-adapter RTL.
+PicoRV32 has no such cache and already has an upstream transducer, which OpenPiton's CI builds under
+Verilator but never runs.
 
-\textbf{Results.} The adapter extension (a new \code{Literal} entry, two \code{sims} flags, mirrored
-tests) landed with full unit coverage and no regressions to the \code{ariane} and \code{sparc}
-paths, but the first pico runs ended at \code{maxcycles}. Comparing the binary's symbols against
-\code{symbol.tbl} and its transcript against a passing Ariane run ruled out a build or toolchain
-problem and placed the stall at the core never reaching its trap address.
-
-Waveform tracing found three RTL/testbench bugs: PicoRV32's \code{resetn}/\code{booted}
-self-boot gate, the manycore monitor's \code{active\_thread} tracking for pico's tile, and the SRAM
-model's power-on BIST self-clear, which discarded pico's first memory writes. With all three fixed,
-PicoRV32 \textbf{passes} under Verilator on 2x2 and 4x4 meshes, every tile reaching \code{Hit Good
-trap} on \code{addi.S}. \sys{} surfaced these bugs because its gate distinguishes a successful build
-from a correct run. \code{barrier\_atomic.c} never runs on pico: its OpenPiton integration has only
-an assembler, with no C compiler or \code{crt.S}/\code{syscalls.c}, so the diag never compiles. This
-is a toolchain gap rather than an RTL bug, and the upstream \code{amoadd\_w.S} test confirms that
-pico's atomic hardware works.
+Our first pico runs built but never reached a trap. Tracing them found three RTL/testbench bugs: the
+core's self-boot gate, the monitor's tracking of pico's tile, and an SRAM power-on self-clear that
+discarded pico's first memory writes. With all three fixed, PicoRV32 \textbf{passes} under
+Verilator on 2x2 and 4x4 meshes, every tile reaching \code{Hit Good trap} on \code{addi.S}. Its
+OpenPiton integration has no C compiler, so it runs assembly workloads only.
 
 \section{Additional Capabilities}
 \label{sec:cli}
@@ -267,38 +246,30 @@ budget would cost an estimated \$0.25, mostly for its one-time build. We price c
 CHIA's Vertex backend reports no price and omits thinking tokens, more than half of the billed output
 here, so we measured tokens by re-sending representative planner and task prompts.
 
-\section{Limitations and Open Issues}
+\section{Limitations and Future Directions}
+
+\subsection{Limitations}
 \label{sec:limits}
 
-\textbf{SPARC under Verilator~5.} OpenSPARC T1 builds but does not run in our environment: the core
-never receives the I/O bridge's power-on wake-up interrupt, so no thread starts and the run hits
-\code{max\_cycle} with no verdict. OpenPiton's exact CI recipe, with its CI-verified
-\code{princeton-test-test.s}, stalls the same way under our Verilator~5.020 (with \code{--no-timing},
-which Verilator~5 requires here), while CI uses Verilator~4, so the stall is environmental; its root
-cause remains open. \code{barrier\_atomic.c} would not run on T1 regardless: it uses RISC-V inline
-assembly, and T1 has no C diag environment.
+OpenSPARC T1 builds but does not run under our Verilator~5.020: the core never receives its power-on
+wake-up interrupt. OpenPiton's own CI recipe stalls the same way here, while CI uses Verilator~4, so
+the cause is environmental; it remains open. Dispatch to a tailnet-relayed GCP worker is also
+unreliable: exporting the proxy variables \code{chia up} sets fixed a first hang, but a later attempt
+hung again with no outbound traffic, pointing at Ray's scheduling under a proxied topology.
 
-\textbf{GCP dispatch.} A task needing a tailnet-relayed GCP worker first never ran because CHIA sets
-three proxy environment variables during \code{chia up} that \code{chia job submit} inherits but
-our manually launched drivers did not; exporting them took the task from a six-minute hang to a
-two-second run. A later attempt on the same topology hung again with that fix in place, and relay
-logs plus a raylet \code{strace} show no outbound activity, pointing at Ray's scheduling under a
-proxied topology. That follow-up remains open.
+\subsection{Future Directions}
 
-\textbf{Future work: generality over one-off adapters.} All three cores here already had upstream
-OpenPiton/L15 adapters (SPARC's CCX transducer, Ariane's L15 adapter in CVA6, PicoRV32's
-transducer); a core without one, such as Ibex or Rocket Chip, needs it written first. The existing
-three share a shape: a per-core RTL directory, a transducer between the core's memory interface and
-L15, and a core-select arm in the tile template. The next step is turning that shape into a template
-and adding 2-4 more cores, with \sys{}'s loop verifying each iteration of the adapter RTL in
-Verilator while a hardware engineer writes it. A second direction is a dashboard over the run
-database, showing dispatch, build, and verification live instead of through raw trace files.
+All three cores already had upstream adapters to the L1.5; a core without one, such as Ibex or
+Rocket Chip, needs it written first. The next step is a reusable adapter template built from the
+shape the three share (a per-core RTL directory, a transducer, and a core-select arm in the tile
+template), with \sys{}'s loop verifying each revision of the adapter RTL in Verilator as an engineer
+writes it. A dashboard over the run database would show dispatch, build, and verification live.
 
 \balance
 \section{Conclusion}
 
 \sys{} shows that an agentic loop can plan, build, and verify multicore hardware, with every result
-gated by RTL simulation. Along the way we fixed environment and RTL bugs and added a third core, and
+gated by RTL simulation. Along the way we fixed RTL and testbench bugs and added a third core, and
 the loop then passed 2x2 and 4x4 meshes of both Ariane and PicoRV32. The next steps are a reusable
 adapter template for new cores and a recovery cycle proven on live failures.
 
