@@ -1,6 +1,6 @@
 # MACE
 
-MACE (Multi-core Agentic Co-design Engine) plans, builds, and verifies multicore
+MACE (Multicore Agentic Co-Design Engine) plans, builds, and verifies
 [OpenPiton](https://github.com/PrincetonUniversity/openpiton) designs on the
 [CHIA](https://github.com/ucb-bar/chia) framework. You give it a hardware
 objective in English, a core, and a target mesh. An LLM planner turns the

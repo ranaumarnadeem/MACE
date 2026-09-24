@@ -1,5 +1,5 @@
 {
-  description = "MACE: Multi-core Agentic Co-design Engine -- CHIA support for OpenPiton";
+  description = "MACE: A Multicore Agentic Co-Design Engine";
 
   inputs = {
     # Pinned to an exact commit, not a floating channel -- the whole point

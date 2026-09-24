@@ -20,7 +20,7 @@ says so explicitly rather than guessing.
 
 ## 1. The big picture
 
-MACE (Multi-core Agentic Co-design Engine) is a submission to the A3 CHIA
+MACE (Multicore Agentic Co-Design Engine) is a submission to the A3 CHIA
 Hackathon (Google + NVIDIA, MICRO 2026 workshop). Judging criteria: a 4-page
 paper, an open-sourced CHIA loop, and its results. Deadline **Sep 20 AoE**
 (~17:00 PKT Sep 21), code freeze Sep 19.

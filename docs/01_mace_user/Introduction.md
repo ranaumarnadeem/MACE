@@ -2,7 +2,7 @@
 
 # Introduction
 
-MACE (Multi-core Agentic Co-design Engine) plans, builds, and verifies multicore OpenPiton designs on the CHIA framework.
+MACE (Multicore Agentic Co-Design Engine) plans, builds, and verifies OpenPiton designs on the CHIA framework.
 You give it a hardware objective in English, a core, and a target mesh.
 An LLM planner turns the objective into a task DAG, and Ray dispatches independent tasks in parallel, one per OpenPiton checkout.
 A configuration or workload task passes only when its Verilator build succeeds and a simulation of the gate workload reports the verdict `pass`.

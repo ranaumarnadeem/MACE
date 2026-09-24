@@ -3,8 +3,8 @@
 
    This is the MACE documentation master file.
 
-MACE: A Multi-core Agentic Co-design Engine
-===========================================
+MACE: A Multicore Agentic Co-Design Engine
+==========================================
 
 MACE is an agentic AI system that plans, builds, and verifies multicore OpenPiton hardware on the CHIA framework.
 It turns a hardware objective into a set of tasks, runs them in parallel, and accepts a change only when Verilator simulation of the RTL passes.
