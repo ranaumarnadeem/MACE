@@ -25,7 +25,8 @@ Each part lives in its own numbered directory with an `index.rst` toctree:
 | `05_mace_cores/` | Supported Cores |
 | `06_mace_evaluation/` | MACE Evaluation |
 
-Pages are reStructuredText; Markdown (`.md`) also works through
-`myst_parser`. The standalone notes already in this directory
-(`TECHNICAL_GUIDE.md` and the GCP write-ups) are excluded from the site in
-`conf.py`.
+The part `index.rst` files hold the tables of contents (reStructuredText,
+as in CVA6); the pages themselves are Markdown, read through `myst_parser`.
+Each page must keep its `# Title` line, or Sphinx cannot link it. The
+standalone notes already in this directory (`TECHNICAL_GUIDE.md` and the GCP
+write-ups) are excluded from the site in `conf.py`.

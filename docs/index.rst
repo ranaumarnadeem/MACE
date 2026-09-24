@@ -32,7 +32,7 @@ The :doc:`MACE Evaluation <06_mace_evaluation/index>` part collects the baseline
    :hidden:
 
    01_mace_user/index.rst
-   02_mace_requirements/mace_requirements_specification.rst
+   02_mace_requirements/mace_requirements_specification
    03_mace_design/index.rst
    04_chia_openpiton/index.rst
    05_mace_cores/index.rst
