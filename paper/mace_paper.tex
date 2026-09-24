@@ -202,10 +202,6 @@ PicoRV32 does not: a complete, TODO-free upstream transducer (\code{pico\_l15\_t
 friends) already exists. OpenPiton's CI builds it under Verilator but never runs it: the run job is
 commented out, targets a nonexistent stage, and even when live pointed at a different simulator.
 
-\textbf{Toolchain reuse.} The RV32IMA/ILP32 multilib in our installed \code{riscv64-unknown-elf-gcc}
-covers PicoRV32 with no new toolchain, confirmed by a trial assemble-and-link of the target
-diagnostic.
-
 \textbf{Results.} The adapter extension (a new \code{Literal} entry, two \code{sims} flags, mirrored
 tests) landed with full unit coverage and no regressions to the \code{ariane} and \code{sparc}
 paths. The build takes 57 seconds, faster than Ariane's since it skips the bootrom/device-tree
@@ -228,22 +224,15 @@ idles at its reset vector on an empty memory image. This is a toolchain gap, not
 the workload/mesh mismatch an earlier, unverified triage diagnosis assumed. The atomic hardware that
 workload needs does work: the upstream \code{amoadd\_w.S} test, pure assembly, passes on pico.
 
-\section{Beyond the Proposal: Interface, Coverage, Portability}
+\section{Additional Capabilities}
 \label{sec:cli}
 
-The \code{mace} command starts an interactive shell modeled on Yosys and OpenROAD:
-\code{read\_verilog}, \code{top\_module}, \code{read\_spec}, \code{set\_core}, then \code{run},
-giving \sys{} a standard EDA-style front end. If \code{top\_module} names a core
-\code{chia\_openpiton} does not support, \code{run} immediately flags the incompatibility instead of
-attempting a flawed integration.
-
-Verilator code coverage (\code{run -coverage}) is a second verification axis beyond pass/fail.
-OpenPiton's hand-written testbench never called Verilator's coverage-write API, so a clean run
-produced no data until we patched it to call that API directly. A run (1x1 Ariane,
-\code{barrier\_atomic.c}) reports 36.00\% (8787/24311).
-
-\sys{}'s loop also runs end to end, unmodified, against Google's Vertex Gemini backend and OpenCode,
-confirmed with a full passing run.
+\sys{} features a standard EDA-style interactive shell (modeled on Yosys/OpenROAD) that validates
+core compatibility up front to prevent invalid integration attempts. To provide a second verification
+axis beyond pass/fail, we patched the OpenPiton testbench to call Verilator's coverage-write API,
+yielding metrics such as 36.00\% line coverage for a 1x1 Ariane run. The agentic loop is also
+backend-agnostic, running unmodified against Google Vertex Gemini and OpenCode, each confirmed with a
+full passing run.
 
 \section{Evaluation}
 \label{sec:eval}
@@ -333,18 +322,13 @@ capability, a \code{CONFIG\_RTL:} planner directive so a task can request
 \code{CONFIG\_DISABLE\_BIST\_CLEAR} on top of the mesh's defaults. The fix was named in the
 objective, so this shows the loop applying a known fix, not discovering one.
 
-\textbf{The loop passes mesh shapes where manual scaling stalled.} Baseline (a), run before the fixes
-below, got stuck at 2x2 (build passes, run hangs) and never reached 4x4. Three latent bugs in
-OpenPiton's shared code were responsible. A hardcoded trace-file name in
-\code{cva6.sv} made every tile write the same file, so tiles beyond 0 looked like they never
-booted. The upstream exit barrier in \code{syscalls.c}, used by every ariane diagnostic, polls a
-cross-tile atomic counter with a plain load, the same staleness bug \code{atomic\_read()} already
-works around in our gate workloads. And the monitor's \code{finish\_mask} register was a fixed
-32-bit Verilog \code{integer} under Verilator, capping verifiable coverage at 8 tiles: a 4x4 run
-reported \code{PASS} after only 8 of 16 tiles finished, as each tile's execution trace showed. With
-all three fixed, the full loop passes both shapes with every tile confirmed (Figure~\ref{fig:eval},
-right): 2x2 in 750.1s across four tasks, including an L1D-associativity variant the planner chose to
-build and verify, and 4x4 in 250.9s across two tasks on a cached build.
+\textbf{The loop passes mesh shapes where manual scaling stalled.} Baseline (a), run before any
+fixes, stalled at 2x2 and never reached 4x4, due to latent upstream bugs, chiefly a stale-read exit
+barrier in \code{syscalls.c} and a 32-bit \code{finish\_mask} that capped verification at 8 tiles.
+After we patched them by hand, the loop planned and verified both meshes, every tile confirmed, with
+no changes to its planning or verification logic (Figure~\ref{fig:eval}, right): 2x2 in 750.1s
+across four tasks, including an L1D-associativity variant the planner chose to verify, and 4x4 in
+250.9s on a cached build.
 
 Phase~2's fan-out (two tasks, two checkouts, through baseline (c)'s path) measured 30s parallel
 versus 57s serial, matching Phase~1's result.
@@ -366,13 +350,6 @@ our manually launched drivers did not; exporting them took the task from a six-m
 two-second run. A later attempt on the same topology hung again with that fix in place, and relay
 logs plus a raylet \code{strace} show no outbound activity, pointing at Ray's scheduling under a
 proxied topology rather than CHIA. That follow-up remains open.
-
-\textbf{4x4 memory pressure, two causes, both fixed.} The upstream-validated 4x4 shape first ran out
-of memory (22.33GB of 23.47GB) under unconstrained parallel compilation, and limiting it through
-\code{MAKEFLAGS} did not help: OpenPiton's Verilator build step passed a bare, unlimited \code{-j}
-that overrode it, confirmed through \code{/proc}. Removing that \code{-j} fixed it but exposed a race
-in the boot ROM's Makefile, where one job's cleanup deletes a device-tree blob another job still
-needs, so we build 4x4 with \code{MAKEFLAGS=-j1}.
 
 \textbf{Future work: generality over one-off adapters.} All three cores here already had upstream
 OpenPiton/L15 adapters (SPARC's CCX transducer, Ariane's L15 adapter in CVA6, PicoRV32's
