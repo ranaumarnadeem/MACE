@@ -987,6 +987,10 @@ def shell(
     ),
 ) -> None:
     """Start the interactive shell (read_verilog, top_module, read_spec, set_core, run, write_report)."""
+    # Checked up front: a wrong path would otherwise only fail at `run`.
+    if not os.path.isdir(os.path.join(piton_root, "piton")):
+        typer.echo(f"--piton-root {piton_root!r} is not an OpenPiton checkout (no piton/ directory).")
+        raise typer.Exit(code=1)
     # --api is mandatory for a literal-API-key backend, not auto-loaded from a
     # saved file: a live user hit a stale key silently pulled in from disk
     # with no visibility into what was actually being used. Naming the file

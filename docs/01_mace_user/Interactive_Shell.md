@@ -46,7 +46,7 @@ mace shell --piton-root ~/openpiton --backend opencode --api .env.mace
 
 | Option | Default | Purpose |
 |---|---|---|
-| `--piton-root` | required | OpenPiton checkout. |
+| `--piton-root` | required | OpenPiton checkout. The shell exits at startup when it has no `piton/` directory. |
 | `--api` | none | Env file to load. Required for every backend except `vertex`. |
 | `--backend` | `vertex` | LLM backend. |
 | `--model` | `gemini-2.5-flash` on `vertex` | Model name; written to `MACE_LLM_MODEL`. |

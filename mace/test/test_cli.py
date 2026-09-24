@@ -619,17 +619,31 @@ class TestShellScriptOption:
             raise AssertionError("ray.init must not be reached when the script file is missing")
 
         monkeypatch.setattr("mace.cli.shell.ray.init", fail_if_called)
+        (tmp_path / "piton").mkdir()
 
         result = CliRunner().invoke(
             app,
             [
-                "shell", "--piton-root", "/x", "--backend", "opencode", "--api", str(env_file),
-                "--script", str(tmp_path / "does_not_exist.mace"),
+                "shell", "--piton-root", str(tmp_path), "--backend", "opencode",
+                "--api", str(env_file), "--script", str(tmp_path / "does_not_exist.mace"),
             ],
         )
 
         assert result.exit_code == 1
         assert "Can't read script file" in result.output
+
+    def test_a_piton_root_without_piton_dir_fails_before_ray_init(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        def fail_if_called(*a, **k):
+            raise AssertionError("ray.init must not be reached with a bad --piton-root")
+
+        monkeypatch.setattr("mace.cli.shell.ray.init", fail_if_called)
+
+        result = CliRunner().invoke(app, ["shell", "--piton-root", str(tmp_path)])
+
+        assert result.exit_code == 1
+        assert "not an OpenPiton checkout" in result.output
 
 
 class TestHandleReadVerilog:
