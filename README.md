@@ -166,8 +166,8 @@ Runs baseline (b) (`examples/baseline_one_shot_llm.py` — a single LLM prompt
 proposes a configuration once, with no tools and no retry, applied directly
 with no verification loop) then baseline (c) (`examples/mace_end_to_end.py`
 — the full loop) back to back against the same checkout, same objective, for
-a clean comparison; each can also be run standalone. Real result from the
-most recent run (after fixing a bug where baseline (b) omitted
+a clean comparison; each can also be run standalone. Real result from a
+single-tile run (after fixing a bug where baseline (b) omitted
 `rtl_timeout`, silently simulating under OpenPiton's stock 50,000-cycle
 default instead of the 1,000,000-cycle budget every other script uses):
 (b) built successfully but failed real hardware verification
@@ -180,9 +180,11 @@ measurement suggested. One trial isn't proof a one-shot prompt can never
 solve this objective — LLM output varies run to run — but it's a concrete
 instance of the failure mode the loop exists to catch.
 
-The same (b)/(c) pair was also run against `sparc` and `pico`, completing
-the 3-core × 2-baseline matrix in the paper's Figure 2 (numbers and details
-in `docs/TECHNICAL_GUIDE.md`'s "The full 3-core × 2-baseline matrix"). The
+The paper's Table 1 compares all three approaches on 2x2 and 4x4 meshes
+of ariane (`barrier_atomic.c`) and pico (`addi.S`): (a) and (c) pass all
+four, (b) fails all four. The same (b)/(c) pair was also run single-tile
+against `sparc` and `pico` (numbers and details in
+`docs/TECHNICAL_GUIDE.md`'s "The full 3-core × 2-baseline matrix"). The
 loop's triage told the two failures apart; direct follow-up then found the
 actual causes. `barrier_atomic.c` relies on RISC-V inline assembly that
 OpenSPARC T1 cannot run, and a monitor bug (now fixed) hid sparc's verdict
