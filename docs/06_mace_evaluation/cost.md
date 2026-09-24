@@ -14,7 +14,7 @@ Estimated cost of one MACE loop run on a 2x2 mesh:
 |---|---|---|---|
 | Ariane | $0.04 | $0.08 | about $0.12 |
 | PicoRV32 | | | about $0.02 |
-| OpenSPARC T1 (exhausting a three-iteration budget) | | | about $0.25, estimated, mostly its one-time build |
+| OpenSPARC T1 (exhausting a three-iteration budget) | | | about $0.25 (estimate), mostly its one-time build |
 
 ## Pricing assumptions
 
@@ -26,4 +26,4 @@ Estimated cost of one MACE loop run on a 2x2 mesh:
 
 ## Measuring tokens
 
-MACE's own cost counter (`compute_usd` in the run database) reads zero for Vertex runs. CHIA's Vertex backend reports no price, and its token count skips thinking tokens, which were more than half of the billed output in these runs. The token figures above come from re-sending representative planner and task prompts and counting every output token, thinking included.
+The `compute_usd` counter in the run database reads zero for Vertex runs. CHIA's Vertex backend reports no price, and its token count skips thinking tokens, which were more than half of the billed output in these runs. The token figures above come from re-sending representative planner and task prompts and counting all output tokens, thinking included.
