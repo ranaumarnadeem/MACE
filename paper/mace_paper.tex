@@ -37,7 +37,7 @@ and a deterministic integrator gates every change against Verilator simulation b
 A failure-analysis agent diagnoses failures and the planner replans around them.
 
 We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on all three
-supported cores, with every result derived from a hardware run or RTL simulation, not an agent's
+supported cores, with every result taken from Verilator simulation of the RTL, not an agent's
 self-report. We added PicoRV32 as a third core, resolving several RTL bugs that kept it from passing
 under Verilator. We also found and fixed three OpenPiton bugs that kept 2x2 and 4x4 meshes from
 passing; with them fixed, MACE's loop passes both sizes for Ariane and PicoRV32. The one-shot baseline failed on all three cores in three different ways; MACE
@@ -104,7 +104,7 @@ MACE contributes:
 configure/build/run/collect interface, built the same way as CHIA's gem5 and ESP adapters, so it can
 be upstreamed directly.
 \item The MACE loop (Sec.~\ref{sec:phase2}): planning, parallel task execution, deterministic
-integration, and LLM-driven failure triage, tested end-to-end on hardware with cost, time, and task
+integration, and LLM-driven failure triage, tested end to end against full Verilator runs, with cost, time, and task
 metrics.
 \item A third core, PicoRV32 (Sec.~\ref{sec:pico}), brought up by fixing pre-existing bugs in its
 upstream OpenPiton integration, which OpenPiton's continuous integration builds but never runs.
@@ -155,8 +155,8 @@ bugs this RTL triggers.
 marker exists: rebuilding an identical configuration dropped from 104s to 0.00s, so an iteration
 that only changes the test never rebuilds.
 
-\textbf{Results.} 208 tests across three tiers (pure-unit, live-Ray with a stub simulator, and
-hardware) all pass. Hardware acceptance tests pass for a 1x1 Ariane build and run
+\textbf{Results.} 208 tests that need no OpenPiton checkout (pure-unit, and live-Ray with a stub
+simulator) all pass. Acceptance tests with full Verilator builds pass for a 1x1 Ariane build and run
 (\code{hello\_world.c}, compiled and executed by the adapter itself) and for two independent
 checkouts building in parallel: 176s versus 324s serial. One acceptance test, 2x2 Ariane on a GCP
 worker, remains blocked by upstream infrastructure dependencies (Sec.~\ref{sec:limits}).
@@ -214,10 +214,9 @@ run's trap addresses (\code{objdump~-t}/\code{-f} against \code{symbol.tbl}), ru
 toolchain mismatch, and its transcript matched a passing Ariane fixture line for line until the
 fixture's \code{Hit Good trap}, which never appeared: the core itself never reached its trap address.
 
-Waveform tracing found the root cause: three RTL/testbench bugs, PicoRV32's
-\code{resetn}/\code{booted} self-boot gate, the manycore monitor's \code{active\_thread} tracking
-for pico's tile, and a silicon BIST self-clear race that discarded pico's first memory writes. With
-all three fixed, PicoRV32 \textbf{passes} under Verilator (\code{Simulation -> PASS (HIT GOOD
+Waveform tracing found three RTL/testbench bugs: PicoRV32's \code{resetn}/\code{booted}
+self-boot gate, the manycore monitor's \code{active\_thread} tracking for pico's tile, and the SRAM
+model's power-on BIST self-clear, which discarded pico's first memory writes. With all three fixed, PicoRV32 \textbf{passes} under Verilator (\code{Simulation -> PASS (HIT GOOD
 TRAP)}). The bugs surfaced only because \sys{} separates a successful build from a correct run
 instead of reporting a false pass.
 
@@ -308,7 +307,7 @@ The loop passes both shapes (a) got stuck on.}
 (b) fails all three cores, each in a different way. On ariane, the one-shot config built but failed
 verification: a wrong guess. On sparc, it built and reached a run attempt that failed silently, with
 no verdict at all. On pico, \code{PitonConfig}'s construction-time validation rejected the LLM's
-config (\code{l15\_size=0}) before any hardware ran; (b) has no retry path for a malformed response.
+config (\code{l15\_size=0}) before any simulation ran; (b) has no retry path for a malformed response.
 
 (c) passes ariane: 4/4 tasks, 741.7s, about 4x (b)'s cost. A second ariane gate workload,
 \code{producer\_consumer.c}, also passed (2118.02s, 2 tasks), coverage beyond one program. On sparc
@@ -388,8 +387,8 @@ database, showing dispatch, build, and verification live instead of through raw 
 \section{Conclusion}
 
 \sys{} shows that an agentic loop can plan, build, and verify multicore hardware, gated by RTL
-simulation instead of an agent's word. Along the way, the project fixed environment and RTL bugs
-and added a third core, and the loop passed 2x2 and 4x4 meshes of both Ariane and PicoRV32.
+simulation instead of an agent's word. Along the way we fixed environment and RTL bugs and added a
+third core, and the loop then passed 2x2 and 4x4 meshes of both Ariane and PicoRV32.
 Precision, not a single pass, is the point.
 
 \bibliographystyle{IEEEtran}
