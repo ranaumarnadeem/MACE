@@ -120,8 +120,8 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-PLAT-4:** A worker that advertises N units of `openpiton` shall host N separate checkouts.
 - **REQ-PLAT-5:** A worker that executes remote LLM prompt calls shall advertise the selected backend's credentials resource: `opencode_creds`, `claude_creds`, `antigravity_creds`, or `vertex_creds`.
 - **REQ-PLAT-6:** Every OpenPiton checkout shall be patched with `scripts/patch_openpiton.sh` before its first build.
-- **REQ-PLAT-7:** MACE shall support the CHIA LLM backends `opencode`, `claude`, `antigravity`, and `vertex`, and no others, selected by an explicit argument or else by the `MACE_LLM` environment variable, which defaults to `opencode`. The `mace` CLI and `examples/mace_end_to_end.py` shall select `vertex` unless `--backend` names another.
-- **REQ-PLAT-8:** MACE shall take the model name from an explicit argument, or else from the `MACE_LLM_MODEL` environment variable. The `mace` CLI and `examples/mace_end_to_end.py` shall use `gemini-2.5-flash` when the `vertex` backend is selected and `--model` is not given, even when `MACE_LLM_MODEL` is set.
+- **REQ-PLAT-7:** MACE shall support the CHIA LLM backends `opencode`, `claude`, `antigravity`, and `vertex`, and no others, selected by an explicit argument or else by the `MACE_LLM` environment variable, which defaults to `vertex`. The `mace` CLI and `examples/mace_end_to_end.py` shall select `vertex` unless `--backend` names another.
+- **REQ-PLAT-8:** MACE shall take the model name from an explicit argument, or else from the `MACE_LLM_MODEL` environment variable, and shall use `gemini-2.5-flash` for the `vertex` backend when neither gives one. The `mace` CLI and `examples/mace_end_to_end.py` shall use `gemini-2.5-flash` when the `vertex` backend is selected and `--model` is not given, even when `MACE_LLM_MODEL` is set.
 - **REQ-PLAT-9:** The `chia_openpiton` package shall import nothing from `mace`, so that it can be installed in CHIA as `chia/openpiton/` on its own.
 
 ## Toolchain Requirements

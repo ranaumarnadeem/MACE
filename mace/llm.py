@@ -1,8 +1,8 @@
 """mace.llm -- pick an LLM backend by env var, one call site for all of them.
 
 ``MACE_LLM`` selects which real chia.models backend the loop talks to:
-``opencode`` (default, used all session so far), ``claude``,
-``antigravity``, or ``vertex``. Model and other per-backend knobs are
+``vertex`` (default, the same default as every CLI), ``opencode``,
+``claude``, or ``antigravity``. Model and other per-backend knobs are
 separate (``MACE_LLM_MODEL`` env var, or keyword overrides), so switching
 backends is a config change, not a call-site change -- mace.loop and
 mace.planner only ever see an LLMCallBase, never a specific class.
@@ -117,19 +117,21 @@ _BACKENDS = {
 def make_llm(backend: str | None = None, **overrides) -> LLMCallBase:
     """Construct the backend named by *backend*, or the ``MACE_LLM`` env var.
 
-    ``MACE_LLM_MODEL`` (if set) becomes the backend's ``model``; *overrides*
-    are forwarded to the backend's constructor verbatim and take precedence
-    over it, so ``make_llm(model="...")`` always wins.
+    With neither set, the backend is ``vertex``. ``MACE_LLM_MODEL`` (if set)
+    becomes the backend's ``model``, and vertex falls back to
+    :data:`DEFAULT_VERTEX_MODEL`; *overrides* are forwarded to the backend's
+    constructor verbatim and take precedence over both, so
+    ``make_llm(model="...")`` always wins.
 
     Raises:
         UnknownLLMBackendError: the backend name isn't one of opencode/
             claude/antigravity/vertex.
     """
-    backend = (backend or os.environ.get("MACE_LLM", "opencode")).lower()
+    backend = (backend or os.environ.get("MACE_LLM", "vertex")).lower()
     builder = _BACKENDS.get(backend)
     if builder is None:
         raise UnknownLLMBackendError(
             f"MACE_LLM must be one of {sorted(_BACKENDS)}, got {backend!r}"
         )
-    model = os.environ.get("MACE_LLM_MODEL")
+    model = default_model_for_backend(os.environ.get("MACE_LLM_MODEL"), backend)
     return builder(model, overrides)

@@ -23,11 +23,12 @@ from mace.llm import (
 
 
 class TestBackendSelection:
-    def test_defaults_to_opencode(self, monkeypatch):
+    def test_defaults_to_vertex(self, monkeypatch):
+        """The same default as every CLI and example driver."""
         monkeypatch.delenv("MACE_LLM", raising=False)
-        from chia.models.opencode import OpenCodeLLM
+        from chia.models.vertex import VertexGeminiLLM
 
-        assert isinstance(make_llm(), OpenCodeLLM)
+        assert isinstance(make_llm(), VertexGeminiLLM)
 
     def test_env_var_selects_backend(self, monkeypatch):
         monkeypatch.setenv("MACE_LLM", "claude")
@@ -63,10 +64,13 @@ class TestModelSelection:
         monkeypatch.setenv("MACE_LLM_MODEL", "big-pickle")
         assert make_llm("opencode", model="small-pickle").model == "small-pickle"
 
-    def test_vertex_needs_a_model(self, monkeypatch):
+    def test_vertex_falls_back_to_the_default_model(self, monkeypatch):
         monkeypatch.delenv("MACE_LLM_MODEL", raising=False)
-        with pytest.raises(TypeError):
-            make_llm("vertex")
+        assert make_llm("vertex").model == DEFAULT_VERTEX_MODEL
+
+    def test_env_var_model_wins_over_the_vertex_default(self, monkeypatch):
+        monkeypatch.setenv("MACE_LLM_MODEL", "gemini-2.5-pro")
+        assert make_llm("vertex").model == "gemini-2.5-pro"
 
 
 class TestDefaultModelForBackend:

@@ -10,7 +10,7 @@ The planner, task execution, triage, and post-mortem see only an `LLMCallBase`, 
 
 | Backend | CHIA class | Credential | Default model | Cost reported |
 |---|---|---|---|---|
-| `vertex` | `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash`, set by the drivers | No |
+| `vertex` | `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash` | No |
 | `opencode` | `chia.models.opencode.OpenCodeLLM` | `OPENCODE_API_KEY` | the class's own | Yes |
 | `claude` | `chia.models.claude.ClaudeCodeLLM` | `ANTHROPIC_API_KEY` | the class's own | No |
 | `antigravity` | `chia.models.antigravity.AntigravityLLM` | `ANTIGRAVITY_API_KEY` | the class's own | Yes |
@@ -24,9 +24,10 @@ For `vertex`, `mace init` writes no file and only checks for Application Default
 ## Selecting a backend and model
 
 `make_llm(backend=None, **overrides)` builds the backend named by `backend`, or by the `MACE_LLM` environment variable when `backend` is `None`.
-With neither set, it builds `opencode`.
+With neither set, it builds `vertex`.
 `MACE_LLM_MODEL`, when set, becomes the model, and a `model=` override takes precedence over it.
-An unknown name raises `UnknownLLMBackendError`, and `make_llm("vertex")` raises `TypeError` when no model is set.
+With neither, `vertex` uses `gemini-2.5-flash`.
+An unknown name raises `UnknownLLMBackendError`.
 
 `default_model_for_backend(model, backend)` returns `model` when one is given, `gemini-2.5-flash` for `vertex`, and `None` for any other backend, which then uses its own default.
 `mace shell` and the two scripts above apply it to `--model`.
