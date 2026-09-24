@@ -18,7 +18,6 @@
 \makeatother
 \newcommand{\pass}[1]{{\color{green!50!black}pass}, #1}
 \newcommand{\fail}[1]{{\color{red!60!black}fail}, #1}
-\newcommand{\bex}[1]{{\color{orange!80!black}budget}, #1}
 
 \title{MACE: A Multi-core Agentic Co-design Engine for Autonomous OpenPiton Bring-Up}
 \author{\IEEEauthorblockN{Rana Umar Nadeem}
@@ -37,14 +36,13 @@ OpenPiton's configure, build, simulate, run, and collect operations, validated w
 and a deterministic integrator gates every change against Verilator simulation before accepting it.
 A failure-analysis agent diagnoses failures and the planner replans around them.
 
-We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on all three
-supported cores, with every result gated by Verilator simulation of the RTL. We added PicoRV32 as a
-third core, resolving several RTL bugs that kept it from passing under Verilator. We also traced what
-kept 2x2 and 4x4 meshes from passing, including a Verilator~5 scheduling bug that makes CVA6's cache
-adapter drop invalidations; with those issues addressed, MACE's loop passes both sizes for Ariane and
-PicoRV32. The one-shot baseline failed every configuration it attempted, while MACE passed ariane and
-stopped within its retry budget on the other two cores. The artifact pins its toolchain in a Nix
-flake, entered with a single \code{nix develop}.
+We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on 2x2 and 4x4
+meshes, with every result gated by Verilator simulation of the RTL. We added PicoRV32 as a third
+core, resolving several RTL bugs that kept it from passing under Verilator, and traced what kept
+multi-tile meshes from passing, including a Verilator~5 scheduling bug that makes CVA6's cache adapter
+drop invalidations. With those issues addressed, MACE's loop passes 2x2 and 4x4 meshes of both
+Ariane and PicoRV32, while the one-shot baseline fails every configuration it attempts. The artifact
+pins its toolchain in a Nix flake, entered with a single \code{nix develop}.
 \end{abstract}
 
 \begin{figure*}[t]
@@ -132,8 +130,7 @@ marker exists: rebuilding an identical configuration dropped from 104s to 0.00s,
 that only changes the test never rebuilds.
 
 \textbf{Results.} 208 tests that need no OpenPiton checkout (pure-unit, and live-Ray with a stub
-simulator) all pass. Acceptance tests with full Verilator builds pass for a 1x1 Ariane build and run
-(\code{hello\_world.c}, compiled and run by the adapter) and for two independent
+simulator) all pass, and acceptance tests with full Verilator builds pass, including two independent
 checkouts building in parallel: 176s versus 324s serial. One acceptance test, 2x2 Ariane on a GCP
 worker, remains blocked by upstream infrastructure dependencies (Sec.~\ref{sec:limits}).
 
@@ -177,23 +174,19 @@ Verilator without running it.
 
 \textbf{Results.} The adapter extension (a new \code{Literal} entry, two \code{sims} flags, mirrored
 tests) landed with full unit coverage and no regressions to the \code{ariane} and \code{sparc}
-paths. The build takes 57 seconds, faster than Ariane's since it skips the bootrom/device-tree
-chain, but the first run ended at \code{maxcycles}. Comparing the binary's symbols against
+paths, but the first pico runs ended at \code{maxcycles}. Comparing the binary's symbols against
 \code{symbol.tbl} and its transcript against a passing Ariane run ruled out a build or toolchain
 problem and placed the stall at the core never reaching its trap address.
 
 Waveform tracing found three RTL/testbench bugs: PicoRV32's \code{resetn}/\code{booted}
 self-boot gate, the manycore monitor's \code{active\_thread} tracking for pico's tile, and the SRAM
 model's power-on BIST self-clear, which discarded pico's first memory writes. With all three fixed,
-PicoRV32 \textbf{passes} under Verilator (\code{Simulation -> PASS (HIT GOOD TRAP)}). \sys{}
-surfaced these bugs because its gate distinguishes a successful build from a correct run.
-
-\textbf{Multi-tile pico.} The fixes generalize: on 2x2 and 4x4 meshes, every tile reaches
-\code{Hit Good trap} on \code{addi.S}. \code{barrier\_atomic.c} never runs on pico at any mesh size
-for a simpler reason: pico's OpenPiton integration has only an assembler, with no C compiler or
-\code{crt.S}/\code{syscalls.c}, so the diag never compiles and every tile idles at its reset vector
-on an empty memory image. This is a toolchain gap rather than an RTL bug, and the upstream
-\code{amoadd\_w.S} test confirms that pico's atomic hardware works.
+PicoRV32 \textbf{passes} under Verilator on 2x2 and 4x4 meshes, every tile reaching \code{Hit Good
+trap} on \code{addi.S}. \sys{} surfaced these bugs because its gate distinguishes a successful build
+from a correct run. \code{barrier\_atomic.c} never runs on pico: its OpenPiton integration has only
+an assembler, with no C compiler or \code{crt.S}/\code{syscalls.c}, so the diag never compiles. This
+is a toolchain gap rather than an RTL bug, and the upstream \code{amoadd\_w.S} test confirms that
+pico's atomic hardware works.
 
 \section{Additional Capabilities}
 \label{sec:cli}
@@ -201,64 +194,46 @@ on an empty memory image. This is a toolchain gap rather than an RTL bug, and th
 \sys{} features a standard EDA-style interactive shell (modeled on Yosys/OpenROAD) that validates
 core compatibility up front to prevent invalid integration attempts. To provide a second verification
 axis beyond pass/fail, we patched the OpenPiton testbench to call Verilator's coverage-write API,
-yielding metrics such as 36.00\% line coverage for a 1x1 Ariane run. The agentic loop is also
+yielding metrics such as 35.00\% line coverage for a 2x2 Ariane run. The agentic loop is also
 backend-agnostic, completing full passing runs unmodified against Google Vertex Gemini and OpenCode.
 
 \section{Evaluation}
 \label{sec:eval}
 
-We compare three approaches: \textbf{(a)} manual mesh scaling with a time log, \textbf{(b)} a single
-LLM prompt for a configuration applied once with no tools, verification, or retry, and \textbf{(c)}
-the full \sys{} loop. All three run the same objective, verifying \code{barrier\_atomic.c}, with
-Gemini~2.5~Flash throughout (Table~\ref{tab:eval}).
+We compare three approaches on 2x2 and 4x4 meshes: \textbf{(a)} manual mesh scaling with a time
+log, \textbf{(b)} a single LLM prompt for a configuration applied once with no tools, verification,
+or retry, and \textbf{(c)} the full \sys{} loop, with every LLM call on Gemini~2.5~Flash
+(Table~\ref{tab:eval}). Ariane runs \code{barrier\_atomic.c}; pico runs \code{addi.S}, since its
+integration has no C toolchain; SPARC does not yet run under our Verilator (Section~\ref{sec:limits}).
+All three approaches get pico's \code{CONFIG\_DISABLE\_BIST\_CLEAR} define: (a) sets it by hand,
+and the objectives for (b) and (c) name it; (b)'s config line accepts RTL defines, and (c)'s planner
+requests one through a new \code{CONFIG\_RTL:} directive, which adds it on top of the mesh's defaults.
 
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \caption{Verilator verdict and end-to-end wall time per approach. All runs share one build cache,
 so an approach pays for a build only when it picks a new configuration; (a) counts machine time
-only. Ariane 2x2 and 4x4 follow the fixes in Section~\ref{sec:eval}. Budget = retry budget
-exhausted. $^\dagger$Invalid configuration (L1.5 size 0), rejected before any build.}
+only. $^\dagger$Invalid configuration (L1.5 size 0), rejected before any build.}
 \label{tab:eval}
 \footnotesize
-\begin{tabular}{@{}lccccc@{}}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llccc@{}}
 \toprule
- & \multicolumn{3}{c}{\textbf{ariane}} & \textbf{sparc} & \textbf{pico} \\
-\cmidrule(lr){2-4}
-\textbf{Approach} & 1x1 & 2x2 & 4x4 & 1x1 & 1x1 \\
+\textbf{Core} & \textbf{Mesh} & \textbf{(a) Manual} & \textbf{(b) One-shot} & \textbf{(c) \sys{}} \\
 \midrule
-(a) Manual & \pass{6.4s} & \pass{33.9s} & \pass{271.9s} & \fail{13.9s} & \fail{18.2s} \\
-(b) One-shot LLM & \fail{186.5s} & \fail{10.4s}$^\dagger$ & \fail{3820.9s} & \fail{766.0s} &
-  \fail{32.6s}$^\dagger$ \\
-(c) \sys{} loop & \pass{741.7s} & \pass{750.1s} & \pass{250.9s} & \bex{966.3s} & \bex{1250.5s} \\
+ariane & 2x2 & \pass{33.9s} & \fail{10.4s}$^\dagger$ & \pass{750.1s} \\
+ & 4x4 & \pass{271.9s} & \fail{3820.9s} & \pass{250.9s} \\
+pico & 2x2 & \pass{9.8s} & \fail{12.0s}$^\dagger$ & \pass{70.7s} \\
+ & 4x4 & \pass{53.9s} & \fail{13.4s}$^\dagger$ & \pass{100.6s} \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
-(b) fails in several distinct ways. On ariane at 1x1, its config built but failed verification, and
-on sparc the run failed silently with no verdict. On pico, and on ariane at 2x2,
-\code{PitonConfig}'s construction-time validation rejected the LLM's config (\code{l15\_size=0})
-before any build, and (b) has no retry path. At 4x4 it chose oversized caches, including a 4\,MB L2
-per tile: the build took 35 minutes and the simulation timed out with no tile finished.
-
-(c) passes ariane in 741.7s (4 of 4 tasks), about 4x (b)'s time, and also passes a second gate
-workload, \code{producer\_consumer.c} (2118.02s, 2 tasks). On sparc and pico it exhausts its retry
-budget on \code{barrier\_atomic.c}, which neither core can compile. Its triage attributed the two
-failures to different causes, a missing include path for sparc and a workload/mesh mismatch for
-pico, but missed the causes below.
-
-sparc's failure has two layers. The first is an ISA gap: \code{barrier\_atomic.c} uses
-\code{util.h}'s \code{ATOMIC\_FETCH\_OP} macro, which is RISC-V inline assembly, and OpenSPARC T1
-has no C diag environment, so no portable fix exists. Pure-assembly diagnostics, including
-OpenPiton's CI-verified \code{princeton-test-test.s}, avoid that gap but expose a second: the core
-never receives the I/O bridge's power-on wake-up interrupt, so no thread ever starts and the run hits
-\code{max\_cycle} with no verdict. OpenPiton's exact CI recipe stalls the same way under our
-Verilator~5.020 (with \code{--no-timing}, which Verilator~5 requires here), while CI uses
-Verilator~4, so the stall is environmental; its root cause remains open.
-
-For pico, the cause is the missing C toolchain (Section~\ref{sec:pico}). On \code{addi.S},
-with the objective naming the needed \code{CONFIG\_DISABLE\_BIST\_CLEAR} define, the loop passes pico
-in one task at every size: 1x1 in 115.5s, 2x2 in 70.7s, and 4x4 in 293.2s. A new \code{CONFIG\_RTL:}
-planner directive lets a task request such a define on top of the mesh's defaults.
+(b) fails every configuration. In three of four, \code{PitonConfig}'s construction-time validation
+rejected the LLM's config before any build: it set the L1.5 size to zero, which every OpenPiton tile
+needs, and (b) has no retry path. On pico it included the named define both times. At ariane 4x4 it
+chose oversized caches, including a 4\,MB L2 per tile: the build took 35 minutes and the simulation
+timed out with no tile finished.
 
 \textbf{Mesh scaling to 2x2 and 4x4.} Manual scaling (a) first stalled at 2x2 and never reached 4x4,
 for two reasons. Under Verilator~5, a known scheduling bug~\cite{verilator5829} makes CVA6's L1.5
@@ -270,22 +245,19 @@ capped verification at 8 tiles. Our runs poll the barrier with atomic reads rath
 adapter fix, and widen the mask. With both in place, manual runs pass both sizes, and the loop planned
 and verified both meshes, every tile confirmed, with no changes to its planning or verification logic
 (Table~\ref{tab:eval}): 2x2 in 750.1s across four tasks, including an L1D-associativity variant the
-planner chose to verify, and 4x4 in 250.9s on a cached build.
-
-Phase~2's fan-out (two tasks, two checkouts, through baseline (c)'s path) measured 30s parallel
-versus 57s serial, matching Phase~1's result.
+planner chose to verify, and 4x4 in 250.9s on a cached build. On pico it passes in a single task at
+both sizes.
 
 \textbf{Recovery.} The detect, diagnose, and replan cycle is exercised only at the mechanism level,
-with a stub that fails once and then passes; no passing run above needed it, including a deliberately
-extreme first configuration (a 128-byte direct-mapped L1). Its one live failure, a pico 4x4 build
-cached before the \code{finish\_mask} fix, went unrecovered: a build ID covers configuration but not
+with a stub that fails once and then passes; no passing run above needed it. Its one live failure, a
+pico 4x4 build cached before the \code{finish\_mask} fix, went unrecovered: a build ID covers configuration but not
 source edits, so all three replans reused the stale build while triage blamed the RTL. A clean
 rebuild passed.
 
 \section{Cost}
 \label{sec:cost}
 
-Every run in this paper together cost \$37 of a \$300 GCP credit allocation, covering simulation
+All experiments behind this paper cost \$37 of a \$300 GCP credit allocation, covering simulation
 compute and LLM inference; development used a \$20/month Claude subscription, outside that budget.
 A single loop run is cheap. At 2x2, an ariane run costs about \$0.12 (\$0.04 of LLM tokens and
 \$0.08 of compute) and a pico run about \$0.02, while a sparc run that exhausts its three-iteration
@@ -297,6 +269,14 @@ here, so we measured tokens by re-sending representative planner and task prompt
 
 \section{Limitations and Open Issues}
 \label{sec:limits}
+
+\textbf{SPARC under Verilator~5.} OpenSPARC T1 builds but does not run in our environment: the core
+never receives the I/O bridge's power-on wake-up interrupt, so no thread starts and the run hits
+\code{max\_cycle} with no verdict. OpenPiton's exact CI recipe, with its CI-verified
+\code{princeton-test-test.s}, stalls the same way under our Verilator~5.020 (with \code{--no-timing},
+which Verilator~5 requires here), while CI uses Verilator~4, so the stall is environmental; its root
+cause remains open. \code{barrier\_atomic.c} would not run on T1 regardless: it uses RISC-V inline
+assembly, and T1 has no C diag environment.
 
 \textbf{GCP dispatch.} A task needing a tailnet-relayed GCP worker first never ran because CHIA sets
 three proxy environment variables during \code{chia up} that \code{chia job submit} inherits but
