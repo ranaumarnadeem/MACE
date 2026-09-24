@@ -13,6 +13,8 @@ The table gives each approach's Verilator verdict and end-to-end wall time. [Met
 
 \* Invalid configuration (L1.5 size 0), rejected before any build.
 
+The logs and run database behind the table are attached to the repository's [0.0.1 pre-release](https://github.com/ranaumarnadeem/MACE/releases/tag/v0.0.1).
+
 ## One-shot baseline
 
 The one-shot baseline fails all four. In three, the LLM set the L1.5 size to zero, though every OpenPiton tile needs an L1.5. `PitonConfig` rejected those configurations before building, and the baseline has no retry path. Both PicoRV32 attempts included the named `CONFIG_DISABLE_BIST_CLEAR` define. On the 4x4 Ariane mesh the LLM chose oversized caches, including a 4 MB L2 per tile: the build took 35 minutes and the simulation timed out before any tile finished.

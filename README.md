@@ -42,7 +42,8 @@ compares it with manual bring-up and a one-shot LLM configuration:
 
 [Results](https://ranaumarnadeem.github.io/MACE/06_mace_evaluation/results.html)
 explains each run. OpenSPARC T1 builds but does not run under the Verilator 5
-used here.
+used here. The logs and run database behind the table are attached to the
+[0.0.1 pre-release](https://github.com/ranaumarnadeem/MACE/releases/tag/v0.0.1).
 
 ## Install
 
