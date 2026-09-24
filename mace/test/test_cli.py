@@ -724,11 +724,12 @@ class TestHandleReadSpec:
 
 
 class TestHandleSetCore:
-    def test_sets_a_known_mesh_and_reports_its_outcome(self):
+    @pytest.mark.parametrize("n,mesh", [(4, (2, 2)), (16, (4, 4))])
+    def test_sets_a_known_mesh_and_reports_its_outcome(self, n, mesh):
         session = Session(piton_root="/x")
-        msg = handle_set_core(session, "4")
-        assert session.target_mesh == (2, 2)
-        assert "hangs" in msg  # KNOWN_MESH_OUTCOMES[4]'s real, honest finding
+        msg = handle_set_core(session, str(n))
+        assert session.target_mesh == mesh
+        assert "every tile reaching Hit Good trap" in msg  # KNOWN_MESH_OUTCOMES[n]'s real result
 
     def test_sets_an_unvalidated_count_and_says_so(self):
         session = Session(piton_root="/x")
