@@ -5,6 +5,8 @@
 \usepackage{enumitem}
 \usepackage{graphicx}
 \usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,fit,backgrounds,calc}
 \usepackage{balance}
 \emergencystretch=2em
 
@@ -18,6 +20,9 @@
 \makeatother
 \newcommand{\pass}[1]{{\color{green!50!black}pass}, #1}
 \newcommand{\fail}[1]{{\color{red!60!black}fail}, #1}
+% The numbered marks of Figure 2, reused in the text.
+\DeclareRobustCommand{\mk}[1]{\tikz[baseline=(m.base)]\node[circle,fill=black,text=white,
+  inner sep=0.4pt,font=\sffamily\tiny\bfseries](m){#1};}
 
 \title{MACE: A Multi-core Agentic Co-design Engine for Autonomous OpenPiton Bring-Up}
 \author{\IEEEauthorblockN{Rana Umar Nadeem, Samrah Mumtaz, and Muhammad Imran}
@@ -91,12 +96,59 @@ a second verification axis, and a second working LLM backend.
 CHIA~\cite{chia} provides the agent, tool, and dispatch layer this project builds on: colocated
 resource-pinned worker nodes, an LLM abstraction layer spanning multiple backends, and
 Ray-based~\cite{ray} remote dispatch and caching. OpenPiton~\cite{openpiton} is Princeton's
-open-source, silicon-proven manycore research framework. Tiles connect through a 2D-mesh
-network-on-chip and speak a custom MESI-coherence protocol (L15, descended from OpenSPARC T1's
-PCX/CPX bus) to reach the NoC. OpenPiton supports three tile cores, the latter two added through its
-BYOC framework~\cite{byoc}: OpenSPARC T1 (\code{sparc}), Ariane/CVA6~\cite{cva6} (\code{ariane},
-RV64GC, coherent), and PicoRV32~\cite{picorv32} (\code{pico}, RV32I, non-coherent). Before this
-project, CHIA had no OpenPiton adapter.
+open-source, silicon-proven manycore research framework; Figure~\ref{fig:tile} shows a mesh and one
+of its tiles. Its three tile cores, the latter two added through BYOC~\cite{byoc}, are OpenSPARC T1
+(\code{sparc}), Ariane/CVA6~\cite{cva6} (\code{ariane}), and PicoRV32~\cite{picorv32}
+(\code{pico}). Before this project, CHIA had no OpenPiton adapter.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  tile/.style={draw, minimum size=0.72cm, fill=white},
+  blk/.style={draw, fill=white, align=center, text width=3.9cm, minimum height=0.46cm,
+    inner sep=1.5pt},
+  badge/.style={circle, fill=black, text=white, inner sep=0.4pt, font=\sffamily\tiny\bfseries},
+  ln/.style={semithick},
+]
+  % 2x2 mesh
+  \node[tile] (t0) at (0.45,2.75) {T0};
+  \node[tile] (t1) at (1.65,2.75) {T1};
+  \node[tile] (t2) at (0.45,1.55) {T2};
+  \node[tile] (t3) at (1.65,1.55) {T3};
+  \draw[ln] (t0) -- (t1); \draw[ln] (t2) -- (t3);
+  \draw[ln] (t0) -- (t2); \draw[ln] (t1) -- (t3);
+  \node[draw, fill=white, font=\sffamily\tiny] (cs) at (1.05,3.8) {chipset: I/O, memory};
+  \draw[ln] (cs.south -| t0) -- (t0.north);
+  \node[font=\sffamily\tiny] at (1.05,0.9) {2x2 mesh, 3 physical NoCs};
+  \node[draw, dashed, fill=white, font=\sffamily\tiny, align=center] (mon) at (1.05,0.25)
+    {testbench monitor\\(finish mask, threads)};
+  \node[badge] at ([xshift=0.22cm]mon.east) {3};
+  % one tile, expanded
+  \node[blk] (core) at (5.5,3.55) {core: Ariane (RV64GC), PicoRV32 (RV32I), or OpenSPARC T1};
+  \node[blk] (adp) at (5.5,2.72) {core-specific adapter to the L1.5};
+  \node[blk] (l15) at (5.5,2.02) {L1.5 cache (private)};
+  \node[blk] (l2) at (5.5,1.32) {L2 slice (shared, distributed)};
+  \node[blk] (rt) at (5.5,0.62) {NoC routers};
+  \draw[ln] (core) -- (adp); \draw[ln] (adp) -- (l15); \draw[ln] (l15) -- (l2); \draw[ln] (l2) -- (rt);
+  \node[badge] (b2a) at ([xshift=0.24cm]core.east) {2};
+  \node[badge] at ([xshift=0.24cm]adp.east) {1};
+  \draw[semithick] ([xshift=0.06cm]l15.north east) -- ++(0.1,0) |- ([xshift=0.06cm]l2.south east);
+  \node[badge] (b2b) at ($([xshift=0.3cm]l15.east)!0.5!([xshift=0.3cm]l2.east)$) {2};
+  \begin{scope}[on background layer]
+    \node[draw, rounded corners=3pt, fill=gray!10, inner sep=4pt, fit=(core) (rt) (b2a) (b2b),
+      label={[font=\sffamily\tiny\itshape, anchor=south west, inner sep=1pt]north west:one tile}] (tbox) {};
+  \end{scope}
+  \draw[densely dashed, gray] (t1.north east) -- (tbox.north west);
+  \draw[densely dashed, gray] (t1.south east) -- (tbox.south west);
+\end{tikzpicture}
+\caption{An OpenPiton mesh and one of its tiles. Each core reaches the tile's L1.5 through its own
+adapter. The marks show the issues fixed in this work: \mk{1} CVA6's L1.5 adapter dropping
+invalidations under Verilator~5, \mk{2} PicoRV32's self-boot gate and the SRAM model's power-on
+self-clear, and \mk{3} the testbench monitor's 32-bit finish mask and its PicoRV32 thread
+tracking.}
+\label{fig:tile}
+\end{figure}
 
 \textbf{Related work.} LLM-based hardware design has mostly been evaluated at module scale.
 VerilogEval~\cite{verilogeval} scores single-module Verilog generation, ChipNeMo~\cite{chipnemo}
@@ -110,13 +162,56 @@ it plans and verifies bring-up of an existing manycore, gated by whole-system Ve
 \section{Phase 1: The OpenPiton Adapter}
 \label{sec:phase1}
 
-\textbf{Design.} The adapter, \code{OpenPitonWorkspaceNode}, is a CHIA \code{ColocatedNode} whose
-resource-pinned remote functions configure, build, run, regress, collect results, and clean.
-OpenPiton's template preprocessor writes generated \code{.tmp.v}
-files into the source tree on every build, so the adapter gives each worker its own checkout,
-reserved through one \code{openpiton} resource unit, instead of locking a shared one. Pure parsers
-read build and run verdicts from OpenPiton's transcripts (\code{sim.log}, \code{status.log}), using
-the strings its RTL monitors emit.
+\textbf{Design.} Figure~\ref{fig:arch} shows where the adapter sits. \code{OpenPitonWorkspaceNode} is
+a CHIA \code{ColocatedNode} whose resource-pinned remote functions configure, build, run, and
+collect results. OpenPiton writes generated \code{.tmp.v} files into its source tree on every build,
+so each worker gets its own checkout, reserved through one \code{openpiton} resource unit. Pure
+parsers read verdicts from OpenPiton's transcripts, using the strings its RTL monitors emit.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  box/.style={draw, fill=white, align=center, minimum height=0.62cm, inner sep=1.5pt},
+  band/.style={draw, rounded corners=3pt, fill=gray!10, inner sep=4pt},
+  lab/.style={font=\sffamily\tiny\itshape, anchor=south west, inner sep=1pt},
+  arr/.style={-{Latex[length=1.5mm]}, semithick},
+  el/.style={font=\sffamily\tiny, fill=white, inner sep=1pt},
+]
+  \node[box, minimum width=6.4cm] (llm) at (4.25,4.35) {LLM backend via CHIA (Gemini 2.5 Flash on Vertex)};
+  % MACE loop
+  \node[box, minimum width=1.8cm] (plan) at (1.1,2.75) {Planner\\(LLM)};
+  \node[box, minimum width=3.0cm] (int) at (4.25,2.75) {Integrator: runs tasks by\\level, gates on verdicts};
+  \node[box, minimum width=1.8cm] (tri) at (7.4,2.75) {Triage\\(LLM)};
+  \draw[arr] (plan) -- (int);
+  \draw[arr] (int) -- (tri);
+  \draw[arr] (tri.north) -- ++(0,0.33) -| node[el, pos=0.25] {diagnosis, replan} (plan.north);
+  % adapter
+  \node[box, minimum width=4.9cm] (ws) at (2.6,0.95) {OpenPitonWorkspaceNode: configure, build,\\run, collect; verdicts from \texttt{sim.log}};
+  \node[box, minimum width=2.8cm] (ts) at (6.95,0.95) {PitonToolServer:\\read-only log tools};
+  \draw[arr] (int.south) -- node[el] {build, run} (int.south |- ws.north);
+  \draw[arr] (tri.south) -- node[el] {inspect} (tri.south |- ts.north);
+  % workers
+  \node[box, minimum width=2.7cm] (w1) at (1.55,-0.45) {worker 1: checkout 1,\\\texttt{sims} + Verilator};
+  \node[box, minimum width=2.7cm] (w2) at (4.55,-0.45) {worker 2: checkout 2,\\\texttt{sims} + Verilator};
+  \node[font=\sffamily\scriptsize] at (6.3,-0.45) {\dots};
+  \node[font=\sffamily\tiny, align=left, anchor=west] at (6.6,-0.45) {Ray workers,\\one checkout each};
+  \draw[arr] (ws.south -| w1) -- (w1.north);
+  \draw[arr] (ws.south -| w2) -- (w2.north);
+  \coordinate (looptop) at ($(plan.north)+(0,0.5)$);
+  \begin{scope}[on background layer]
+    \node[band, fit=(plan) (int) (tri) (looptop)] (loop) {};
+    \node[lab] at (loop.north west) {MACE loop};
+    \node[band, fit=(ws) (ts)] (ad) {};
+    \node[lab] at (ad.north west) {chia\_openpiton};
+  \end{scope}
+  \draw[dashed, {Latex[length=1.5mm]}-{Latex[length=1.5mm]}, semithick] (llm.south)
+    -- node[el] {prompts} (loop.north -| llm.south);
+\end{tikzpicture}
+\caption{How the pieces fit. The \sys{} loop drives OpenPiton through \code{chia\_openpiton}, and
+CHIA and Ray place each checkout's calls on its own worker.}
+\label{fig:arch}
+\end{figure}
 
 \textbf{Build-result caching.} \code{build()} skips the simulator when a matching successful-build
 marker exists: rebuilding an identical configuration dropped from 104s to 0.00s, so an iteration
@@ -132,7 +227,8 @@ worker, remains blocked by upstream infrastructure dependencies (Sec.~\ref{sec:l
 
 \textbf{Pipeline.} Figure~\ref{fig:pipeline} shows the loop. A planning agent turns a
 \code{MaceSpec} (core, target mesh, gate workloads, objective, budget) into a task DAG, and workers
-dispatch ready tasks in parallel through Ray, each pinned to its own checkout. A deterministic
+dispatch ready tasks in parallel through Ray, each pinned to its own checkout
+(Figure~\ref{fig:arch}). A deterministic
 integrator, with no LLM, runs the tasks in dependency order: each builds its own configuration,
 including any cache or RTL-define overrides the planner gave it, and runs the gate workload, whose
 \emph{verdict}, parsed from simulator output, must read \code{pass}. On
@@ -156,14 +252,13 @@ record and re-serve those decisions at no token or compute cost once caching is 
 \section{A Third Core: PicoRV32}
 \label{sec:pico}
 
-OpenPiton has no reusable core-to-NoC bridge: under BYOC, each core reaches the L1.5 through its own
-transducer, and a core with its own coherent cache, as Ariane has, needs new coherence-adapter RTL.
-PicoRV32 has no such cache and already has an upstream transducer, which OpenPiton's CI builds under
-Verilator but never runs.
+Each core reaches its tile's L1.5 through its own adapter (Figure~\ref{fig:tile}), and a core with its
+own coherent cache, as Ariane has, needs new coherence-adapter RTL. PicoRV32 has no such cache and
+already has an upstream transducer, which OpenPiton's CI builds under Verilator but never runs.
 
-Our first pico runs built but never reached a trap. Tracing them found three RTL/testbench bugs: the
-core's self-boot gate, the monitor's tracking of pico's tile, and an SRAM power-on self-clear that
-discarded pico's first memory writes. With all three fixed, PicoRV32 \textbf{passes} under
+Our first pico runs built but never reached a trap. Tracing them found three RTL/testbench bugs
+(\mk{2}, \mk{3}): the core's self-boot gate, the monitor's tracking of pico's tile, and an SRAM
+power-on self-clear that discarded pico's first memory writes. With all three fixed, PicoRV32 \textbf{passes} under
 Verilator on 2x2 and 4x4 meshes, every tile reaching \code{Hit Good trap} on \code{addi.S}. Its
 OpenPiton integration has no C compiler, so it runs assembly workloads only.
 
@@ -216,11 +311,11 @@ timed out with no tile finished.
 
 \textbf{Mesh scaling to 2x2 and 4x4.} Manual scaling (a) first stalled at 2x2 and never reached 4x4,
 for two reasons. Under Verilator~5, a known scheduling bug~\cite{verilator5829} makes CVA6's L1.5
-adapter drop cache invalidations, so the plain-load exit barrier in \code{syscalls.c} never sees other
+adapter drop cache invalidations (\mk{1} in Figure~\ref{fig:tile}), so the plain-load exit barrier in \code{syscalls.c} never sees other
 tiles' updates; OpenPiton pins a CVA6 that predates the upstream workaround~\cite{cva6pr2809}.
 Porting that workaround alone passes 2x2 with the unmodified barrier (4 of 4 tiles, 24s), while the
 original adapter times out with one tile done. Separately, the monitor's 32-bit \code{finish\_mask}
-capped verification at 8 tiles. Our runs poll the barrier with atomic reads rather than port the
+(\mk{3}) capped verification at 8 tiles. Our runs poll the barrier with atomic reads rather than port the
 adapter fix, and widen the mask. With both in place, manual runs pass both sizes, and the loop planned
 and verified both meshes, every tile confirmed, with no changes to its planning or verification logic
 (Table~\ref{tab:eval}): 2x2 in 750.1s across four tasks, including an L1D-associativity variant the
