@@ -104,6 +104,9 @@ def run_mace_loop(
     why this is coarser than per-task tracking, and why that's the right
     tradeoff here).
 
+    An exception escaping any of this records the run as ``"error"`` before
+    propagating, so a crashed run never stays ``"running"`` in the database.
+
     If the run instead ends with status ``"failed"`` or ``"budget_exceeded"``
     *and at least one iteration actually ran* (excludes, e.g., the wall-time
     budget already being exceeded before the first iteration even starts --
@@ -257,6 +260,9 @@ def run_mace_loop(
                 record_post_mortem(db, run_id, post_mortem)
             except ReportError:
                 pass  # fail-open, matching triage's own posture
+    except BaseException:
+        finish_run(db, run_id, "error")
+        raise
     finally:
         if tool_server is not None:
             tool_server.stop()

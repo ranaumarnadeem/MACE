@@ -230,6 +230,22 @@ class TestStatusTransitions:
         assert result.status == "passed"
         assert len(result.iterations) == 1
 
+    def test_unexpected_exception_records_error_and_propagates(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+        monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]))
+
+        def crashing_integrate_parallel(*args, **kwargs):
+            raise RuntimeError("Duplicate function declaration found")
+
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", crashing_integrate_parallel)
+
+        with pytest.raises(RuntimeError, match="Duplicate function"):
+            run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
+
+        row = db.query("SELECT status, finished_at FROM runs")[0]
+        assert row["status"] == "error"
+        assert row["finished_at"] is not None
+
     def test_planning_error_stops_with_planning_failed(self, tmp_path, monkeypatch):
         from mace.planner import PlanningError
 
