@@ -372,6 +372,121 @@ class TestStatusTransitions:
         assert "build_timeout" in seen_feedback[2] and "raise the sim wall clock" in seen_feedback[2]
 
 
+class TestEveryExceptionRecordsError:
+    """Every exception that ends a run, including those raised outside the
+    iteration loop itself, must record the run as "error" and propagate, so
+    a crashed run never stays "running" in the database."""
+
+    @staticmethod
+    def recorded_status(db):
+        return db.query("SELECT status FROM runs")[0]["status"]
+
+    def test_a_checksum_mismatch_still_records_checksum_mismatch(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+
+        def mismatching_checksums():
+            raise ValueError("barrier_atomic.c does not match CHECKSUMS")
+
+        monkeypatch.setattr("mace.orchestrator.verify_checksums", mismatching_checksums)
+
+        result = run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
+
+        assert result.status == "checksum_mismatch"
+        assert self.recorded_status(db) == "checksum_mismatch"
+
+    def test_a_checksum_check_crash_records_error(self, tmp_path, monkeypatch):
+        """Only ValueError means a mismatch; a missing CHECKSUMS file is a crash."""
+        db = make_db(tmp_path)
+
+        def missing_checksums():
+            raise FileNotFoundError("mace/workloads/CHECKSUMS")
+
+        monkeypatch.setattr("mace.orchestrator.verify_checksums", missing_checksums)
+
+        with pytest.raises(FileNotFoundError):
+            run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
+
+        assert self.recorded_status(db) == "error"
+
+    def test_a_failure_to_stop_the_last_tool_server_records_error(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+
+        class UnstoppableServer:
+            def stop(self):
+                raise RuntimeError("actor already gone")
+
+        monkeypatch.setattr("mace.orchestrator.ray.is_initialized", lambda: True)
+        monkeypatch.setattr(
+            "mace.orchestrator._start_triage_tool_server",
+            lambda run_id, piton_root, failed: UnstoppableServer(),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            fake_integrate_parallel([step_result("t1", passed=False, verdict="fail")]),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.triage",
+            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try again"),
+        )
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        with pytest.raises(RuntimeError, match="actor already gone"):
+            run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
+
+        assert self.recorded_status(db) == "error"
+
+    def test_a_failure_to_mark_recovery_records_error(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+
+        def locked_mark_all_recovered(db, run_id):
+            raise RuntimeError("database is locked")
+
+        monkeypatch.setattr("mace.orchestrator.mark_all_recovered", locked_mark_all_recovered)
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)] * 2),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            fake_integrate_parallel([step_result("t1", passed=False, verdict="fail"), step_result("t1")]),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.triage",
+            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try again"),
+        )
+
+        with pytest.raises(RuntimeError, match="database is locked"):
+            run_mace_loop(
+                ("/fake/root",), make_spec(budget=Budget(max_iterations=2)), FakeLLM(responses=[]), db
+            )
+
+        assert self.recorded_status(db) == "error"
+
+    def test_a_failed_final_status_write_records_error(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+
+        def finish_run_failing_on_passed(db, run_id, status):
+            if status == "passed":
+                raise RuntimeError("disk I/O error")
+            metrics.finish_run(db, run_id, status)
+
+        monkeypatch.setattr("mace.orchestrator.finish_run", finish_run_failing_on_passed)
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]),
+        )
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", fake_integrate_parallel([step_result("t1")]))
+
+        with pytest.raises(RuntimeError, match="disk I/O error"):
+            run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
+
+        assert self.recorded_status(db) == "error"
+
+
 class TestTriageToolServerConstructionFailure:
     def test_a_construction_failure_does_not_abort_the_run(self, tmp_path, monkeypatch):
         """PitonToolServer's own construction (e.g. ChiaTool's port search
