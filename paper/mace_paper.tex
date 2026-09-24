@@ -93,7 +93,7 @@ its upstream OpenPiton integration and one existing define.
 
 \section{Background}
 
-CHIA~\cite{chia} provides the agent, tool, and dispatch layer this project builds on: colocated
+CHIA~\cite{chia} (release 1.0.1) provides the agent, tool, and dispatch layer this project builds on: colocated
 resource-pinned worker nodes, an LLM abstraction layer spanning multiple backends, and
 Ray-based~\cite{ray} remote dispatch and caching. OpenPiton~\cite{openpiton} is Princeton's
 open-source, silicon-proven manycore research framework; Figure~\ref{fig:tile} shows a mesh and one
@@ -308,7 +308,7 @@ The one-shot prompt has neither.
 for two reasons. Under Verilator~5, a known scheduling bug~\cite{verilator5829} makes CVA6's L1.5
 adapter drop cache invalidations (\mk{1} in Figure~\ref{fig:tile}), so the plain-load exit barrier in \code{syscalls.c} never sees other
 tiles' updates; OpenPiton pins a CVA6 that predates the upstream workaround~\cite{cva6pr2809}.
-A hand port of that workaround passes 2x2 with the unmodified barrier (4 of 4 tiles, 24s), while the
+A hand port of that workaround, which the artifact does not include, passes 2x2 with the unmodified barrier (4 of 4 tiles, 24s), while the
 original adapter times out with one tile done. Separately, the monitor's 32-bit \code{finish\_mask}
 (\mk{3}) capped verification at 8 tiles. Our runs keep the pinned adapter, poll the barrier with
 atomic reads, and widen the mask. With both in place, manual runs pass both sizes, and the loop planned
@@ -350,7 +350,8 @@ hung again with no outbound traffic, pointing at Ray's scheduling under a proxie
 
 In the reported runs, the LLM decides the task list, cache sizes, and RTL defines; task agents get
 no tools, and we wrote every RTL and testbench fix in this paper. Each Table~\ref{tab:eval} cell is
-a single run on one checkout. The Nix flake pins Verilator~5.052, while the reported runs used 5.020.
+a single run on one checkout. The gate programs check shared data on hart 0 only; every other hart
+must still reach its good trap. The Nix flake pins Verilator~5.052, while the reported runs used 5.020.
 
 \subsection{Future Directions}
 
