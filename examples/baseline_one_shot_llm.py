@@ -144,7 +144,7 @@ def main() -> int:
 
         build_started = time.monotonic()
         # A fresh 4x4 build at MAKEFLAGS=-j1 has taken over an hour.
-        art = get(node.build.chia_remote(cfg, timeout_seconds=7200))
+        art = get(node.build.chia_remote(cfg, timeout_seconds=15000))
         build_wall_s = time.monotonic() - build_started
         print(f"build wall_time={build_wall_s:.0f}s success={art.success}", flush=True)
         if not art.success:
