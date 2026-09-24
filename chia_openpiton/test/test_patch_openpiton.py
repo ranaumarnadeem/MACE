@@ -1,6 +1,6 @@
 """Tier-0 tests for scripts/patch_openpiton.sh's RTL/testbench fixes: 6 and
-7 (PicoRV32's first Verilator PASS) and 10-13 (sparc's monitor, and the
-three multi-tile Ariane bugs behind the 2x2/4x4 passes).
+7 (PicoRV32's first Verilator PASS) and 10-12 (the three multi-tile Ariane
+bugs behind the 2x2/4x4 passes).
 
 These are real, exact-match text-block replacements applied to real
 OpenPiton source files by a Python heredoc inside the shell script -- never
@@ -90,12 +90,7 @@ PC_CMP_ACTIVE_THREAD_NEW = """                always @(posedge clk) begin
                 end"""
 
 
-# Fix 10: pc_cmp.v.pyv's RTL_SPARC0 branch end, before the active_thread block.
-SPARC_BRANCH_END_OLD = """                    spc0_phy_pc_w   <= {{8{spc0_phy_pc_m[39]}}, spc0_phy_pc_m[39:0]};
-                end
-        `else // RTL_SPARC0"""
-
-# Fix 11: pc_cmp.v.pyv's Verilator-only 32-bit finish_mask.
+# Fix 10: pc_cmp.v.pyv's Verilator-only 32-bit finish_mask.
 FINISH_MASK_OLD = """    `ifndef VERILATOR
     reg [31:0]   finish_mask;
     `else
@@ -105,14 +100,14 @@ FINISH_MASK_OLD = """    `ifndef VERILATOR
 FINISH_MASK_NEW = """    reg [31:0]   finish_mask;
 """
 
-# Fix 12: syscalls.c's plain-load exit barrier.
+# Fix 11: syscalls.c's plain-load exit barrier.
 SYSCALLS_OLD = ("  while(finish_sync0 != nc);", "  while(finish_sync1 != cid);")
 SYSCALLS_NEW = (
     "  { uint32_t v; do { ATOMIC_FETCH_OP(v, finish_sync0, 0, add, w); } while (v != nc); }",
     "  { uint32_t v; do { ATOMIC_FETCH_OP(v, finish_sync1, 0, add, w); } while (v != cid); }",
 )
 
-# Fix 13: cva6.sv's hardcoded tracer filename.
+# Fix 12: cva6.sv's hardcoded tracer filename.
 CVA6_TRACE_OLD = """    f = $fopen("trace_hart_00.dasm", "w");"""
 CVA6_TRACE_NEW = """    string dasm_fn;
     $sformat(dasm_fn, "trace_hart_%0.0f.dasm", hart_id_i);
@@ -214,21 +209,14 @@ class TestPicoFixesApplyToASyntheticTree:
             synthetic_piton_root / "piton/verif/env/manycore/pc_cmp.v.pyv"
         ).read_text() == pc_cmp_after_first
 
-    def test_fix_10_skips_a_monitor_with_no_sparc_branch(self, synthetic_piton_root):
-        result = _run_patch(synthetic_piton_root)
-        assert result.returncode == 0, result.stderr
-        assert "skipping fix 10" in result.stdout
-
 
 @pytest.fixture
 def multitile_piton_root(synthetic_piton_root) -> Path:
-    """synthetic_piton_root plus the upstream text fixes 10-13 target."""
+    """synthetic_piton_root plus the upstream text fixes 10-12 target."""
     root = synthetic_piton_root
     (root / PC_CMP).write_text(
         "module manycore_monitor;\n"
         f"{FINISH_MASK_OLD}"
-        "        `ifdef RTL_SPARC0\n"
-        f"{SPARC_BRANCH_END_OLD}\n"
         f"{PC_CMP_ACTIVE_THREAD_OLD}\n"
         "endmodule\n"
     )
@@ -244,16 +232,7 @@ def multitile_piton_root(synthetic_piton_root) -> Path:
 
 
 class TestMultiTileFixesApplyToASyntheticTree:
-    def test_fix_10_asserts_sparc_active_thread(self, multitile_piton_root):
-        result = _run_patch(multitile_piton_root)
-        assert result.returncode == 0, result.stderr
-
-        text = (multitile_piton_root / PC_CMP).read_text()
-        assert SPARC_BRANCH_END_OLD not in text
-        sparc_branch = text[: text.index("`else // RTL_SPARC0")]
-        assert "active_thread[(0*4)+3] <= 1'b1;" in sparc_branch
-
-    def test_fix_11_makes_finish_mask_a_widenable_reg(self, multitile_piton_root):
+    def test_fix_10_makes_finish_mask_a_widenable_reg(self, multitile_piton_root):
         result = _run_patch(multitile_piton_root)
         assert result.returncode == 0, result.stderr
 
@@ -262,7 +241,7 @@ class TestMultiTileFixesApplyToASyntheticTree:
         assert FINISH_MASK_NEW in text
         assert "integer      finish_mask;" not in text
 
-    def test_fix_12_polls_the_exit_barrier_atomically(self, multitile_piton_root):
+    def test_fix_11_polls_the_exit_barrier_atomically(self, multitile_piton_root):
         result = _run_patch(multitile_piton_root)
         assert result.returncode == 0, result.stderr
 
@@ -271,7 +250,7 @@ class TestMultiTileFixesApplyToASyntheticTree:
             assert old not in text
             assert new in text
 
-    def test_fix_13_names_the_tracer_file_per_hart(self, multitile_piton_root):
+    def test_fix_12_names_the_tracer_file_per_hart(self, multitile_piton_root):
         result = _run_patch(multitile_piton_root)
         assert result.returncode == 0, result.stderr
 
@@ -279,22 +258,14 @@ class TestMultiTileFixesApplyToASyntheticTree:
         assert CVA6_TRACE_OLD not in text
         assert CVA6_TRACE_NEW in text
 
-    def test_fixes_10_to_13_are_idempotent(self, multitile_piton_root):
+    def test_fixes_10_to_12_are_idempotent(self, multitile_piton_root):
         first = _run_patch(multitile_piton_root)
         assert first.returncode == 0, first.stderr
         after_first = {p: (multitile_piton_root / p).read_text() for p in (PC_CMP, SYSCALLS, CVA6)}
 
         second = _run_patch(multitile_piton_root)
         assert second.returncode == 0, second.stderr
-        for fix in ("fix 10", "fix 11", "fix 12", "fix 13"):
+        for fix in ("fix 10", "fix 11", "fix 12"):
             assert f"({fix})" in second.stdout, fix
         for p, text in after_first.items():
             assert (multitile_piton_root / p).read_text() == text
-
-    def test_fix_10_rejects_an_unrecognized_sparc_branch(self, multitile_piton_root):
-        pc_cmp = multitile_piton_root / PC_CMP
-        pc_cmp.write_text(pc_cmp.read_text().replace(SPARC_BRANCH_END_OLD, "        `else // RTL_SPARC0"))
-
-        result = _run_patch(multitile_piton_root)
-        assert result.returncode != 0
-        assert "RTL_SPARC0 branch not recognized" in result.stderr

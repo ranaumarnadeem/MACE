@@ -760,34 +760,40 @@ neither baseline (b) nor a bare pass/fail number could show on its own:
   level, without needing to build and trust an entirely new, untested
   compilation path just to prove it.
 
-- **sparc, a second real finding beyond the ISA gap above: a monitor bug,
-  found and fixed, that was hiding the actual failure.** Testing sparc with
-  pure-assembly diagnostics (which never touch `util.h`'s RISC-V-only
-  macros, sidestepping the ISA gap entirely) still hung, including on
-  `princeton-test-test.s` -- OpenPiton's own upstream CI test for sparc at
-  1x1, confirmed passing in `.gitlab-ci.yml`. Reading
-  `piton/verif/env/manycore/pc_cmp.v.pyv` found why: its `RTL_SPARC0` branch
-  never assigns `active_thread` anywhere, unlike the `RTL_ARIANE0`/
-  `RTL_PICO0` branches just below it, which both unconditionally assert it
-  once out of reset (the same register `pico`'s own fix 7 targets, in
-  `docs/TECHNICAL_GUIDE.md`'s pico updates above). `active_thread` gates
-  every good/bad-trap and timeout check later in the file, so with it stuck
-  at its uninitialized 0, no sparc verdict was ever detected, regardless of
-  what the real hardware did.
+- **sparc, a second finding beyond the ISA gap above: the core never
+  wakes up.** Pure-assembly diagnostics (which never touch `util.h`'s
+  RISC-V-only macros) still hang, including `princeton-test-test.s`,
+  OpenPiton's own CI test for sparc at 1x1 (`.gitlab-ci.yml`). The I/O
+  bridge model (`ciop_iob.v.pyv`) does send the power-on wake-up interrupt
+  ("IOB sending to tile X: 0 Y: 0", CPX packet `0x17...10001`), but the core
+  never receives it: `cmp_pcxandcpx.v` never prints "received interrupt
+  vector", and the sparc pipe monitor shows thread 0 idle at PC 0 for the
+  whole run. The diag itself is fine (non-empty `mem.image`, clean
+  `midas.log`).
 
-  Mirroring the ariane/pico pattern (a committed, local fix in the real
-  checkout, `sparc: track active_thread unconditionally for RTL_SPARC0`)
-  confirms the diagnosis directly: the monitor now tracks all four sparc
-  hardware threads and reports a genuine `FAIL(TIMEOUT)` instead of silent
-  `maxcycles`. That is real, verified progress -- a previously-undiscovered
-  observability gap, found and fixed. It also reveals a second, deeper,
-  still-open question: even with the monitor now working, none of the four
-  threads ever make forward progress. Ruled out as a "just needs more time"
-  issue by rerunning at 100x the default `rtl_timeout` (5,000,000) and a
-  100,000,000-cycle budget -- identical result, all four threads repeatedly
-  reporting `timeout happen` with zero progress. This is a genuine
-  execution-level stall, separate from the now-fixed monitor bug, and needs
-  waveform-level tracing to root-cause further.
+  An earlier session "fixed" this by forcing `active_thread` on for all four
+  sparc threads in `pc_cmp.v.pyv`'s `RTL_SPARC0` branch (committed locally,
+  then shipped as `patch_openpiton.sh` fix 10). That was a misdiagnosis,
+  now reverted in both places: upstream deliberately leaves that branch
+  empty, because `cmp_pcxandcpx.v` sets a sparc thread's `active_thread` bit
+  only when its reset interrupt (`INT_RET`, bits [17:16] = 01) arrives.
+  Forcing the bits on just turned a silent max-cycle hang into
+  `timeout happen` on all four threads, hiding the missing wake-up.
+
+  Isolated on 2026-09-24 in `/home/potato/openpiton-b` (upstream monitor):
+  OpenPiton's exact CI recipe (`sims -sys=manycore -vlt_build/-vlt_run
+  -x_tiles=1 -y_tiles=1 princeton-test-test.s`, full monitoring, no MACE
+  flags) stalls the same way under Verilator 5.020 with `--no-timing`
+  ("terminated by reaching max cycles"), so neither MACE's
+  `MINIMAL_MONITORING` nor its cache flags cause it. Verilator 5 refuses
+  this design without `--timing`/`--no-timing` (NEEDTIMINGOPT in
+  `sas_intf.v`/`sas_task.v`), and `--timing` aborts at startup ("Missed a
+  time slot?") because `piton/tools/verilator/my_top.cpp` advances time by
+  hand. CI uses Verilator 4, which ignores delays too, so the likeliest
+  cause is Verilator 5's rewritten scheduler exposing an ordering race
+  somewhere on the interrupt path; confirming that needs a Verilator 4
+  build (the local `/home/potato/verilator` clone has the 4.x tags, but one
+  of its pack indexes is corrupt).
 
 One-shot's two distinct failure modes are themselves informative. For sparc
 it produced a config that looked plausible and got as far as a real build,

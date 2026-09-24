@@ -63,7 +63,7 @@ requirements, then:
 ```bash
 git clone https://github.com/PrincetonUniversity/openpiton.git
 git -C openpiton submodule update --init --recursive piton/design/chip/tile/ariane
-bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 13
+bash scripts/patch_openpiton.sh /path/to/openpiton   # idempotent; fixes 12
                                                        # toolchain/checkout/RTL bugs
 ```
 
