@@ -28,7 +28,7 @@ On first entry the shell creates and activates `.venv`.
 CHIA is not part of the Nix closure, so install it and MACE into the venv yourself:
 
 ```bash
-git clone https://github.com/ucb-bar/chia.git /path/to/chia
+git clone --branch v1.0.1 https://github.com/ucb-bar/chia.git /path/to/chia
 pip install -e /path/to/chia
 pip install -e '.[test]'
 ```
@@ -52,13 +52,13 @@ cd MACE
 conda create -n chia_env -c conda-forge --override-channels python=3.10.19
 conda activate chia_env
 
-git clone https://github.com/ucb-bar/chia.git ../chia
+git clone --branch v1.0.1 https://github.com/ucb-bar/chia.git ../chia
 pip install -e ../chia
 pip install -e ".[test]"
 ```
 
 MACE requires Python `>=3.10,<3.11`.
-CHIA is not on PyPI, and MACE tracks its main branch with no pinned commit.
+CHIA is not on PyPI, so MACE installs its v1.0.1 release from a clone.
 
 Install the toolchain yourself: Verilator, a `riscv64-unknown-elf` GCC that covers `rv64imafdc`/`lp64d`, and `dtc` and `python3` for the RV64 boot ROM.
 Set `RISCV` to the toolchain's install directory.

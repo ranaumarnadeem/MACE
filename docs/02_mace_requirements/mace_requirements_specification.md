@@ -132,14 +132,14 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 | Ray | `>=2.54,<3` | `pyproject.toml` |
 | typer, rich | `>=0.12`, `>=13` | `pyproject.toml` |
 | pytest | `9.0.3` | `pyproject.toml` (`test` extra) |
-| CHIA (`chialoops`) | main branch, not pinned | a clone of `ucb-bar/chia` |
+| CHIA (`chialoops`) | 1.0.1 (tag `v1.0.1`) | a clone of `ucb-bar/chia` |
 | Verilator | 5.052 pinned; the evaluation used 5.020 | `flake.nix` (`nixpkgs-verilator` input), `cluster/local.yaml` |
 | RISC-V GCC | `riscv64-elf-ubuntu-24.04-gcc`, release 2026.08.27 | `flake.nix`, `cluster/local.yaml` |
 | OpenPiton | commit `1c6bfd2` | `cluster/local.yaml` |
 
 - **REQ-TOOL-1:** MACE shall run on Python 3.10.
 - **REQ-TOOL-2:** MACE shall install with `typer>=0.12`, `rich>=13`, and `ray>=2.54,<3`, and its tests shall run with `pytest==9.0.3`.
-- **REQ-TOOL-3:** MACE shall run on CHIA (the `chialoops` distribution), installed from a clone of CHIA's main branch, because CHIA is not published on PyPI.
+- **REQ-TOOL-3:** MACE shall run on CHIA (the `chialoops` distribution), installed from a clone of CHIA's v1.0.1 release, because CHIA is not published on PyPI.
 - **REQ-TOOL-4:** Builds shall use a Verilator release that builds this RTL: 5.052, which `flake.nix` pins and `cluster/local.yaml` builds, or 5.020, which the evaluation used, both with `--no-timing`.
 - **REQ-TOOL-5:** Workers shall provide a `riscv64-unknown-elf` GCC that covers `rv64imafdc`/`lp64d` for Ariane diags and the `rv32ima`/`ilp32` multilib for PicoRV32 diags.
 - **REQ-TOOL-6:** Every machine that patches, scaffolds, or builds an OpenPiton checkout shall provide `python3`, and workers that build Ariane shall also provide `dtc` for the boot ROM.

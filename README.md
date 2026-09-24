@@ -47,8 +47,8 @@ used here.
 ## Install
 
 MACE needs Python 3.10, CHIA, Verilator, a RISC-V GCC toolchain, and a patched
-OpenPiton checkout. CHIA is a dependency installed from a clone of its main
-branch; this repository does not fork it.
+OpenPiton checkout. CHIA is a dependency installed from a clone of its v1.0.1
+release; this repository does not fork it.
 [Installation](https://ranaumarnadeem.github.io/MACE/01_mace_user/Installation.html)
 covers both setups: a Nix flake that provides Verilator 5.052 and the toolchain,
 or conda with tools you install yourself.
@@ -56,7 +56,7 @@ or conda with tools you install yourself.
 ```bash
 conda create -n chia_env -c conda-forge --override-channels python=3.10.19
 conda activate chia_env
-git clone https://github.com/ucb-bar/chia.git ../chia
+git clone --branch v1.0.1 https://github.com/ucb-bar/chia.git ../chia
 pip install -e ../chia
 pip install -e ".[test]"
 pytest chia_openpiton/test mace/test --ignore=chia_openpiton/test/cluster --ignore=mace/test/cluster

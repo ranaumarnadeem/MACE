@@ -6,9 +6,9 @@ requires-python = ">=3.10,<3.11"
 dependencies = ["typer>=0.12", "rich>=13", "ray>=2.54,<3"]
 
 # CHIA (the `chialoops` distribution) is intentionally NOT listed here: it is
-# not on PyPI, and we install it from CHIA's main branch (not pinned to a
-# specific commit), so it is installed separately from a clone
-# (`pip install -e /path/to/chia`). See README.
+# not on PyPI, so it is installed separately from a clone of its v1.0.1
+# release (`git clone --branch v1.0.1 ...`, then `pip install -e /path/to/chia`).
+# See README.
 
 [project.scripts]
 mace = "mace.cli:main"

@@ -20,9 +20,9 @@ jobs:
           # Matches the Python pinned inside the CHIA worker images.
           python-version: "3.10"
 
-      - name: Install CHIA (source; not published to PyPI, tracks CHIA's main branch)
+      - name: Install CHIA v1.0.1 (source; not published to PyPI)
         run: |
-          git clone --depth 1 https://github.com/ucb-bar/chia.git /tmp/chia
+          git clone --depth 1 --branch v1.0.1 https://github.com/ucb-bar/chia.git /tmp/chia
           pip install -e /tmp/chia
 
       - name: Install mace and test deps

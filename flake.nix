@@ -218,7 +218,7 @@
               source .venv/bin/activate
               pip install --quiet --upgrade pip
               echo "venv ready. Install chia + mace editable yourself:"
-              echo "  pip install -e /path/to/chia   # see README for the pinned commit"
+              echo "  pip install -e /path/to/chia   # a clone of CHIA's v1.0.1 release; see README"
               echo "  pip install -e '.[test]'"
             else
               source .venv/bin/activate

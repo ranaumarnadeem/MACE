@@ -20,7 +20,7 @@ The authors set them while building MACE with Claude Code; `plan.md` in this dir
 
 ## Commands
 
-CHIA is not on PyPI; install it from a clone first with `pip install -e /path/to/chia`.
+CHIA is not on PyPI; first clone its v1.0.1 release (`git clone --branch v1.0.1 https://github.com/ucb-bar/chia.git`) and install it with `pip install -e /path/to/chia`.
 
 ```bash
 pip install -e ".[test]"
