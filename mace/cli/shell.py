@@ -1020,6 +1020,14 @@ def shell(
             f"login` has been run."
         )
         raise typer.Exit(code=1)
+    if backend == "vertex" and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        # VertexGeminiLLM reads the project from this variable, and nothing
+        # here sets a default: the project that pays for the calls is yours.
+        typer.echo(
+            "--backend vertex needs GOOGLE_CLOUD_PROJECT set to your GCP project "
+            "(export GOOGLE_CLOUD_PROJECT=<project>)."
+        )
+        raise typer.Exit(code=1)
 
     model = default_model_for_backend(model, backend)
     if model:
@@ -1028,11 +1036,6 @@ def shell(
         typer.echo("--model is required for backend='vertex' (e.g. --model gemini-2.0-flash-001).")
         raise typer.Exit(code=1)
     os.environ.setdefault("MACE_LLM", backend)
-    if backend == "vertex":
-        # VertexGeminiLLM reads GOOGLE_CLOUD_PROJECT itself; nothing else in
-        # this path sets it. Confirmed real (gcloud's own configured
-        # project, reachable via the Vertex REST API) rather than guessed.
-        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "mace-508004")
 
     script_lines = None
     if script is not None:

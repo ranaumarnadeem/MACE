@@ -8,11 +8,9 @@ common/rtl/alarm_counter.v): a small, self-contained, real module (4 ports,
 no includes, no macros) chosen specifically to keep one real LLM call cheap
 while still proving the mechanism end to end.
 
-Uses Vertex/Gemini on GCP -- this project's only funded LLM credits (see
-memory: opencode and other backends have no available credits). Needs GCP
-Application Default Credentials (`gcloud auth application-default login`);
-the project/model below were confirmed reachable directly against the
-Vertex REST API before this script was written, not guessed.
+Uses Vertex/Gemini on GCP. Needs GCP Application Default Credentials
+(`gcloud auth application-default login`) and GOOGLE_CLOUD_PROJECT set to
+the project that pays for the call.
 
 Run (from the MACE repo root, chia_env active, WSL):
     python scripts/local_unit_test_edit_llm_test.py [piton_root]
@@ -20,6 +18,7 @@ Run (from the MACE repo root, chia_env active, WSL):
 
 from __future__ import annotations
 
+import os
 import sys
 
 import ray
@@ -29,11 +28,13 @@ from mace.loop import run_mace_step
 from mace.spec import MaceSpec, Task
 
 PITON_ROOT = sys.argv[1] if len(sys.argv) > 1 else "/mnt/c/Users/Potato/Desktop/openpiton"
-GCP_PROJECT = "mace-508004"
+GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def main() -> None:
+    if not GCP_PROJECT:
+        raise SystemExit("set GOOGLE_CLOUD_PROJECT to the GCP project that pays for the call")
     ray.init(address="local", resources={"openpiton": 1, "vertex_creds": 1}, log_to_driver=False)
     try:
         llm = VertexGeminiLLM(model=GEMINI_MODEL, project=GCP_PROJECT, location="us-central1")

@@ -632,6 +632,25 @@ class TestShellScriptOption:
         assert result.exit_code == 1
         assert "Can't read script file" in result.output
 
+    def test_vertex_without_a_gcp_project_fails_before_ray_init(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        def fail_if_called(*a, **k):
+            raise AssertionError("ray.init must not be reached without a GCP project")
+
+        monkeypatch.setattr("mace.cli.shell.ray.init", fail_if_called)
+        # setenv first so teardown restores the variable even when it was unset
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "placeholder")
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")
+        (tmp_path / "piton").mkdir()
+
+        result = CliRunner().invoke(
+            app, ["shell", "--piton-root", str(tmp_path), "--backend", "vertex"]
+        )
+
+        assert result.exit_code == 1
+        assert "GOOGLE_CLOUD_PROJECT" in result.output
+
     def test_a_piton_root_without_piton_dir_fails_before_ray_init(self, tmp_path, monkeypatch):
         from typer.testing import CliRunner
 

@@ -111,7 +111,10 @@ def main() -> int:
         help="Defaults to gemini-2.5-flash for --backend vertex; other backends use "
         "their own default model unless one is given explicitly here.",
     )
-    ap.add_argument("--project", default="mace-508004")
+    ap.add_argument(
+        "--project", default=None,
+        help="GCP project for --backend vertex; defaults to GOOGLE_CLOUD_PROJECT",
+    )
     ap.add_argument(
         "--objective",
         default="Verify the barrier_atomic gate workload passes on a 1x1 mesh.",
@@ -119,9 +122,12 @@ def main() -> int:
     ap.add_argument("--workload", default="barrier_atomic.c")
     args = ap.parse_args()
     args.model = default_model_for_backend(args.model, args.backend)
+    if args.project:
+        os.environ["GOOGLE_CLOUD_PROJECT"] = args.project
+    if args.backend == "vertex" and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        ap.error("--backend vertex needs --project or GOOGLE_CLOUD_PROJECT")
 
     piton_root = os.path.abspath(args.piton_root)
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", args.project)
     # address="local": see examples/mace_end_to_end.py's ray.init() comment --
     # avoids silently attaching to a stale torn-down cluster's marker.
     ray.init(address="local", resources={"openpiton": 1, f"{args.backend}_creds": 1})

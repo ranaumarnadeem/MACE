@@ -47,7 +47,7 @@ Each configuration compiles its Verilator model once, and later runs reuse it.
 | `--objective` | generated | Objective text for the planner. |
 | `--backend` | `vertex` | LLM backend. |
 | `--model` | `gemini-2.5-flash` on `vertex` | Model name; other backends use their own default. |
-| `--project` | `mace-508004` | Written to `GOOGLE_CLOUD_PROJECT` only when that variable is unset. |
+| `--project` | none | GCP project for `vertex`. It overrides `GOOGLE_CLOUD_PROJECT`, and `vertex` needs one of the two. |
 | `--max-iterations` | `3` | Iteration cap. The USD and wall-clock caps keep their `Budget` defaults. |
 | `--db-path` | `runs/mace_end_to_end.db` | Run database. The default resolves against the current directory. |
 

@@ -48,8 +48,8 @@ mace shell --piton-root ~/openpiton --backend vertex
 ```
 
 `VertexGeminiLLM` reads the project from `GOOGLE_CLOUD_PROJECT`.
-If it is unset, `mace shell` sets it to `mace-508004`, and the scripts set it from `--project`, which has the same default.
-Export your own project first.
+`mace shell` exits when it is unset.
+The scripts also take `--project`, which overrides it, and stop when neither is given.
 To authenticate with a service account instead, put `GOOGLE_APPLICATION_CREDENTIALS=<path>` in an env file and pass it with `--api`.
 With `--backend vertex`, the shell exits if that file does not set this variable.
 

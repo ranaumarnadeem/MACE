@@ -52,7 +52,10 @@ def main() -> int:
         help="Defaults to gemini-2.5-flash for --backend vertex; other backends use "
         "their own default model unless one is given explicitly here.",
     )
-    ap.add_argument("--project", default="mace-508004")
+    ap.add_argument(
+        "--project", default=None,
+        help="GCP project for --backend vertex; defaults to GOOGLE_CLOUD_PROJECT",
+    )
     ap.add_argument("--workload", default="barrier_atomic.c")
     ap.add_argument(
         "--mesh", type=_parse_mesh, default=(1, 1),
@@ -63,12 +66,15 @@ def main() -> int:
     ap.add_argument("--db-path", default=os.path.abspath("runs/mace_end_to_end.db"))
     args = ap.parse_args()
     args.model = default_model_for_backend(args.model, args.backend)
+    if args.project:
+        os.environ["GOOGLE_CLOUD_PROJECT"] = args.project
+    if args.backend == "vertex" and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        ap.error("--backend vertex needs --project or GOOGLE_CLOUD_PROJECT")
 
     piton_roots = tuple(
         os.path.abspath(p) for p in (args.piton_root, args.piton_root_2) if p
     )
     os.makedirs(os.path.dirname(args.db_path), exist_ok=True)
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", args.project)
     # address="local" forces a brand-new local instance regardless of any stale
     # /tmp/ray/ray_current_cluster marker left by an earlier torn-down cluster
     # (e.g. a `chia up`/`chia down` session) -- without it, ray.init() can

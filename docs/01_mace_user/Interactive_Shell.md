@@ -54,7 +54,7 @@ mace shell --piton-root ~/openpiton --backend opencode --api .env.mace
 | `--script`, `-c` | none | Run commands from a file instead of the prompt. |
 
 The shell loads every `KEY=VALUE` line of the `--api` file into the environment, and exits before starting Ray if the file is missing or lacks the backend's variable.
-For `vertex`, it sets `GOOGLE_CLOUD_PROJECT` to `mace-508004` when the variable is unset, so export your own project first.
+For `vertex`, it exits before starting Ray when `GOOGLE_CLOUD_PROJECT` is unset.
 The shell starts its own local Ray instance.
 
 ## Shell commands

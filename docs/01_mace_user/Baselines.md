@@ -52,7 +52,7 @@ It sends one prompt with no tools, parses one configuration from the reply, then
 | `--objective` | `Verify the barrier_atomic gate workload passes on a 1x1 mesh.` |
 | `--backend` | `vertex` |
 | `--model` | `gemini-2.5-flash` on `vertex` |
-| `--project` | `mace-508004`; see [LLM Backends](LLM_Backends.md) |
+| `--project` | none; see [LLM Backends](LLM_Backends.md) |
 
 The script has no `--mesh` flag.
 The LLM chooses `x_tiles` and `y_tiles`, so state the mesh in `--objective`.
