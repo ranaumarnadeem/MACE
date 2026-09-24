@@ -27,8 +27,13 @@ from mace.loop import run_mace_step  # noqa: E402
 from mace.spec import MaceSpec, Task  # noqa: E402
 from mace.test.conftest import FakeLLM  # noqa: E402
 from mace.tools import TestbenchEditTool  # noqa: E402
+from mace.unit_test_scaffold import unit_test_env_name  # noqa: E402
 
-NEW_CONTENT = "module foo_ut_top;\n  // reconciled by the agent\nendmodule\n"
+RTL_SPEC = "design/foo.v"
+# Derived, not hardcoded: pre-creating any other env name makes scaffold_env
+# miss it and fall through to create_env.py, which the stub checkout lacks.
+ENV_NAME = unit_test_env_name(RTL_SPEC)
+NEW_CONTENT = f"module {ENV_NAME}_top;\n  // reconciled by the agent\nendmodule\n"
 
 
 class EditingFakeLLM(FakeLLM):
@@ -70,16 +75,16 @@ def make_spec(**override):
 class TestRealEditToolWiring:
     def test_agent_edit_actually_reaches_the_real_file(self, tmp_path, ray_local):
         root = _make_stub_checkout(tmp_path)
-        env_dir = root / "piton" / "verif" / "env" / "foo_ut"
+        env_dir = root / "piton" / "verif" / "env" / ENV_NAME
         env_dir.mkdir(parents=True)
-        top_v = env_dir / "foo_ut_top.v"
-        top_v.write_text("module foo_ut_top;\n  // TODO: reconcile ports\nendmodule\n")
-        rtl = root / "design" / "foo.v"
+        top_v = env_dir / f"{ENV_NAME}_top.v"
+        top_v.write_text(f"module {ENV_NAME}_top;\n  // TODO: reconcile ports\nendmodule\n")
+        rtl = root / RTL_SPEC
         rtl.parent.mkdir(parents=True)
         rtl.write_text("module foo (\n  input clk,\n  output reg done\n);\nendmodule\n")
 
         llm = EditingFakeLLM(responses=["reconciled the ports"])
-        task = Task(id="t1", deps=(), kind="unit_test", spec="design/foo.v")
+        task = Task(id="t1", deps=(), kind="unit_test", spec=RTL_SPEC)
 
         result = run_mace_step(str(root), make_spec(), task, llm)
 
@@ -88,10 +93,10 @@ class TestRealEditToolWiring:
 
     def test_tool_is_stopped_after_the_step_no_leaked_actor(self, tmp_path, ray_local):
         root = _make_stub_checkout(tmp_path)
-        env_dir = root / "piton" / "verif" / "env" / "foo_ut"
+        env_dir = root / "piton" / "verif" / "env" / ENV_NAME
         env_dir.mkdir(parents=True)
-        (env_dir / "foo_ut_top.v").write_text("module foo_ut_top;\nendmodule\n")
-        rtl = root / "design" / "foo.v"
+        (env_dir / f"{ENV_NAME}_top.v").write_text(f"module {ENV_NAME}_top;\nendmodule\n")
+        rtl = root / RTL_SPEC
         rtl.parent.mkdir(parents=True)
         rtl.write_text("module foo (\n  input clk\n);\nendmodule\n")
 
@@ -103,7 +108,7 @@ class TestRealEditToolWiring:
                 return super().prompt(user_message, tools=tools)
 
         llm = CapturingFakeLLM(responses=["ok"])
-        task = Task(id="t1", deps=(), kind="unit_test", spec="design/foo.v")
+        task = Task(id="t1", deps=(), kind="unit_test", spec=RTL_SPEC)
 
         run_mace_step(str(root), make_spec(), task, llm)
 
