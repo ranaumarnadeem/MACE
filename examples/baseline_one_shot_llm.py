@@ -154,7 +154,7 @@ def main() -> int:
         run_started = time.monotonic()
         res = get(node.run.chia_remote(
             cfg, args.workload, asm_diag_root=str(WORKLOADS_DIR),
-            rtl_timeout=RECOMMENDED_RTL_TIMEOUT, timeout_seconds=1800
+            rtl_timeout=RECOMMENDED_RTL_TIMEOUT, timeout_seconds=3600
         ))
         run_wall_s = time.monotonic() - run_started
         total_wall_s = time.monotonic() - started
