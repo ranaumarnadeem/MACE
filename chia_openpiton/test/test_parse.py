@@ -164,8 +164,9 @@ class TestRegressSummary:
 
 class TestCoverageSummary:
     def test_real_annotate_capture(self, fixtures):
+        """The capture prints 35.00%; the counts give 35.99%."""
         got = parse.coverage_summary(fixtures("coverage_annotate_stdout.log"))
-        assert got == {"hit": 8749, "total": 24311, "percent": 35.00}
+        assert got == {"hit": 8749, "total": 24311, "percent": 35.99}
 
     def test_zero_percent(self):
         got = parse.coverage_summary("Total coverage (0/100) 0.00%\n")

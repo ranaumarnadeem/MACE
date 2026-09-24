@@ -198,14 +198,18 @@ def coverage_summary(text: str) -> dict[str, object]:
     Returns ``{"hit": int|None, "total": int|None, "percent": float|None}``.
     All three are None when the text carries no recognizable summary line
     (e.g. verilator_coverage itself failed before printing one).
+
+    ``percent`` is computed from the counts, to two decimals: the printed
+    figure is rounded down to a whole percent (8749/24311 prints as 35.00%).
     """
     m = _COVERAGE_TOTAL_RE.search(text or "")
     if not m:
         return {"hit": None, "total": None, "percent": None}
+    hit, total = int(m.group(1)), int(m.group(2))
     return {
-        "hit": int(m.group(1)),
-        "total": int(m.group(2)),
-        "percent": float(m.group(3)),
+        "hit": hit,
+        "total": total,
+        "percent": round(100.0 * hit / total, 2) if total else float(m.group(3)),
     }
 
 
