@@ -2,6 +2,8 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage[hidelinks]{hyperref}
+% Anonymous submission: no dates or build details in the PDF metadata.
+\ifdefined\pdfinfoomitdate \pdfinfoomitdate=1 \pdftrailerid{} \pdfsuppressptexinfo=-1 \fi
 \usepackage{enumitem}
 \usepackage{graphicx}
 \usepackage{xcolor}
@@ -25,7 +27,7 @@
   inner sep=0.4pt,font=\sffamily\tiny\bfseries](m){#1};}
 
 \title{MACE: A Multicore Agentic Co-Design Engine}
-\author{\IEEEauthorblockN{Rana Umar Nadeem, Samrah Mumtaz, and Muhammad Imran}
+\author{\IEEEauthorblockN{Anonymous Authors}
 \IEEEauthorblockA{CHIA A3 Hackathon Submission, September 2026}}
 
 \begin{document}
