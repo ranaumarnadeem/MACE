@@ -274,21 +274,20 @@ pico & {\color{red!60!black}fail} (unparseable), 32.6s & {\color{orange!80!black
   \foreach \x in {0,1} \foreach \y in {0,1} \node[tile] at (1.55+\x*0.24,0.55+\y*0.24) {};
   \node at (1.67,0.0) {2x2};
   \node[align=center, text width=2.3cm] at (1.67,-0.6)
-    {{\color{red!60!black}(a) hang}\\{\color{green!50!black}(c) pass, 750.1s}};
+    {{\color{green!50!black}(a) pass}\\{\color{green!50!black}(c) pass, 750.1s}};
 
   \foreach \x in {0,...,3} \foreach \y in {0,...,3} \node[tile] at (3.6+\x*0.19,0.55+\y*0.19) {};
   \node at (3.885,0.0) {4x4};
   \node[align=center, text width=2.3cm] at (3.885,-0.6)
-    {{\color{gray}(a) not reached}\\{\color{green!50!black}(c) pass, 250.9s}};
+    {{\color{green!50!black}(a) pass}\\{\color{green!50!black}(c) pass, 250.9s}};
 \end{tikzpicture}
 \end{minipage}
 \vspace{-0.4em}
 \caption{\textbf{Left:} all three cores, same 1x1 objective. (b) never passes. On sparc/pico, (c)
 exhausts its retry budget instead of reporting a false pass; only ariane
-\textbf{\color{green!50!black}passes}, under (c). \textbf{Right:} manual mesh scaling (a) vs.\ (c),
-ariane only.
-{\color{green!50!black}Green}=pass, {\color{red!60!black}red}=hang, {\color{gray}gray}=not reached.
-The loop passes both shapes (a) got stuck on.}
+\textbf{\color{green!50!black}passes}, under (c). \textbf{Right:} ariane mesh scaling after the
+three upstream fixes: manual scaling (a) and the loop (c) both pass, every tile confirmed; (c) times
+are end to end. Before the fixes, (a) hung at 2x2 and never reached 4x4.}
 \label{fig:eval}
 \vspace{-0.4em}
 \end{figure*}
@@ -306,12 +305,11 @@ triage and post-mortem told the two failures apart, and we verified both indepen
 sparc's failure has two layers. The first is an ISA gap: \code{barrier\_atomic.c} uses
 \code{util.h}'s \code{ATOMIC\_FETCH\_OP} macro, which is RISC-V inline assembly, and OpenSPARC T1
 has no C diag environment, so no portable fix exists. Pure-assembly diagnostics, including
-OpenPiton's CI-verified \code{princeton-test-test.s}, avoid that gap but expose a second: every sparc
-run reached \code{max\_cycle} with no verdict, because \code{pc\_cmp.v.pyv}'s \code{RTL\_SPARC0}
-branch never assigned \code{active\_thread}, unlike the Ariane and pico branches. Mirroring their
-pattern fixed the monitor, which now tracks all four threads and reports \code{FAIL(TIMEOUT)}
-instead of silence. The threads themselves still make no forward progress, even at 100x the default
-timeout; that remains open.
+OpenPiton's CI-verified \code{princeton-test-test.s}, avoid that gap but expose a second: the core
+never receives the I/O bridge's power-on wake-up interrupt, so no thread ever starts and the run hits
+\code{max\_cycle} with no verdict. OpenPiton's exact CI recipe stalls the same way under our
+Verilator~5.020 (with \code{--no-timing}, which Verilator~5 requires here), while CI itself uses
+Verilator~4, so the stall is environmental rather than caused by \sys{}; its root cause remains open.
 
 \sys{}'s triage blamed pico's failure on a workload/mesh mismatch (a 1x1 mesh cannot supply
 \code{barrier\_atomic.c}'s multi-participant barrier). That unverified LLM diagnosis was wrong:
@@ -322,13 +320,13 @@ capability, a \code{CONFIG\_RTL:} planner directive so a task can request
 \code{CONFIG\_DISABLE\_BIST\_CLEAR} on top of the mesh's defaults. The fix was named in the
 objective, so this shows the loop applying a known fix, not discovering one.
 
-\textbf{The loop passes mesh shapes where manual scaling stalled.} Baseline (a), run before any
-fixes, stalled at 2x2 and never reached 4x4, due to latent upstream bugs, chiefly a stale-read exit
-barrier in \code{syscalls.c} and a 32-bit \code{finish\_mask} that capped verification at 8 tiles.
-After we patched them by hand, the loop planned and verified both meshes, every tile confirmed, with
-no changes to its planning or verification logic (Figure~\ref{fig:eval}, right): 2x2 in 750.1s
-across four tasks, including an L1D-associativity variant the planner chose to verify, and 4x4 in
-250.9s on a cached build.
+\textbf{Mesh scaling to 2x2 and 4x4.} Manual scaling (a) first stalled at 2x2 and never reached 4x4,
+which led us to latent upstream bugs, chiefly a stale-read exit barrier in \code{syscalls.c} and a
+32-bit \code{finish\_mask} that capped verification at 8 tiles. After we patched them by hand, manual
+runs pass both sizes, and the loop planned and verified both meshes, every tile confirmed, with no
+changes to its planning or verification logic (Figure~\ref{fig:eval}, right): 2x2 in 750.1s across
+four tasks, including an L1D-associativity variant the planner chose to verify, and 4x4 in 250.9s on
+a cached build.
 
 Phase~2's fan-out (two tasks, two checkouts, through baseline (c)'s path) measured 30s parallel
 versus 57s serial, matching Phase~1's result.
