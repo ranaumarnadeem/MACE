@@ -1167,8 +1167,8 @@ noted rather than silently deleted, so you can see what actually happened.
 6. ~~The mystery file, `examples/run_barrier_atomic.py`~~ — **done**:
    committed, it's a real, useful manual driver for baseline (a).
 7. ~~**Paper polish**~~ — **done**: the architecture figure (Figure 1) and
-   the real author byline (Rana Umar Nadeem, not "MACE Team") are both
-   already in `paper/mace_paper.tex`.
+   the author byline (Rana Umar Nadeem, Samrah Mumtaz, and Muhammad Imran)
+   are both in `paper/mace_paper.tex`.
 8. **`docs/api/openpiton.rst`** — only matters if actually filing a PR to
    upstream CHIA; the checklist for that is in
    [`chia_openpiton/README.md`](../chia_openpiton/README.md)'s last section.
