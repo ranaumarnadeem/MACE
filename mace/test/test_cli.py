@@ -276,8 +276,8 @@ class TestInit:
 
 
 class TestResults:
-    """`mace results` -- a read-only report over the metrics db, no Ray or
-    live session needed (see mace.metrics.all_runs/failure_taxonomy)."""
+    """`mace results` -- a read-only report over the metrics db, no live
+    session needed (see mace.metrics.all_runs/failure_taxonomy)."""
 
     def test_no_runs_recorded_says_so(self, tmp_path):
         from typer.testing import CliRunner
@@ -289,6 +289,17 @@ class TestResults:
 
         assert result.exit_code == 0
         assert "No runs recorded" in result.output
+
+    def test_a_missing_database_is_an_error_and_is_not_created(self, tmp_path):
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "mistyped.db"
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path)])
+
+        assert result.exit_code == 1
+        assert "no metrics database" in result.output
+        assert not db_path.exists()
 
     def test_lists_recorded_runs_with_their_summary_metrics(self, tmp_path):
         from typer.testing import CliRunner

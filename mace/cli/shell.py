@@ -1180,14 +1180,19 @@ def results(
         "instead of the failure taxonomy"
     ),
 ) -> None:
-    """Read-only report over the metrics database. No Ray, no session -- just
-    mace.metrics.all_runs()/failure_taxonomy()/trace_run() formatted, so a
+    """Read-only report over the metrics database. Needs no shell session --
+    just mace.metrics.all_runs()/failure_taxonomy()/trace_run() formatted, so a
     demo doesn't need a live shell to show what past runs did."""
-    db = open_db(os.path.abspath(db_path), ray_placement=False)
     # width=100: same fix as MaceShell's own Console -- terminal-size
     # auto-detection is unreliable off a real tty (piped/captured output)
     # and produced genuinely corrupted table/tree rendering under it.
     console = Console(width=100)
+    # open_db would create a missing file, so a mistyped path would read as
+    # "no runs recorded" instead of an error.
+    if not os.path.isfile(db_path):
+        console.print(f"[bold red]✗ ERROR: no metrics database at {escape(db_path)}[/bold red]")
+        raise typer.Exit(code=1)
+    db = open_db(os.path.abspath(db_path), ray_placement=False)
 
     if trace and run_id is None:
         console.print("[bold red]✗ ERROR: --trace needs --run-id[/bold red]")

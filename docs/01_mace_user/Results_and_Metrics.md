@@ -68,7 +68,7 @@ for run in all_runs(db):
 
 ## mace results
 
-`mace results` reads the database without Ray or a shell session.
+`mace results` reads the database without a shell session, and exits with an error when the file does not exist.
 Its `--db-path` default is `runs/mace_cli.db`, so name the loop script's database explicitly:
 
 ```bash
