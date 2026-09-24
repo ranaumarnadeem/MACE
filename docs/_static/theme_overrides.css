@@ -1,0 +1,16 @@
+@media screen {
+	/* content column
+	 *
+	 * RTD theme's default is 800px as max width for the content, but we have
+	 * tables with tons of columns, which need the full width of the view-port.
+	 *
+	 * Comment from yocto project theme_overrides.css
+	 */
+
+	.wy-nav-content{ max-width: none; }
+
+}
+
+/* The light gray nav header (style_nav_header_background) needs dark text
+ * while there is no logo; the theme's default is white. */
+.wy-side-nav-search > a, .wy-side-nav-search .wy-dropdown > a { color: #404040; }
