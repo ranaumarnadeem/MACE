@@ -594,7 +594,11 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
         Args:
             piton_root: OpenPiton checkout root on the worker.
-            config: The configuration to build, from :meth:`configure`.
+            config: The configuration to build, from :meth:`configure` or
+                constructed directly. Only a config that recorded the
+                checkout's state (a non-empty ``source_rev`` or ``diff``, as
+                :meth:`configure` sets) is re-checked against the checkout;
+                a directly constructed one builds the checkout as it stands.
             sim_type: Simulator selector; ``"vlt"`` (Verilator) is the only
                 license-free option.
             clean: Force a rebuild even if this build_id already succeeded.
@@ -612,9 +616,9 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         Raises:
             ValueError: On an unknown ``sim_type``, an invalid root, or a
                 checkout whose ``piton/verif/env/manycore`` no longer
-                matches this config's own recorded diff (empty or not) --
-                see :meth:`configure`'s own docstring on why that can
-                happen.
+                matches the diff (empty or not) that a
+                :meth:`configure`-produced config recorded -- see
+                :meth:`configure`'s own docstring on why that can happen.
         """
         root = _require_root(piton_root)
         if sim_type not in SIM_TYPES:
@@ -627,25 +631,35 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         # now rather than silently compiling (and permanently caching under
         # *this* build_id) whatever the file currently holds, which may no
         # longer be what this config's own diff -- and therefore its
-        # build_id -- was computed from. Unconditional, not gated on
-        # `config.diff` being non-empty: a config recorded as "clean" (no
+        # build_id -- was computed from. Not gated on `config.diff` being
+        # non-empty: a config configure() recorded as "clean" (no
         # address_map used) needs this exact same recheck against a *later*
         # configure() call that added one to the same checkout -- otherwise
         # that case got zero protection while its mirror image (a dirty
         # config, then a second dirty configure()) was already caught.
-        current_diff = OpenPitonWorkspaceNode._git(
-            root, ["diff", "--", "piton/verif/env/manycore"], timeout_seconds
-        )
-        if current_diff != config.diff:
-            raise ValueError(
-                f"checkout at {root!r} no longer matches build_id "
-                f"{config.build_id!r}'s recorded file edits -- another "
-                f"configure() call has changed piton/verif/env/manycore "
-                f"since this config was created. Call configure() again "
-                f"immediately before build() for this config, with no "
-                f"other configure() call against the same checkout in "
-                f"between."
+        #
+        # Gated instead on the config having recorded the checkout's state
+        # at all. A config constructed directly (PitonConfig(...), as mace's
+        # loop does for every task) leaves source_rev and diff empty, so there
+        # is no record to recheck against: its build_id covers configuration
+        # only, and it builds the checkout as it stands. Rechecking it anyway
+        # compared the checkout to an empty diff, which refused every build on
+        # a checkout with uncommitted edits under manycore -- including
+        # scripts/patch_openpiton.sh's own fixes 7 and 10.
+        if config.source_rev or config.diff:
+            current_diff = OpenPitonWorkspaceNode._git(
+                root, ["diff", "--", "piton/verif/env/manycore"], timeout_seconds
             )
+            if current_diff != config.diff:
+                raise ValueError(
+                    f"checkout at {root!r} no longer matches build_id "
+                    f"{config.build_id!r}'s recorded file edits -- another "
+                    f"configure() call has changed piton/verif/env/manycore "
+                    f"since this config was created. Call configure() again "
+                    f"immediately before build() for this config, with no "
+                    f"other configure() call against the same checkout in "
+                    f"between."
+                )
 
         model_dir = os.path.join(root, "build", config.sys, config.build_id)
         binary = _find_model_binary(model_dir, config.sys)

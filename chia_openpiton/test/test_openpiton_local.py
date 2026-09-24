@@ -442,7 +442,8 @@ class TestBuildDetectsStaleAddressMap:
     shared piton/verif/env/manycore -- not scoped by build_id. build() must
     refuse rather than silently compile (and permanently cache) against a
     different config's map if the checkout changed since this config was
-    created -- see configure()'s and build()'s own docstrings.
+    created -- see configure()'s and build()'s own docstrings. A config
+    constructed directly recorded no checkout state, so it is never refused.
     """
 
     def test_raises_when_the_checkout_diff_no_longer_matches(self, node, monkeypatch):
@@ -497,6 +498,25 @@ class TestBuildDetectsStaleAddressMap:
         assert cfg.diff == ""
         with pytest.raises(ValueError, match="no longer matches"):
             node.build(cfg)
+
+    def test_a_directly_constructed_config_builds_a_checkout_with_uncommitted_edits(
+        self, node, monkeypatch
+    ):
+        """A config built with PitonConfig(...) instead of configure() -- as
+        mace's loop builds every task's -- records no checkout state
+        (source_rev and diff both empty), so there is nothing to recheck.
+        Refusing it compared the checkout to an empty diff and failed every
+        build on a freshly patched checkout, whose fixes 7 and 10 leave
+        uncommitted edits under piton/verif/env/manycore."""
+        cfg = PitonConfig(core="sparc", verilator_version="Verilator 4.014 2019-01-01")
+        monkeypatch.setattr(
+            OpenPitonWorkspaceNode,
+            "_git",
+            lambda root, args, timeout_seconds=60: "+ patch_openpiton.sh fix 10",
+        )
+        assert cfg.source_rev == "" and cfg.diff == ""
+        art = node.build(cfg)
+        assert art.success is True
 
 
 class TestRunVerdicts:
