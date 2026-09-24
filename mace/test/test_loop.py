@@ -12,6 +12,7 @@ Ray/network/cost-bearing.
 
 from __future__ import annotations
 
+from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
 from mace.loop import _unit_test_tool_name, run_mace_step
 from mace.spec import MaceSpec, Task
@@ -65,6 +66,26 @@ class TestFailingVerdicts:
         result = run_mace_step(str(stub_piton_root), make_spec(), TASK, llm)
 
         assert result.passed is False
+
+
+class TestPatchedCheckout:
+    def test_builds_a_checkout_with_uncommitted_monitor_edits(self, stub_piton_root, monkeypatch):
+        """scripts/patch_openpiton.sh leaves fixes 7 and 10 uncommitted under
+        piton/verif/env/manycore. A loop task's config is built directly and
+        records no checkout state, so build() must build that checkout as it
+        stands rather than refuse it as if a later configure() had changed it."""
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        monkeypatch.setattr(
+            OpenPitonWorkspaceNode,
+            "_git",
+            lambda root, args, timeout_seconds=60: "+ patch_openpiton.sh fix 10",
+        )
+        llm = FakeLLM(responses=["edit"])
+
+        result = run_mace_step(str(stub_piton_root), make_spec(), TASK, llm)
+
+        assert result.build.success is True
+        assert result.passed is True
 
 
 class TestBuildFailure:
