@@ -152,6 +152,38 @@ def run_mace_loop(
     """
     run_id = start_run(db, spec)
     try:
+        return _run_started_loop(
+            run_id, piton_roots, spec, llm, db, tools, on_iteration, on_task_progress
+        )
+    except BaseException:
+        _record_error(db, run_id)
+        raise
+
+
+def _record_error(db: SQLiteNode, run_id: str) -> None:
+    """Record *run_id* as ``"error"``, best-effort: a failure to write the
+    status must not replace the exception that ended the run."""
+    try:
+        finish_run(db, run_id, "error")
+    except Exception:
+        logger.exception("run_mace_loop: could not record run %s as 'error'", run_id)
+
+
+def _run_started_loop(
+    run_id: str,
+    piton_roots: tuple[str, ...],
+    spec: MaceSpec,
+    llm,
+    db: SQLiteNode,
+    tools,
+    on_iteration,
+    on_task_progress,
+) -> LoopResult:
+    """run_mace_loop's body, from the checksum check to the final status
+    write. Every exception it raises, including one from verify_checksums,
+    the last tool_server.stop(), or the final status writes, reaches
+    run_mace_loop's handler, which records the run as ``"error"``."""
+    try:
         verify_checksums()
     except ValueError:
         finish_run(db, run_id, "checksum_mismatch")
@@ -272,9 +304,6 @@ def run_mace_loop(
                 record_post_mortem(db, run_id, post_mortem)
             except ReportError:
                 pass  # fail-open, matching triage's own posture
-    except BaseException:
-        finish_run(db, run_id, "error")
-        raise
     finally:
         if tool_server is not None:
             tool_server.stop()
