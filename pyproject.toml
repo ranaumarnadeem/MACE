@@ -1,6 +1,6 @@
 [project]
 name = "mace"
-version = "0.1.0"
+version = "0.0.1"
 description = "MACE: A Multicore Agentic Co-Design Engine"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]

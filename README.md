@@ -132,6 +132,7 @@ file your tool used, as [`.claude/README.md`](.claude/README.md) asks.
 ## License
 
 MACE is released under the BSD 3-Clause License; see [`LICENSE`](LICENSE).
+This is pre-release version 0.0.1.
 
 ## Authors
 
