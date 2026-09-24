@@ -47,13 +47,15 @@ Respond with exactly one line in this format (a footer, not prose):
 
 CONFIG: x_tiles=<int> | y_tiles=<int> | l1i_size=<bytes> | l1i_assoc=<int> | \
 l1d_size=<bytes> | l1d_assoc=<int> | l15_size=<bytes> | l15_assoc=<int> | \
-l2_size=<bytes> | l2_assoc=<int>
+l2_size=<bytes> | l2_assoc=<int> | config_rtl=<comma-separated RTL defines to add, or none>
 
 Use the values you believe are most likely to work. Nothing else you write
 is parsed, but keep the rest brief.
 """
 
 _LINE_RE = re.compile(r"(?im)^\s*CONFIG:\s*(.+)$")
+# The same sanity check mace.spec applies to the planner's CONFIG_RTL: flags.
+_RTL_FLAG_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 class OneShotConfigError(Exception):
@@ -75,11 +77,19 @@ def parse_config(text: str, core: str) -> PitonConfig:
             continue
         key, _, value = part.strip().partition("=")
         fields[key.strip()] = value.strip()
+    # Optional, so a response without it still parses. Added on top of the
+    # default config_rtl, never in place of it, as mace.loop does for a task.
+    extra = fields.get("config_rtl", "none")
+    requested = set() if extra.lower() == "none" else {d.strip() for d in extra.split(",") if d.strip()}
+    bad = sorted(d for d in requested if not _RTL_FLAG_RE.match(d))
+    if bad:
+        raise OneShotConfigError(f"CONFIG: line has malformed config_rtl define(s): {bad}")
     try:
         return PitonConfig(
             core=core,
             x_tiles=int(fields["x_tiles"]),
             y_tiles=int(fields["y_tiles"]),
+            config_rtl=tuple(sorted(set(PitonConfig().config_rtl) | requested)),
             caches={
                 "l1i": (int(fields["l1i_size"]), int(fields["l1i_assoc"])),
                 "l1d": (int(fields["l1d_size"]), int(fields["l1d_assoc"])),
@@ -136,10 +146,10 @@ def main() -> int:
     node = OpenPitonWorkspaceNode(piton_root, pg_ready_timeout_s=120)
     try:
         print(f"configuring: x_tiles={cfg_request.x_tiles} y_tiles={cfg_request.y_tiles} "
-              f"caches={cfg_request.caches}", flush=True)
+              f"caches={cfg_request.caches} config_rtl={cfg_request.config_rtl}", flush=True)
         cfg = get(node.configure.chia_remote(
             x_tiles=cfg_request.x_tiles, y_tiles=cfg_request.y_tiles,
-            core=args.core, caches=cfg_request.caches,
+            core=args.core, caches=cfg_request.caches, config_rtl=cfg_request.config_rtl,
         ))
 
         build_started = time.monotonic()
