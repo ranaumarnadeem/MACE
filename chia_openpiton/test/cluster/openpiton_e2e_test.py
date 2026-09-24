@@ -35,6 +35,7 @@ placement-group pinning is not enough by itself on a multi-machine cluster.
 from __future__ import annotations
 
 import os
+import socket
 import time
 
 import pytest
@@ -224,19 +225,26 @@ def gcp_pin(ray_cluster):
     OpenPitonWorkspaceNode's own placement-group pinning (ColocatedNode)
     reserves resource *shape*, not a specific machine. This cluster's two
     node types both advertise the same "openpiton" resource name
-    (cluster/local.yaml: openpiton_local -> 2 slots on this WSL head,
-    openpiton_gcp -> 8 slots on a real GCP VM with a different filesystem
-    entirely) -- a vanilla PG bundle request for {"openpiton": 1} can
-    legally land on either. Matched here by resource count (8 vs 2) rather
-    than by IP: chia's tailnet relay renumbers node-manager addresses, so
-    IP matching would be fragile in a way resource count isn't.
+    (cluster/local.yaml: openpiton_local on this WSL head, openpiton_gcp on
+    a GCP VM with its own filesystem), so a plain PG bundle request for
+    {"openpiton": 1} can land on either.
+
+    The GCP worker is the live node that advertises "openpiton" from a host
+    other than this one, since this test runs on the head. Ray reports each
+    node's host as NodeManagerHostname. Unit counts follow each node's
+    checkouts, and chia's tailnet relay renumbers node-manager addresses, so
+    neither can single out the GCP worker.
     """
+    head_host = socket.gethostname()
     candidates = [
         n for n in ray.nodes()
-        if n.get("Alive") and n.get("Resources", {}).get("openpiton", 0) > 2
+        if n.get("Alive")
+        and n.get("Resources", {}).get("openpiton", 0) > 0
+        and n.get("NodeManagerHostname") != head_host
     ]
     if not candidates:
-        pytest.skip("no live Ray node advertising >2 openpiton slots (GCP worker not up?)")
+        pytest.skip(f"no live Ray node advertises openpiton from a host other than "
+                    f"{head_host!r} (GCP worker not up?)")
     return NodeAffinitySchedulingStrategy(node_id=candidates[0]["NodeID"], soft=False)
 
 
