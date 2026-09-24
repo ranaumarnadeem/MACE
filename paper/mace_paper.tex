@@ -65,17 +65,16 @@ analysis and a replan.}
 \section{Introduction}
 
 Current agentic coding systems are typically benchmarked on isolated tasks or toy
-problems~\cite{humaneval,verilogeval}, which fails to capture the complexity of actual hardware
-construction. Bringing up a multicore system means navigating a large RTL codebase
-(OpenPiton~\cite{openpiton} spans hundreds of thousands of lines across
-network-on-chip, cache-coherence, tile, and platform logic), a fragile toolchain (version skew,
-cross-compilation bugs, checkout-specific issues), and verification that costs minutes to hours per
-attempt rather than milliseconds.
+problems~\cite{humaneval,verilogeval}, which misses the complexity of hardware construction.
+Bringing up a multicore system means navigating a large RTL codebase (OpenPiton~\cite{openpiton}
+spans hundreds of thousands of lines across network-on-chip, cache-coherence, tile, and platform
+logic), a fragile toolchain (version skew, cross-compilation bugs, checkout-specific issues), and
+verification that takes minutes to hours per attempt.
 
-MACE is designed for this high-friction environment. Given a hardware objective, such as ``bring up
-a 2x2 mesh'' or ``verify workload $W$ passes,'' MACE plans, implements, builds, simulates, diagnoses
-failures against Verilator~\cite{verilator} output, and iterates. All validation in this paper is
-gated by Verilator simulation, not by an agent's self-report.
+MACE is designed for this environment. Given a hardware objective, such as ``bring up a 2x2 mesh''
+or ``verify workload $W$ passes,'' MACE plans tasks, builds and simulates each configuration,
+diagnoses failures from Verilator~\cite{verilator} output, and iterates. Every result in this paper
+comes from Verilator simulation.
 
 \subsection{Features}
 
@@ -83,7 +82,7 @@ MACE contributes:
 \begin{itemize}
 \item \code{chia\_openpiton} (Section~\ref{sec:phase1}): a CHIA adapter for OpenPiton with a
 configure/build/run/collect interface, following the structure of CHIA's ESP adapter.
-\item The MACE loop (Sec.~\ref{sec:phase2}): planning, parallel task execution, deterministic
+\item The MACE loop (Section~\ref{sec:phase2}): planning, parallel task execution, deterministic
 integration, and LLM-driven failure triage, tested end to end against full Verilator runs, with cost, time, and task
 metrics.
 \item PicoRV32 support (Section~\ref{sec:pico}), next to Ariane and OpenSPARC T1, from two fixes to
@@ -157,8 +156,8 @@ adapts LLMs to chip-design tasks, and AutoChip~\cite{autochip}, RTLFixer~\cite{r
 VerilogCoder~\cite{verilogcoder}, and MAGE~\cite{mage} feed compiler or simulation results back to
 one or more agents to repair generated RTL. In software, SWE-bench~\cite{swebench} moved evaluation
 from isolated functions~\cite{humaneval} to repository-level issues. \sys{} applies the same
-agent-with-feedback idea at system scale: rather than writing one module against a small testbench,
-it plans and verifies bring-up of an existing manycore, gated by whole-system Verilator simulation.
+agent-with-feedback idea at system scale: it plans and verifies bring-up of an existing manycore,
+gated by whole-system Verilator simulation.
 
 \section{Phase 1: The OpenPiton Adapter}
 \label{sec:phase1}
@@ -279,9 +278,9 @@ requests one through a new \code{CONFIG\_RTL:} directive, which adds it on top o
 
 \begin{table}[t]
 \centering
-\caption{Verilator verdict and end-to-end wall time per approach. All runs share one build cache,
+\caption{Verilator verdict and end-to-end wall time per approach, one run per cell. All runs share one build cache,
 so an approach pays for a build only when it picks a new configuration; (a) counts machine time
-only. $^\dagger$Invalid configuration (L1.5 size 0), rejected before any build.}
+only, excluding the time we spent finding the fixes. $^\dagger$Invalid configuration (L1.5 size 0), rejected before any build.}
 \label{tab:eval}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -301,7 +300,9 @@ pico & 2x2 & \pass{9.8s} & \fail{12.0s}$^\dagger$ & \pass{70.7s} \\
 rejected the LLM's config before any build: it set the L1.5 size to zero, which every OpenPiton tile
 needs, and (b) has no retry path. On pico it included the named define both times. At ariane 4x4 it
 chose oversized caches, including a 4\,MB L2 per tile: the build took 35 minutes and the simulation
-timed out with no tile finished.
+timed out with no tile finished. The two prompts differ: the planner's lists the default cache sizes
+and requires positive values, and the planner falls back to the defaults on a malformed cache line.
+The one-shot prompt has neither.
 
 \textbf{Mesh scaling to 2x2 and 4x4.} Manual scaling (a) first stalled at 2x2 and never reached 4x4,
 for two reasons. Under Verilator~5, a known scheduling bug~\cite{verilator5829} makes CVA6's L1.5
@@ -326,7 +327,8 @@ clean rebuild passed.
 \label{sec:cost}
 
 All experiments behind this paper cost \$37 of a \$300 GCP credit allocation, covering simulation
-compute and LLM inference; development used a \$20/month Claude subscription, outside that budget.
+compute and LLM inference; development used a \$20/month Claude subscription, outside that budget. We built \sys{} and drafted
+this paper and its documentation with Claude Code, and we reviewed all text and results.
 A single loop run is cheap. At 2x2, an ariane run costs about \$0.12 (\$0.04 of LLM tokens and
 \$0.08 of compute) and a pico run about \$0.02, while a sparc run that exhausts its three-iteration
 budget would cost an estimated \$0.25, mostly for its one-time build. We estimate compute as
@@ -345,6 +347,10 @@ wake-up interrupt. OpenPiton's own CI recipe stalls the same way here, while CI 
 the cause is environmental; it remains open. Dispatch to a tailnet-relayed GCP worker is also
 unreliable: exporting the proxy variables \code{chia up} sets fixed a first hang, but a later attempt
 hung again with no outbound traffic, pointing at Ray's scheduling under a proxied topology.
+
+In the reported runs, the LLM decides the task list, cache sizes, and RTL defines; task agents get
+no tools, and we wrote every RTL and testbench fix in this paper. Each Table~\ref{tab:eval} cell is
+a single run on one checkout. The Nix flake pins Verilator~5.052, while the reported runs used 5.020.
 
 \subsection{Future Directions}
 
