@@ -245,21 +245,6 @@ class TestConstructionContext:
         assert "no run yet" in copy.grep("sim_log", "x")
 
 
-class TestSetContext:
-    def test_points_grep_and_collect_at_the_given_run(self, stub_piton_root, cfg, tmp_path):
-        run_dir = tmp_path / "run"
-        run_dir.mkdir()
-        (run_dir / "sim.log").write_text("Simulation -> PASS (HIT GOOD TRAP)")
-        run = PitonRunResult(success=True, returncode=0, test="t", sim_type="vlt", run_dir=str(run_dir))
-
-        tool = bare_tool(str(stub_piton_root), cfg)
-        assert "no run yet" in tool.grep("sim_log", "x")
-
-        tool.set_context(None, run)
-
-        assert "PASS" in tool.grep("sim_log", "PASS")
-
-
 class TestCompareToFixture:
     def _run_result(self, tmp_path, sim_log: str) -> PitonRunResult:
         run_dir = tmp_path / "run"

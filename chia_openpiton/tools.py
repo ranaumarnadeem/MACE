@@ -295,15 +295,6 @@ class PitonToolServer(AsyncJobTool):
     # binary's own objdump output against the run's symbol.tbl. These two
     # tools hand a model the same raw data a human read by hand.
 
-    def set_context(self, build: PitonBuildArtifact | None, run: PitonRunResult | None) -> None:
-        """Point this tool at an already-completed build/run without going
-        through this instance's own ``build()``/``run()`` -- for a caller
-        (e.g. mace's orchestrator, triaging a StepResult it built through a
-        different OpenPitonWorkspaceNode entirely) that wants grep/collect/
-        compare_to_fixture/symbol_check to see a specific real failure."""
-        self._last_build = build
-        self._last_run = run
-
     def compare_to_fixture(self, fixture_name: str, max_context: int = 5) -> str:
         """Diff the current run's sim.log against a known-good reference
         transcript, line for line, reporting the exact point of first
