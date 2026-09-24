@@ -36,12 +36,12 @@
 \maketitle
 
 \begin{abstract}
-MACE is an agentic AI system that builds and verifies multicore hardware on its own, running on
-the CHIA framework. Phase 1 adds \code{chia\_openpiton}, a CHIA adapter exposing
-OpenPiton's configure, build, simulate, run, and collect operations, validated with 208 tests. Phase
-2 adds the MACE loop: a planner breaks a hardware objective into tasks, agents run them in parallel,
-and a deterministic integrator gates every change against Verilator simulation before accepting it.
-A failure-analysis agent diagnoses failures and the planner replans around them.
+MACE is an agentic AI system that plans, builds, and verifies multicore OpenPiton configurations on
+the CHIA framework. Phase 1 adds \code{chia\_openpiton}, a CHIA adapter for OpenPiton's configure,
+build, run, and collect operations, with 209 tests that need no OpenPiton checkout. Phase 2 adds the
+MACE loop: a planner breaks a hardware objective into tasks, the tasks run in parallel, and a
+deterministic integrator gates every change on Verilator simulation. A failure-analysis agent
+diagnoses failures, and the planner replans around them.
 
 We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on 2x2 and 4x4
 meshes, with every result gated by Verilator simulation of the RTL. Besides OpenPiton's Ariane and
@@ -81,16 +81,15 @@ gated by Verilator simulation, not by an agent's self-report.
 
 MACE contributes:
 \begin{itemize}
-\item \code{chia\_openpiton} (Sec.~\ref{sec:phase1}): a CHIA adapter for OpenPiton with a full
-configure/build/run/collect interface, built the same way as CHIA's gem5 and ESP adapters, so it can
-be upstreamed directly.
+\item \code{chia\_openpiton} (Section~\ref{sec:phase1}): a CHIA adapter for OpenPiton with a
+configure/build/run/collect interface, following the structure of CHIA's ESP adapter.
 \item The MACE loop (Sec.~\ref{sec:phase2}): planning, parallel task execution, deterministic
 integration, and LLM-driven failure triage, tested end to end against full Verilator runs, with cost, time, and task
 metrics.
 \item PicoRV32 support (Section~\ref{sec:pico}), next to Ariane and OpenSPARC T1, from two fixes to
 its upstream OpenPiton integration and one existing define.
-\item An interactive CLI and two further capabilities (Sec.~\ref{sec:cli}): Verilator code coverage as
-a second verification axis, and a second working LLM backend.
+\item An interactive CLI and Verilator code coverage as a second verification axis
+(Section~\ref{sec:cli}).
 \end{itemize}
 
 \section{Background}
@@ -127,7 +126,7 @@ of its tiles. Its three tile cores, the latter two added through BYOC~\cite{byoc
     {testbench monitor\\(finish mask, threads)};
   \node[badge] at ([xshift=0.22cm]mon.east) {3};
   % one tile, expanded
-  \node[blk] (core) at (5.5,3.55) {core: Ariane (RV64GC), PicoRV32 (RV32I), or OpenSPARC T1};
+  \node[blk] (core) at (5.5,3.55) {core: Ariane (RV64GC), PicoRV32 (RV32), or OpenSPARC T1};
   \node[blk] (adp) at (5.5,2.72) {core-specific adapter to the L1.5};
   \node[blk] (l15) at (5.5,2.02) {L1.5 cache (private)};
   \node[blk] (l2) at (5.5,1.32) {L2 slice (shared, distributed)};
@@ -145,8 +144,8 @@ of its tiles. Its three tile cores, the latter two added through BYOC~\cite{byoc
   \draw[densely dashed, gray] (t1.south east) -- (tbox.south west);
 \end{tikzpicture}
 \caption{An OpenPiton mesh and one of its tiles. Each core reaches the tile's L1.5 through its own
-adapter. The marks show the issues fixed in this work: \mk{1} CVA6's L1.5 adapter dropping
-invalidations under Verilator~5, \mk{2} PicoRV32's self-boot gate and the SRAM model's power-on
+adapter. The marks show the issues this work fixed or worked around: \mk{1} CVA6's L1.5 adapter
+dropping invalidations under Verilator~5 (worked around), \mk{2} PicoRV32's self-boot gate and the SRAM model's power-on
 self-clear, and \mk{3} the testbench monitor's 32-bit finish mask and its PicoRV32 thread
 tracking.}
 \label{fig:tile}
@@ -215,14 +214,10 @@ CHIA and Ray place each checkout's calls on its own worker.}
 \label{fig:arch}
 \end{figure}
 
-\textbf{Build-result caching.} \code{build()} skips the simulator when a matching successful-build
-marker exists: rebuilding an identical configuration dropped from 104s to 0.00s, so an iteration
-that only changes the test never rebuilds.
-
-\textbf{Results.} 208 tests that need no OpenPiton checkout (pure-unit, and live-Ray with a stub
-simulator) all pass, and acceptance tests with full Verilator builds pass, including two independent
-checkouts building in parallel: 176s versus 324s serial. One acceptance test, 2x2 Ariane on a GCP
-worker, remains blocked by upstream infrastructure dependencies (Sec.~\ref{sec:limits}).
+\textbf{Results.} The adapter's 209 tests that need no OpenPiton checkout all pass, and so do
+acceptance tests with full Verilator builds, including two checkouts building in parallel: 176s
+versus 324s serial. One acceptance test, 2x2 Ariane on a GCP worker, remains blocked by unreliable
+dispatch to that worker (Section~\ref{sec:limits}).
 
 \section{Phase 2: The \sys{} Loop}
 \label{sec:phase2}
@@ -231,10 +226,10 @@ worker, remains blocked by upstream infrastructure dependencies (Sec.~\ref{sec:l
 \code{MaceSpec} (core, target mesh, gate workloads, objective, budget) into a task DAG, and workers
 dispatch ready tasks in parallel through Ray, each pinned to its own checkout
 (Figure~\ref{fig:arch}). A deterministic
-integrator, with no LLM, runs the tasks in dependency order: each builds its own configuration,
-including any cache or RTL-define overrides the planner gave it, and runs the gate workload, whose
+integrator runs the tasks in dependency order: each builds its own configuration, including any
+cache or RTL-define overrides the planner gave it, and runs the first gate workload, whose
 \emph{verdict}, parsed from simulator output, must read \code{pass}. On
-any failure, a failure-analysis agent with read-only tools (log grep, file collection, a fixture
+a failure, a failure-analysis agent with read-only tools (log grep, file collection, a fixture
 diff, and an \code{objdump} symbol check) diagnoses the transcript, and the planner replans around
 its proposed fix.
 
@@ -245,11 +240,9 @@ write, while an atomic fetch-and-add-zero read always was. Every gate workload n
 \code{atomic\_read()} helper.
 
 \textbf{Resource enforcement.} \sys{} checks all three \code{Budget} dimensions (iterations, USD,
-wall-clock) before each iteration starts, and verifies gate-workload checksums before any LLM call
-or checkout access, so a task cannot tamper with its own grading.
-
-\textbf{Deterministic replay.} \sys{} tags each task's LLM, build, and run call, so CHIA's cache can
-record and re-serve those decisions at no token or compute cost once caching is enabled.
+wall-clock) before each iteration starts. The USD check reads zero on Vertex, because CHIA's Vertex
+backend reports no price (Section~\ref{sec:cost}). \sys{} verifies the checksums of its C gate
+programs before any LLM call or checkout access.
 
 \section{Adding PicoRV32}
 \label{sec:pico}
@@ -258,27 +251,26 @@ Each core reaches its tile's L1.5 through its own adapter (Figure~\ref{fig:tile}
 own coherent cache, as Ariane has, needs new coherence-adapter RTL. PicoRV32 has no such cache and
 already has an upstream transducer, which OpenPiton's CI builds under Verilator but never runs.
 
-Our first pico runs built but never reached a trap. Tracing them found three RTL/testbench bugs
+Our first pico runs built but never reached a trap. Tracing them found two bugs and one setting
 (\mk{2}, \mk{3}): the core's self-boot gate, the monitor's tracking of pico's tile, and an SRAM
-power-on self-clear that discarded pico's first memory writes. With all three fixed, PicoRV32 \textbf{passes} under
-Verilator on 2x2 and 4x4 meshes, every tile reaching \code{Hit Good trap} on \code{addi.S}. Its
+power-on self-clear that discarded pico's first memory writes, which an existing OpenPiton define
+turns off. With these changes, PicoRV32 passes under Verilator on 2x2 and 4x4 meshes, every tile reaching \code{Hit Good trap} on \code{addi.S}. Its
 OpenPiton integration has no C compiler, so it runs assembly workloads only.
 
 \section{Additional Capabilities}
 \label{sec:cli}
 
-\sys{} features a standard EDA-style interactive shell (modeled on Yosys/OpenROAD) that validates
-core compatibility up front to prevent invalid integration attempts. To provide a second verification
-axis beyond pass/fail, we patched the OpenPiton testbench to call Verilator's coverage-write API,
-yielding metrics such as 35.00\% line coverage for a 2x2 Ariane run. The agentic loop is also
-backend-agnostic, completing full passing runs unmodified against Google Vertex Gemini and OpenCode.
+\sys{} has an EDA-style interactive shell, modeled on Yosys and OpenROAD, that checks core
+compatibility before a run. For a second verification axis, we patched the OpenPiton testbench to
+call Verilator's coverage-write API: a 2x2 Ariane run covers 9497 of 26900 lines (35.3\%). The loop
+reaches its LLM through CHIA's backends; every result in this paper used Vertex with Gemini~2.5~Flash.
 
 \section{Evaluation}
 \label{sec:eval}
 
 We compare three approaches on 2x2 and 4x4 meshes: \textbf{(a)} manual mesh scaling with a time
-log, \textbf{(b)} a single LLM prompt for a configuration applied once with no tools, verification,
-or retry, and \textbf{(c)} the full \sys{} loop, with every LLM call on Gemini~2.5~Flash
+log, \textbf{(b)} a single LLM prompt for a configuration, built and run once with no tools and no
+retry, and \textbf{(c)} the full \sys{} loop, with every LLM call on Gemini~2.5~Flash
 (Table~\ref{tab:eval}). Ariane runs \code{barrier\_atomic.c}; pico runs \code{addi.S}, since its
 integration has no C toolchain; SPARC does not yet run under our Verilator (Section~\ref{sec:limits}).
 All three approaches get pico's \code{CONFIG\_DISABLE\_BIST\_CLEAR} define: (a) sets it by hand,
@@ -315,20 +307,20 @@ timed out with no tile finished.
 for two reasons. Under Verilator~5, a known scheduling bug~\cite{verilator5829} makes CVA6's L1.5
 adapter drop cache invalidations (\mk{1} in Figure~\ref{fig:tile}), so the plain-load exit barrier in \code{syscalls.c} never sees other
 tiles' updates; OpenPiton pins a CVA6 that predates the upstream workaround~\cite{cva6pr2809}.
-Porting that workaround alone passes 2x2 with the unmodified barrier (4 of 4 tiles, 24s), while the
+A hand port of that workaround passes 2x2 with the unmodified barrier (4 of 4 tiles, 24s), while the
 original adapter times out with one tile done. Separately, the monitor's 32-bit \code{finish\_mask}
-(\mk{3}) capped verification at 8 tiles. Our runs poll the barrier with atomic reads rather than port the
-adapter fix, and widen the mask. With both in place, manual runs pass both sizes, and the loop planned
+(\mk{3}) capped verification at 8 tiles. Our runs keep the pinned adapter, poll the barrier with
+atomic reads, and widen the mask. With both in place, manual runs pass both sizes, and the loop planned
 and verified both meshes, every tile confirmed, with no changes to its planning or verification logic
 (Table~\ref{tab:eval}): 2x2 in 750.1s across four tasks, including an L1D-associativity variant the
 planner chose to verify, and 4x4 in 250.9s on a cached build. On pico it passes in a single task at
-both sizes.
+both sizes, the 4x4 run also on a cached build.
 
 \textbf{Recovery.} The detect, diagnose, and replan cycle is exercised only at the mechanism level,
 with a stub that fails once and then passes; no passing run above needed it. Its one live failure, a
-pico 4x4 build cached before the \code{finish\_mask} fix, went unrecovered: a build ID covers configuration but not
-source edits, so all three replans reused the stale build while triage blamed the RTL. A clean
-rebuild passed.
+pico 4x4 build cached before the \code{finish\_mask} fix, went unrecovered: the build ID covers only the
+configuration, so all three iterations reused that stale build, and triage never identified it. A
+clean rebuild passed.
 
 \section{Cost}
 \label{sec:cost}
@@ -337,7 +329,7 @@ All experiments behind this paper cost \$37 of a \$300 GCP credit allocation, co
 compute and LLM inference; development used a \$20/month Claude subscription, outside that budget.
 A single loop run is cheap. At 2x2, an ariane run costs about \$0.12 (\$0.04 of LLM tokens and
 \$0.08 of compute) and a pico run about \$0.02, while a sparc run that exhausts its three-iteration
-budget would cost an estimated \$0.25, mostly for its one-time build. We price compute as
+budget would cost an estimated \$0.25, mostly for its one-time build. We estimate compute as
 \code{e2-highmem-8} time (\$0.36/hour) over each run's wall time, and tokens at Gemini~2.5~Flash's
 \$0.30 and \$2.50 per million input and output tokens. \sys{}'s own cost counter reads zero because
 CHIA's Vertex backend reports no price and omits thinking tokens, more than half of the billed output
