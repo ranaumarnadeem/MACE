@@ -17,8 +17,11 @@ from __future__ import annotations
 import time
 
 import pytest
+from chia.base.tools.ChiaTool import ChiaTool
+from ray import cloudpickle
 
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
+from chia_openpiton.tools import PitonToolServer
 from mace import metrics
 from mace.orchestrator import run_mace_loop
 from mace.report import ReportError
@@ -60,7 +63,7 @@ def make_db(tmp_path):
     return metrics.open_db(str(tmp_path / "metrics.db"), ray_placement=False)
 
 
-def step_result(task_id="t1", passed=True, verdict="pass", build_success=True):
+def step_result(task_id="t1", passed=True, verdict="pass", build_success=True, run_dir="/x/runs/1"):
     cfg = PitonConfig()
     build = PitonBuildArtifact(
         success=build_success, returncode=0 if build_success else 1, config=cfg,
@@ -71,11 +74,18 @@ def step_result(task_id="t1", passed=True, verdict="pass", build_success=True):
     if build_success:
         run = PitonRunResult(
             success=passed, returncode=0, test="hello_world.c", sim_type="vlt",
-            run_dir="/x/runs/1", verdict=verdict,
+            run_dir=run_dir, verdict=verdict,
         )
     task = Task(id=task_id, deps=(), kind="workload", spec="hello_world.c")
     query = FakeLLM(responses=["edit"]).prompt("edit")
     return StepResult(task=task, query=query, build=build, run=run, passed=passed)
+
+
+def failed_step_result(run_dir, sim_log):
+    """A failed StepResult whose run_dir really exists and holds *sim_log*."""
+    run_dir.mkdir()
+    (run_dir / "sim.log").write_text(sim_log)
+    return step_result("t1", passed=False, verdict="fail", run_dir=str(run_dir))
 
 
 def fake_plan(tasks_by_call):
@@ -87,6 +97,19 @@ def fake_plan(tasks_by_call):
         return calls.pop(0)
 
     return _plan
+
+
+def fake_integrate_parallel(results_by_iteration):
+    """An integrate_parallel stand-in returning iteration i's one result,
+    ``results_by_iteration[i]``."""
+
+    def _integrate_parallel(
+        piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None,
+        nodes=None,
+    ):
+        return (results_by_iteration[iteration],)
+
+    return _integrate_parallel
 
 
 class TestIterationWallTimeIncludesPlanning:
@@ -353,9 +376,9 @@ class TestTriageToolServerConstructionFailure:
     def test_a_construction_failure_does_not_abort_the_run(self, tmp_path, monkeypatch):
         """PitonToolServer's own construction (e.g. ChiaTool's port search
         exhausted on a crowded worker) is a best-effort diagnostic aid --
-        see run_mace_loop's own comment on this. A failure there must leave
-        tool_server as None and let the run proceed, not propagate and
-        abort a run that would otherwise have passed.
+        see _start_triage_tool_server's own docstring. A failure there must
+        leave the failure triaged without it and let the run proceed, not
+        propagate and abort a run that would otherwise have passed.
         """
         db = make_db(tmp_path)
         monkeypatch.setattr("mace.orchestrator.ray.is_initialized", lambda: True)
@@ -366,15 +389,163 @@ class TestTriageToolServerConstructionFailure:
         monkeypatch.setattr("mace.orchestrator.PitonToolServer", raising_tool_server)
         monkeypatch.setattr(
             "mace.orchestrator.plan",
-            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]),
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)] * 2),
         )
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
-                step_result("t1"),
-            ),
+            fake_integrate_parallel([step_result("t1", passed=False, verdict="fail"), step_result("t1")]),
+        )
+        triage_tools = []
+
+        def recording_triage(result, llm, tools=()):
+            triage_tools.append(tools)
+            return Triage(diagnosis="rtl_suspect", fix="try a different mesh")
+
+        monkeypatch.setattr("mace.orchestrator.triage", recording_triage)
+
+        result = run_mace_loop(
+            ("/fake/root",), make_spec(budget=Budget(max_iterations=2)), FakeLLM(responses=[]), db
         )
 
-        result = run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[]), db)
+        assert result.status == "passed"
+        assert triage_tools == [()]  # still triaged, just without the tool
+
+
+class StubToolServers:
+    """Stands in for the Ray actors ChiaTool.__post_init__ starts: records,
+    per tool, the snapshot it would ship there, and which tools stopped."""
+
+    def __init__(self):
+        self.served: dict[PitonToolServer, PitonToolServer] = {}
+        self.stopped: list[PitonToolServer] = []
+
+    def start(self, tool):
+        self.served[tool] = cloudpickle.loads(cloudpickle.dumps(tool))
+
+    def stop(self, tool):
+        self.stopped.append(tool)
+
+    def grep_sim_log(self, tools):
+        """The one PitonToolServer in *tools*, and what its served copy's
+        grep says about its run's sim.log -- what a model's MCP call gets."""
+        (tool,) = [t for t in tools if isinstance(t, PitonToolServer)]
+        return tool, self.served[tool].grep("sim_log", "Simulation")
+
+
+class TestTriageToolServerSeesTheFailure:
+    """The triage tool server answers MCP calls from the snapshot of the tool
+    ChiaTool.__post_init__ ships to its Ray actor, never from the object
+    run_mace_loop holds -- so these query that snapshot, taken the same way
+    (a cloudpickle round-trip), with no Ray instance."""
+
+    @pytest.fixture
+    def servers(self, monkeypatch):
+        servers = StubToolServers()
+        monkeypatch.setattr("mace.orchestrator.ray.is_initialized", lambda: True)
+        monkeypatch.setattr(ChiaTool, "__post_init__", lambda tool: servers.start(tool))
+        monkeypatch.setattr(ChiaTool, "stop", lambda tool: servers.stop(tool))
+        return servers
+
+    def test_triage_reaches_the_failed_run(self, tmp_path, stub_piton_root, monkeypatch, servers):
+        """The regression: the failed run used to reach only run_mace_loop's
+        own copy of the tool, so every grep a model made answered "no run
+        yet"."""
+        failed = failed_step_result(tmp_path / "run0", "1234 : Simulation -> FAIL(HIT BAD TRAP)\n")
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]),
+        )
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", fake_integrate_parallel([failed]))
+        seen = []
+
+        def grepping_triage(result, llm, tools=()):
+            seen.append(servers.grep_sim_log(tools)[1])
+            return Triage(diagnosis="test_bug", fix="fix the diag")
+
+        monkeypatch.setattr("mace.orchestrator.triage", grepping_triage)
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        run_mace_loop((str(stub_piton_root),), make_spec(), FakeLLM(responses=[]), make_db(tmp_path))
+
+        assert seen == ["1234 : Simulation -> FAIL(HIT BAD TRAP)"]
+
+    def test_each_triage_gets_a_fresh_server_and_the_previous_one_is_stopped_first(
+        self, tmp_path, stub_piton_root, monkeypatch, servers
+    ):
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)] * 2),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            fake_integrate_parallel([
+                failed_step_result(tmp_path / "run0", "1234 : Simulation -> FAIL(HIT BAD TRAP)\n"),
+                failed_step_result(tmp_path / "run1", "5678 : Simulation -> FAIL(TIMEOUT)\n"),
+            ]),
+        )
+        seen = []
+
+        def grepping_triage(result, llm, tools=()):
+            tool, out = servers.grep_sim_log(tools)
+            seen.append((tool, out, list(servers.stopped)))
+            return Triage(diagnosis="rtl_suspect", fix="try again")
+
+        monkeypatch.setattr("mace.orchestrator.triage", grepping_triage)
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        run_mace_loop(
+            (str(stub_piton_root),), make_spec(budget=Budget(max_iterations=2)), FakeLLM(responses=[]),
+            make_db(tmp_path),
+        )
+
+        (first, first_out, stopped_by_first), (second, second_out, stopped_by_second) = seen
+        assert first_out == "1234 : Simulation -> FAIL(HIT BAD TRAP)"
+        assert second_out == "5678 : Simulation -> FAIL(TIMEOUT)"
+        assert stopped_by_first == [] and stopped_by_second == [first]  # never two at once
+        assert servers.stopped == [first, second]  # and the last one once the run ends
+
+    def test_the_post_mortem_reaches_the_run_s_last_failure(
+        self, tmp_path, stub_piton_root, monkeypatch, servers
+    ):
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)] * 2),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            fake_integrate_parallel([
+                failed_step_result(tmp_path / "run0", "1234 : Simulation -> FAIL(HIT BAD TRAP)\n"),
+                failed_step_result(tmp_path / "run1", "5678 : Simulation -> FAIL(TIMEOUT)\n"),
+            ]),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.triage",
+            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try again"),
+        )
+        seen = []
+
+        def grepping_post_mortem(spec, iterations, diagnoses, status, llm, tools=()):
+            tool, out = servers.grep_sim_log(tools)
+            seen.append((out, tool in servers.stopped))
+            raise ReportError("stubbed: only the tool it was given matters here")
+
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", grepping_post_mortem)
+
+        run_mace_loop(
+            (str(stub_piton_root),), make_spec(budget=Budget(max_iterations=2)), FakeLLM(responses=[]),
+            make_db(tmp_path),
+        )
+
+        assert seen == [("5678 : Simulation -> FAIL(TIMEOUT)", False)]  # still up at that point
+
+    def test_a_run_that_passes_never_starts_one(self, tmp_path, stub_piton_root, monkeypatch, servers):
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]),
+        )
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", fake_integrate_parallel([step_result("t1")]))
+
+        result = run_mace_loop((str(stub_piton_root),), make_spec(), FakeLLM(responses=[]), make_db(tmp_path))
 
         assert result.status == "passed"
+        assert servers.served == {}

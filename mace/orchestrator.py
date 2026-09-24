@@ -49,7 +49,7 @@ from mace.metrics import (
 )
 from mace.planner import PlanningError, plan
 from mace.report import ReportError, generate_post_mortem
-from mace.spec import LoopResult, MaceSpec, Triage
+from mace.spec import LoopResult, MaceSpec, StepResult, Triage
 from mace.triage import TriageError, triage
 from mace.workloads import verify_checksums
 
@@ -61,6 +61,29 @@ logger = logging.getLogger(__name__)
 # not a hardware-capability question), and "planning_failed" (no task
 # history exists yet for a post-mortem to synthesize anything from).
 _POST_MORTEM_STATUSES = frozenset(("failed", "budget_exceeded"))
+
+
+def _start_triage_tool_server(run_id: str, piton_root: str, failed: StepResult) -> PitonToolServer | None:
+    """A read-only PitonToolServer pointed at *failed*'s own build and run,
+    or None if it could not be started.
+
+    Best-effort: this tool is a diagnostic aid for triage, not something
+    the loop's own correctness depends on. A construction failure (e.g.
+    ChiaTool's own port search exhausted on a crowded worker) must not
+    abort the whole run on what is otherwise a recoverable condition --
+    proceed without it, same as if Ray simply weren't initialized.
+    """
+    try:
+        return PitonToolServer(
+            f"triage-{run_id}", piton_root, PitonConfig(),
+            expose=("grep", "collect", "compare_to_fixture", "symbol_check"),
+            last_build=failed.build, last_run=failed.run,
+        )
+    except Exception:
+        logger.exception(
+            "run_mace_loop: failed to start the triage tool server -- continuing without it"
+        )
+        return None
 
 
 def run_mace_loop(
@@ -158,8 +181,12 @@ def run_mace_loop(
     # by ray.is_initialized() the same way mace.loop's own TestbenchEditTool
     # is: never constructed in a tier-0 test (which never calls ray.init()),
     # so `tools` stays exactly what was passed in there, unchanged.
-    # Outlives `nodes` on purpose -- generate_post_mortem runs after nodes
-    # are already closed below, but still needs tool access.
+    # A fresh one per triage, handed that failure at construction: its MCP
+    # server answers from a snapshot taken when it starts, so pointing an
+    # already-running one at a new failure would never reach the model.
+    # The latest one outlives `nodes` on purpose -- generate_post_mortem
+    # runs after nodes are already closed below, and still gets tool access
+    # to the run's last failure.
     tool_server = None
     try:
         try:
@@ -188,24 +215,6 @@ def run_mace_loop(
 
                 if nodes is None:
                     nodes = open_nodes(piton_roots)
-                if tool_server is None and ray.is_initialized():
-                    # Best-effort: this tool is a diagnostic aid for triage,
-                    # not something the loop's own correctness depends on.
-                    # A construction failure (e.g. ChiaTool's own port
-                    # search exhausted on a crowded worker) must not abort
-                    # the whole run on what is otherwise a recoverable
-                    # condition -- proceed without it, same as if Ray
-                    # simply weren't initialized.
-                    try:
-                        tool_server = PitonToolServer(
-                            f"triage-{run_id}", piton_roots[0], PitonConfig(),
-                            expose=("grep", "collect", "compare_to_fixture", "symbol_check"),
-                        )
-                    except Exception:
-                        logger.exception(
-                            "run_mace_loop: failed to start the triage tool server -- "
-                            "continuing without it"
-                        )
                 results = integrate_parallel(
                     piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
                     on_task_progress=on_task_progress, nodes=nodes,
@@ -233,9 +242,12 @@ def run_mace_loop(
 
                 had_a_failure = True
                 triage_tools = tools
-                if tool_server is not None:
-                    tool_server.set_context(failed.build, failed.run)
-                    triage_tools = (*tools, tool_server)
+                if ray.is_initialized():
+                    if tool_server is not None:
+                        tool_server.stop()
+                    tool_server = _start_triage_tool_server(run_id, piton_roots[0], failed)
+                    if tool_server is not None:
+                        triage_tools = (*tools, tool_server)
                 try:
                     diagnosis = triage(failed, llm, tools=triage_tools)
                 except TriageError:
