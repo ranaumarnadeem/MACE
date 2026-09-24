@@ -2,11 +2,12 @@
 cluster's tailnet-relay topology, given enough time to resolve -- and if not,
 which hop actually fails?
 
-Forces placement onto the GCP node by requesting more `openpiton` units
-than the local node can ever satisfy (2 local vs 8 GCP -- see
-cluster/local.yaml), so no NodeAffinitySchedulingStrategy is needed. Polls
-ray.wait() every 10s instead of blocking on ray.get(), printing progress the
-whole way, so this can run for several minutes without looking stuck.
+Pins where() to the GCP node with a hard NodeAffinitySchedulingStrategy.
+The GCP node is the live node that advertises `openpiton` from a host other
+than this one; gcp_pin in chia_openpiton/test/cluster/openpiton_e2e_test.py
+gives the reasons. Polls ray.wait() every 10s instead of blocking on
+ray.get(), printing progress the whole way, so this can run for several
+minutes without looking stuck.
 
 Extended from the original version (which only checked the raylet's own
 internal state-dump after the fact) to also capture BOTH tailnet relays' own
@@ -27,10 +28,12 @@ from __future__ import annotations
 
 import getpass
 import os
+import socket
 import subprocess
 import time
 
 import ray
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 print(
     "driver process env: "
@@ -46,17 +49,21 @@ ray.init(address="auto", log_to_driver=False)
 # itself is the new connection rather than a long-lived head-side shell) can
 # see a momentarily incomplete ray.nodes() before full GCS state has synced
 # to it -- retry briefly rather than let that race look like the bug itself.
+head_host = socket.gethostname()
 gcp = None
 for attempt in range(10):
     nodes = ray.nodes()
-    gcp = next((n for n in nodes if n.get("Alive") and n.get("Resources", {}).get("openpiton", 0) > 2), None)
+    gcp = next((n for n in nodes if n.get("Alive")
+                and n.get("Resources", {}).get("openpiton", 0) > 0
+                and n.get("NodeManagerHostname") != head_host), None)
     if gcp is not None:
         break
     print(f"(attempt {attempt}) GCP node not yet visible in ray.nodes() ({len(nodes)} nodes seen) -- retrying", flush=True)
     time.sleep(1)
 if gcp is None:
     raise SystemExit(f"GCP node never became visible in ray.nodes() after 10 retries -- nodes seen: {nodes}")
-print(f"GCP node_id={gcp['NodeID']} address={gcp.get('NodeManagerAddress')}", flush=True)
+print(f"GCP node_id={gcp['NodeID']} host={gcp.get('NodeManagerHostname')} "
+      f"address={gcp.get('NodeManagerAddress')}", flush=True)
 
 HEAD_RELAY_LOG = f"/tmp/chia_tailnet_relay_{getpass.getuser()}.log"
 
@@ -107,7 +114,7 @@ worker_log_before = _read_worker_relay_log(worker_ip, ssh_key) if worker_ip else
 print(f"baseline: head relay log {len(head_log_before)}B, worker relay log {len(worker_log_before)}B", flush=True)
 
 
-@ray.remote(resources={"openpiton": 3})
+@ray.remote(resources={"openpiton": 1})
 def where():
     import os
     import socket
@@ -121,9 +128,10 @@ def where():
     }
 
 
-print("dispatching where() forced to the GCP pool (resources={'openpiton': 3})...", flush=True)
+pin = NodeAffinitySchedulingStrategy(node_id=gcp["NodeID"], soft=False)
+print("dispatching where() pinned to the GCP node (resources={'openpiton': 1})...", flush=True)
 started = time.monotonic()
-ref = where.remote()
+ref = where.options(scheduling_strategy=pin).remote()
 
 deadline_s = 360  # 6 minutes -- do not give up early
 poll_s = 10
