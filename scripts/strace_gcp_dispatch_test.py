@@ -28,16 +28,25 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 import subprocess
 import time
 
 import ray
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 ray.init(address="auto", log_to_driver=False)
 
+# The GCP node is the live node that advertises openpiton from a host other
+# than this one; gcp_pin in chia_openpiton/test/cluster/openpiton_e2e_test.py
+# gives the reasons.
+head_host = socket.gethostname()
 nodes = ray.nodes()
-gcp = next(n for n in nodes if n.get("Alive") and n.get("Resources", {}).get("openpiton", 0) > 2)
-print(f"GCP node_id={gcp['NodeID']} address={gcp.get('NodeManagerAddress')}", flush=True)
+gcp = next(n for n in nodes if n.get("Alive")
+           and n.get("Resources", {}).get("openpiton", 0) > 0
+           and n.get("NodeManagerHostname") != head_host)
+print(f"GCP node_id={gcp['NodeID']} host={gcp.get('NodeManagerHostname')} "
+      f"address={gcp.get('NodeManagerAddress')}", flush=True)
 
 HEAD_TRACE_LOG = "/tmp/chia_head_raylet_strace.log"
 WORKER_TRACE_LOG = "/tmp/chia_worker_raylet_strace.log"
@@ -102,15 +111,21 @@ _ssh(worker_ip, ssh_key,
 time.sleep(2)
 
 
-@ray.remote(resources={"openpiton": 3})
+@ray.remote(resources={"openpiton": 1})
 def where():
     import socket
     return socket.gethostname()
 
 
-print("dispatching where() forced to the GCP pool...", flush=True)
+# Under hard node affinity, Ray 2.54's core worker sends the lease request
+# from this driver straight to the GCP raylet (LocalityAwareLeasePolicy).
+# The head's raylets never receive it. The 2026-09-16 run asked for 3 units
+# instead, so its request went to the driver's local raylet first, which
+# spilled it back to the GCP raylet.
+pin = NodeAffinitySchedulingStrategy(node_id=gcp["NodeID"], soft=False)
+print("dispatching where() pinned to the GCP node...", flush=True)
 started = time.monotonic()
-ref = where.remote()
+ref = where.options(scheduling_strategy=pin).remote()
 
 TRACE_WINDOW_S = 105  # under the user's own `timeout 130` budget for the head-side trace
 ready, pending = ray.wait([ref], timeout=TRACE_WINDOW_S)

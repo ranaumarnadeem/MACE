@@ -1017,7 +1017,7 @@ export TS_AUTHKEY=<your own reusable Tailscale auth key>
 chia up cluster/local.yaml
 # ray status  -- or ray.nodes() from Python -- should show your local node
 # and the GCP worker, both Alive, advertising {"openpiton": 2} and
-# {"openpiton": 8} respectively.
+# {"openpiton": 1} respectively.
 ```
 
 Read `cluster/local.yaml`'s own header comments before your first run — it
