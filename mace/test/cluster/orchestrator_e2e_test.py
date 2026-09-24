@@ -11,19 +11,26 @@ pattern for integrate_parallel itself). No real OpenPiton/hardware needed.
 
 from __future__ import annotations
 
+import asyncio
 import stat
 
 import pytest
 
 ray = pytest.importorskip("ray")
 
+from mcp import ClientSession  # noqa: E402
+from mcp.client.streamable_http import streamable_http_client  # noqa: E402
+
 from chia_openpiton.test.conftest import STUB_SETTINGS, STUB_SIMS  # noqa: E402
+from chia_openpiton.tools import PitonToolServer  # noqa: E402
 
 import mace.integrator as integrator_mod  # noqa: E402
 from mace.metrics import open_db, summary  # noqa: E402
 from mace.orchestrator import run_mace_loop  # noqa: E402
+from mace.report import generate_post_mortem  # noqa: E402
 from mace.spec import Budget, MaceSpec  # noqa: E402
 from mace.test.conftest import FakeLLM  # noqa: E402
+from mace.triage import triage  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -40,18 +47,23 @@ def ray_local():
     ray.shutdown()
 
 
-def _make_stub_checkout(root, verdict: str = "pass") -> str:
+def _make_stub_checkout(root, verdict: str = "pass", sim_log: bool = False) -> str:
     """A checkout whose stub sims always reports *verdict* -- verdict is
     baked into the script's own text (a file, correctly visible from any
     process), not read from an env var: see integrator_e2e_test.py's own
     _make_stub_checkout docstring for why monkeypatch.setenv doesn't work
-    once Ray workers are involved."""
+    once Ray workers are involved. *sim_log* makes every run also write a
+    real sim.log into its run_dir (FAKE_SIMS_BIG_SIM_LOG), for a test that
+    reads a run's own files back."""
     tools_bin = root / "piton" / "tools" / "bin"
     tools_bin.mkdir(parents=True)
     (root / "build").mkdir()
     sims = tools_bin / "sims"
     shebang, _, body = STUB_SIMS.partition("\n")
-    sims.write_text(f"{shebang}\nexport FAKE_SIMS_VERDICT={verdict}\n{body}")
+    exports = f"export FAKE_SIMS_VERDICT={verdict}\n"
+    if sim_log:
+        exports += "export FAKE_SIMS_BIG_SIM_LOG=1\n"
+    sims.write_text(f"{shebang}\n{exports}{body}")
     sims.chmod(sims.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     (root / "piton" / "piton_settings.bash").write_text(STUB_SETTINGS)
     return str(root)
@@ -438,3 +450,59 @@ class TestChecksumMismatch:
 
         row = db.query_one("SELECT status FROM runs WHERE run_id = ?", (result.run_id,))
         assert row["status"] == "checksum_mismatch"
+
+
+def _grep_over_mcp(tool: PitonToolServer, pattern: str) -> str:
+    """Grep *tool*'s run's sim.log through the tool's own MCP endpoint -- the
+    URL a real backend's tool loop connects to (chia.models.vertex), so what
+    answers is the copy its server actor holds, not this process's."""
+
+    async def _call() -> str:
+        url = f"http://{tool.hostname}:{tool.port}/{tool.name}/mcp"
+        async with streamable_http_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    f"{tool.name}_grep", arguments={"source": "sim_log", "pattern": pattern}
+                )
+                return result.content[0].text
+
+    return asyncio.run(_call())
+
+
+class TestTriageToolServer:
+    def test_triage_and_post_mortem_see_the_failed_run_over_mcp(self, ray_local, tmp_path, monkeypatch):
+        """The triage tool server really runs in its own Ray actor here, and
+        is only ever reached over MCP -- so a failed run that got no further
+        than run_mace_loop's own copy of the tool shows up as "no run yet"."""
+        checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="fail", sim_log=True)
+        db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(
+            responses=[
+                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                "ASSESSMENT: inconclusive\n",  # post-mortem, once budget is exhausted
+            ]
+        )
+        calls = []
+
+        def grepping(real):
+            def _grepping(*args, tools=(), **kwargs):
+                (tool,) = [t for t in tools if isinstance(t, PitonToolServer)]
+                calls.append((real.__name__, tool, _grep_over_mcp(tool, "Simulation ->")))
+                return real(*args, tools=tools, **kwargs)
+
+            return _grepping
+
+        monkeypatch.setattr("mace.orchestrator.triage", grepping(triage))
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", grepping(generate_post_mortem))
+
+        result = run_mace_loop((checkout,), make_spec(budget=Budget(max_iterations=2)), llm, db)
+
+        assert result.status == "budget_exceeded"
+        assert [name for name, _, _ in calls] == ["triage", "triage", "generate_post_mortem"]
+        for _, _, out in calls:
+            assert "FAIL(HIT BAD TRAP)" in out
+        (_, first, _), (_, second, _), (_, last, _) = calls
+        assert second is not first and last is second  # one per triage; the post-mortem gets the latest
+        assert first._server_actor is None and second._server_actor is None  # both really stopped
