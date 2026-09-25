@@ -46,7 +46,7 @@ symbol_check() -> str
 | `build` | Starts a build of the current configuration as a background job. A configuration that already built successfully on the unchanged checkout is served from the build cache; `clean=True` forces a rebuild |
 | `run` | Starts a run of `test` against the current configuration's built model. `finish_mask` defaults to one digit per tile; `rtl_timeout` and `max_cycle` reach `sims` as `-rtl_timeout=` and `-max_cycle=` |
 | `job_status` | Waits up to `wait_seconds`, capped at 120, for the current job and reports its state |
-| `grep` | Searches one log of the last run with a Python regex and returns each match with `context` lines around it, capped at `max_lines`. `source` is `"sim_log"` (`sim.log`), `"status_log"` (`status.log`), or `"fake_uart"` (`fake_uart.log`, the program's console output) |
+| `grep` | Searches one log of the last run with a Python regex and returns each match with `context` lines around it, capped at `max_lines`. `source` is `"sim_log"` (`sim.log`), `"status_log"` (`status.log`), or `"fake_uart"` (`fake_uart.log`, the program's console output). Only the first 4000 characters of each line are searched |
 | `collect` | Returns the text of the files in the last run's directory that match `pattern`; `**` is recursive. Files over `max_bytes` are listed with their size instead |
 | `config_get` | Renders the current configuration: core, mesh, network, `config_rtl`, caches, `extra_flags`, and `build_id` |
 | `config_set` | Changes the given fields and keeps the rest, including the caches, except `sys`, which returns to `"manycore"`. Re-runs `configure()` against the checkout, so the next build uses the recomputed `build_id`. Returns `OK, config updated:` and the new rendering |
@@ -95,6 +95,8 @@ The inspection tools return strings and do not raise on bad input. Errors start 
 | No run yet | `ERROR: no run yet; call <name>_run(...) first` |
 | Unknown `grep` source | `ERROR: source must be one of ['fake_uart', 'sim_log', 'status_log'], got '<source>'` |
 | Invalid regex | `ERROR: bad regex '<pattern>': <reason>` |
+| Regex over 256 characters | `ERROR: pattern is <n> characters; keep it under 256` |
+| A repeated group that itself repeats, such as `(a+)+`, which can run for minutes | `ERROR: pattern '<pattern>' repeats a group that itself repeats, which can run for minutes; use a simpler pattern` |
 | Unknown fixture | `ERROR: unknown fixture '<name>'; available: [<.log files>]` |
 | `objdump` not installed | `ERROR: 'objdump' was not found on PATH` |
 | `objdump` failed | `ERROR: 'objdump -f <binary>' failed (exit <n>): <stderr>`, or the same for `-t` |

@@ -47,16 +47,31 @@ _LOG_SOURCES: dict[str, str] = {
 # directly inside this directory, never an arbitrary path the model names.
 _FIXTURES_DIR = Path(__file__).resolve().parent / "test" / "fixtures"
 
+# Limits on the regex an LLM passes to grep. Python's re has no timeout, and
+# a group that repeats something already repeating, as in (a+)+, can
+# backtrack for minutes on one long line, so such patterns are refused and
+# each line is searched only up to _GREP_MAX_LINE characters.
+_GREP_MAX_PATTERN = 256
+_GREP_MAX_LINE = 4000
+_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*(?:[*+]|\{\d*,\d*\})(?:[^()\\]|\\.)*\)(?:[*+]|\{\d*,)")
+
 
 def _grep_lines(text: str, pattern: str, context: int, max_lines: int) -> str:
     """Regex-search *text* line by line, returning matches with *context* lines
     of padding, capped at *max_lines*. Never raises on a bad pattern."""
+    if len(pattern) > _GREP_MAX_PATTERN:
+        return f"ERROR: pattern is {len(pattern)} characters; keep it under {_GREP_MAX_PATTERN}"
+    if _NESTED_QUANTIFIER.search(pattern):
+        return (
+            f"ERROR: pattern {pattern!r} repeats a group that itself repeats, "
+            f"which can run for minutes; use a simpler pattern"
+        )
     try:
         rx = re.compile(pattern)
     except re.error as e:
         return f"ERROR: bad regex {pattern!r}: {e}"
     lines = text.splitlines()
-    hits = [i for i, line in enumerate(lines) if rx.search(line)]
+    hits = [i for i, line in enumerate(lines) if rx.search(line[:_GREP_MAX_LINE])]
     if not hits:
         return f"(no lines match {pattern!r})"
     shown: set[int] = set()

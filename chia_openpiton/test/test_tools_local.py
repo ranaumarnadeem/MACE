@@ -466,3 +466,26 @@ def test_grep_lines_caps_output():
     text = "\n".join(f"match {i}" for i in range(100))
     out = _grep_lines(text, "match", context=0, max_lines=5)
     assert len(out.splitlines()) == 5
+
+
+class TestGrepPatternGuards:
+    """The LLM writes the pattern, and Python's re cannot be interrupted."""
+
+    @pytest.mark.parametrize("pattern", [r"(a+)+$", r"(\w*)*x", r"(\d+\s?)+end", r"(a{1,3})+"])
+    def test_a_repeated_group_that_repeats_is_refused(self, pattern):
+        started = time.monotonic()
+        out = _grep_lines("a" * 5000 + "!", pattern, context=0, max_lines=5)
+        assert out.startswith("ERROR: pattern") and "repeats a group" in out
+        assert time.monotonic() - started < 1
+
+    @pytest.mark.parametrize("pattern", [r"(PASS|FAIL)", r"Hit (Good|Bad) trap", r"\d{1,3}\.", r"(ab)+"])
+    def test_ordinary_patterns_still_run(self, pattern):
+        out = _grep_lines("Hit Good trap\nPASS 1.2 abab", pattern, context=0, max_lines=5)
+        assert not out.startswith("ERROR")
+
+    def test_a_long_pattern_is_refused(self):
+        assert _grep_lines("x", "a" * 300, 0, 5).startswith("ERROR: pattern is 300 characters")
+
+    def test_only_the_start_of_a_very_long_line_is_searched(self):
+        text = "x" * 5000 + "needle\nneedle here"
+        assert _grep_lines(text, "needle", 0, 5) == "needle here"
