@@ -533,21 +533,25 @@ class TestBuildReuseChecksTheCheckout:
 class TestSourceFingerprintOnAGitCheckout:
     """source_fingerprint against a git repository, with no stubbed git."""
 
+    @staticmethod
+    def git(root, *args):
+        import subprocess
+
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+    def commit_all(self, root):
+        self.git(root, "add", "-A")
+        self.git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "stub")
+
     @pytest.fixture
     def repo(self, stub_piton_root):
         import shutil
-        import subprocess
 
         if shutil.which("git") is None:
             pytest.skip("git is not installed")
-
-        def git(*args):
-            subprocess.run(["git", *args], cwd=stub_piton_root, check=True, capture_output=True)
-
         (stub_piton_root / ".gitignore").write_text("build/\n*.tmp.v\n")
-        git("init", "-q")
-        git("add", "-A")
-        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "stub")
+        self.git(stub_piton_root, "init", "-q")
+        self.commit_all(stub_piton_root)
         return stub_piton_root
 
     def fingerprint(self, root):
@@ -568,6 +572,15 @@ class TestSourceFingerprintOnAGitCheckout:
     def test_a_new_untracked_file_changes_it(self, repo):
         before = self.fingerprint(repo)
         (repo / "piton" / "new_top.v").write_text("module new_top; endmodule\n")
+        assert self.fingerprint(repo) != before
+
+    def test_an_edit_to_a_latin1_file_changes_it_without_raising(self, repo):
+        """git prints the file's own bytes, which are not UTF-8."""
+        rtl = repo / "piton" / "old_header.v"
+        rtl.write_bytes(b"// Copyright \xa9 1999\n")
+        self.commit_all(repo)
+        before = self.fingerprint(repo)
+        rtl.write_bytes(b"// Copyright \xa9 2000\n")
         assert self.fingerprint(repo) != before
 
     def test_the_verilator_version_changes_it(self, repo):

@@ -549,10 +549,16 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
     @staticmethod
     def _git(root: str, args: list[str], timeout_seconds: int = 60) -> str:
-        """Best-effort ``git`` query inside the checkout; "" when unavailable."""
+        """Best-effort ``git`` query inside the checkout; "" when unavailable.
+
+        Bytes that are not UTF-8, as in a diff of a Latin-1 file, decode as
+        lone surrogates, so the query never raises and the bytes survive a
+        ``.encode("utf-8", "surrogateescape")``.
+        """
         try:
             done = subprocess.run(
-                ["git", *args], cwd=root, capture_output=True, text=True, timeout=timeout_seconds
+                ["git", *args], cwd=root, capture_output=True, text=True,
+                errors="surrogateescape", timeout=timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired):
             return ""
@@ -629,17 +635,20 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
         digest = hashlib.sha256()
 
-        def add(label: str, data: bytes) -> None:
-            digest.update(f"{label}\0{len(data)}\0".encode())
+        def raw(text: str) -> bytes:
+            return text.encode("utf-8", "surrogateescape")
+
+        def add(label: bytes, data: bytes) -> None:
+            digest.update(label + b"\0" + str(len(data)).encode() + b"\0")
             digest.update(data)
 
-        add("verilator", version_text.strip().encode())
+        add(b"verilator", raw(version_text.strip()))
         for (rel, path, args), out in zip(queries, outputs):
             if args[0] != "ls-files":
-                add(f"{rel}:{args[0]}", out.encode())
+                add(raw(f"{rel}:{args[0]}"), raw(out))
                 continue
             for name in sorted(n for n in out.split("\0") if n):
-                add(f"{rel}:untracked:{name}", _file_digest(os.path.join(path, name)))
+                add(raw(f"{rel}:untracked:{name}"), _file_digest(os.path.join(path, name)))
         return digest.hexdigest()
 
     # -- build -----------------------------------------------------------------
