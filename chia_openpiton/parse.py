@@ -267,6 +267,25 @@ _BUILD_FAILURES: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
+# A Verilator diagnostic, or a C++ compiler error from the model's make step.
+_BUILD_ERROR_LINE = re.compile(
+    r"^(?:%Error(?:-[A-Z]+)?:.*|\s*\S+:\d+:\d+:\s*(?:fatal )?error:.*)$", re.MULTILINE
+)
+
+
+def build_errors(stdout: str, stderr: str = "", limit: int = 20) -> tuple[str, ...]:
+    """The first *limit* error lines of a build's output, in order.
+
+    ``sims`` prints Verilator's diagnostics to stdout, and a failed build's
+    last few kilobytes are often warnings, so these lines are taken from the
+    full output. Verilator's closing ``%Error: Exiting due to N error(s)``
+    is left out; the lines before it name the file, line, and cause.
+    """
+    blob = f"{stdout or ''}\n{stderr or ''}"
+    lines = (m.group(0).strip() for m in _BUILD_ERROR_LINE.finditer(blob))
+    return tuple(ln for ln in lines if not ln.startswith("%Error: Exiting due to"))[:limit]
+
+
 def build_failure_reason(stdout: str, stderr: str = "") -> str:
     """A short, stable tag for why a build failed, or "".
 

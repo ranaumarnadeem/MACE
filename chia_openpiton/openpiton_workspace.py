@@ -841,6 +841,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             failure_reason=reason,
             stdout=_tail(stdout),
             stderr=_tail(stderr),
+            errors=() if success else parse.build_errors(stdout, stderr),
         )
 
     # -- run -------------------------------------------------------------------

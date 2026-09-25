@@ -213,7 +213,8 @@ After sourcing, the Ariane prologue prepends `$RISCV/bin`, and `$VERILATOR_ROOT/
 | `cache_key` | `str` | `config.key` |
 | `failure_reason` | `str` | Failure tag; `""` on success |
 | `reused` | `bool` | `True` when served from the build cache |
-| `stdout`, `stderr` | `str` | Tail of each stream |
+| `stdout`, `stderr` | `str` | Tail of each stream. `sims` prints Verilator's output to stdout |
+| `errors` | `tuple[str, ...]` | Error lines from the full output of a failed build, from [build_errors](parsers.md); `()` on success |
 
 ### PitonRunResult
 

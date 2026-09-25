@@ -109,6 +109,8 @@ case "$*" in
     *-vlt_build*|*-vcs_build*|*-msm_build*)
         echo "sims: creating model directory $model_dir"
         if [ "$FAKE_SIMS_FAIL_BUILD" = "1" ]; then
+            echo "%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'"
+            echo "%Warning-WIDTH: pc_cmp.tmp.v:1760:59: Operator EQ expects 64 bits"
             echo "%Error: Exiting due to 1 error(s)"
             echo "sims: Caught a SIGDIE. failed building model at /x/sims,2.0 line 1572."
             exit 1

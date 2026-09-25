@@ -224,6 +224,9 @@ class PitonBuildArtifact:
     reused: bool = False
     stdout: str = ""  # capped tail
     stderr: str = ""  # capped tail
+    # parse.build_errors over the full output of a failed build, since the
+    # capped tails above can end in warnings; () on success.
+    errors: tuple[str, ...] = ()
 
 
 @dataclass

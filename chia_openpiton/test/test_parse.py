@@ -243,6 +243,35 @@ class TestBuildFailureReason:
         )
 
 
+class TestBuildErrors:
+    # From a pico 1x1 build with PITON_FPGA_SYNTH defined.
+    PINNOTFOUND = (
+        "%Warning-IMPLICIT: chipset.v:703:16: Signal definition not found, creating implicitly: 'io_clk_loopback'\n"
+        "%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'\n"
+        "  361 |     .async_mux(async_mux),\n"
+        "%Error: Exiting due to 1 error(s)\n"
+        "sims: Caught a SIGDIE. failed building model at sims,2.0 line 1588.\n"
+    )
+
+    def test_keeps_the_diagnostic_and_drops_the_exit_summary(self):
+        assert parse.build_errors(self.PINNOTFOUND) == (
+            "%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'",
+        )
+
+    def test_finds_errors_before_trailing_warnings(self):
+        text = "%Error: top.v:3:1: syntax error\n" + "%Warning-WIDTH: x.v:1:1: w\n" * 500
+        assert parse.build_errors(text) == ("%Error: top.v:3:1: syntax error",)
+
+    def test_includes_compiler_errors_and_stderr(self):
+        errors = parse.build_errors("foo.cpp:12:5: error: 'bar' undeclared", "%Error-PINNOTFOUND: a.v:1:1: x")
+        assert errors == ("foo.cpp:12:5: error: 'bar' undeclared", "%Error-PINNOTFOUND: a.v:1:1: x")
+
+    def test_is_capped_and_empty_for_a_clean_log(self, fixtures):
+        many = "".join(f"%Error: f.v:{i}:1: e\n" for i in range(1, 50))
+        assert len(parse.build_errors(many, limit=5)) == 5
+        assert parse.build_errors(fixtures("build_ok_tail.log")) == ()
+
+
 class TestVerilatorVersion:
     def test_release_string(self, fixtures):
         assert parse.verilator_version(fixtures("verilator_4038.txt")) == (4, 38)

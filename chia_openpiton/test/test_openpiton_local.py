@@ -373,6 +373,15 @@ class TestBuildResult:
     def test_cache_key_is_carried_on_the_artifact(self, node, cfg):
         assert node.build(cfg).cache_key == cfg.key
 
+    def test_a_failed_build_carries_its_error_lines(self, node, cfg, monkeypatch):
+        """sims prints Verilator's diagnostics to stdout, not stderr."""
+        monkeypatch.setenv("FAKE_SIMS_FAIL_BUILD", "1")
+        art = node.build(cfg)
+        assert art.errors == ("%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'",)
+
+    def test_a_good_build_has_no_error_lines(self, node, cfg):
+        assert node.build(cfg).errors == ()
+
     def test_non_manycore_sys_builds_under_its_own_dir_and_binary_name(self, node, cfg):
         """A unit-test sys (e.g. ifu_esl_lfsr) builds a differently-named
         binary under build/<sys>/, not build/manycore/Vcmp_top -- the
