@@ -775,6 +775,23 @@ class TestWorkspaceFiles:
         assert "secret.txt" not in got.files
         assert not any("secret" in name for name in got.listing)
 
+    def test_collect_skips_a_symlink_that_points_outside_base_dir(self, node, stub_piton_root):
+        """The `..` check alone is lexical: a link inside the run directory
+        whose target is elsewhere passed it and was read."""
+        secret = stub_piton_root / "secret.txt"
+        secret.write_text("do not ship this")
+        run_dir = stub_piton_root / "build" / "runs" / "1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "sim.log").write_text("ok")
+        (run_dir / "status.log").symlink_to(secret)
+        (run_dir / "sim_copy.log").symlink_to(run_dir / "sim.log")
+
+        got = node.collect(str(run_dir), ("*",))
+
+        assert "status.log" not in got.files and "status.log" not in got.listing
+        assert got.files["sim.log"] == "ok"
+        assert got.files["sim_copy.log"] == "ok"  # a link that stays inside is still read
+
     def test_collect_caps_large_files(self, node, stub_piton_root):
         target = stub_piton_root / "build" / "big.log"
         target.write_text("x" * 5000)

@@ -1050,7 +1050,8 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 pattern containing ``..`` components that would resolve
                 outside *base_dir* (e.g. ``../../../../etc/passwd``) matches
                 nothing -- *base_dir* is the confinement boundary, not just
-                the glob's starting point.
+                the glob's starting point. The same holds for a symlink
+                under *base_dir* whose target lies outside it.
             max_bytes_per_file: Files over this size are recorded in ``skipped``
                 rather than shipped -- protects against a glob matching a model
                 binary or a multi-megabyte waveform. ``0`` is a real cap (skip
@@ -1059,6 +1060,9 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         """
         root = _require_root(piton_root)
         base = os.path.normpath(base_dir if os.path.isabs(base_dir) else _resolve_under(root, base_dir))
+        # Compared after resolving symlinks, so a link under base_dir that
+        # points outside it is refused like a `..` pattern.
+        real_base = os.path.realpath(base)
         files: dict[str, str] = {}
         skipped: dict[str, int] = {}
         listing: dict[str, int] = {}
@@ -1068,9 +1072,11 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 if not os.path.isfile(path):
                     continue
                 path = os.path.normpath(path)
-                if path != base and not path.startswith(base + os.sep):
+                real = os.path.realpath(path)
+                if real != real_base and not real.startswith(real_base + os.sep):
                     logger.warning(
-                        "collect: pattern %r matched outside base_dir %r -- skipped", pattern, base
+                        "collect: pattern %r matched %r, which resolves outside base_dir %r -- skipped",
+                        pattern, path, base,
                     )
                     continue
                 rel = os.path.relpath(path, base)

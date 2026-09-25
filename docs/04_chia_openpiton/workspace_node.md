@@ -91,7 +91,7 @@ clean(piton_root: str, config: PitonConfig) -> bool
 | `run` | Runs one diag and judges it from the transcript |
 | `regress` | Calls `run` serially for each entry of `tests`. `success` holds when at least one test ran and none failed. It is a single-worker fallback; fan `run` out across workers for parallel regressions |
 | `put_file` | Writes `content` to `<piton_root>/<relpath>`, creates parent directories, and returns the path. A `relpath` that escapes the checkout raises `ValueError` |
-| `collect` | Globs `patterns` under `base_dir`, which is absolute or relative to the root; `**` is recursive. Skips matches outside `base_dir`. Files over `max_bytes_per_file` go to `skipped`; `0` skips every non-empty file, and `None` sets no cap |
+| `collect` | Globs `patterns` under `base_dir`, which is absolute or relative to the root; `**` is recursive. Skips matches outside `base_dir`, including symlinks whose target lies outside it. Files over `max_bytes_per_file` go to `skipped`; `0` skips every non-empty file, and `None` sets no cap |
 | `clean` | Removes the configuration's model directory and returns whether it existed. `sims -clean` removes only VCS output (`csrc`, `simv`, `simv.daidir`, `AxisWork`) and leaves `obj_dir` in place |
 
 `verilator_version_text(root, core="ariane", timeout_seconds=120) -> str` is a plain static method. It returns `verilator --version` as seen inside OpenPiton's environment and caches successful results per `(root, core)`.
