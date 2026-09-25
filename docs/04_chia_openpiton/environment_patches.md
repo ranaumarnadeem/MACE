@@ -15,7 +15,7 @@ Run it once per checkout, on every worker that hosts one. The GCP worker in `clu
 
 The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 12 skip with a `not found, skipping fix N` message when their target file is absent.
 
-A model built before the script ran can still be served from the build cache (see [PitonConfig](piton_config.md)). Rebuild it with `build(..., clean=True)` or remove it with `clean()`.
+The script's edits change the checkout's source fingerprint, so a model built before the script ran is rebuilt on its next `build()` (see [OpenPitonWorkspaceNode](workspace_node.md)).
 
 ## Fixes
 

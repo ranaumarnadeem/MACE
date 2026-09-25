@@ -33,7 +33,7 @@ python examples/mace_end_to_end.py \
 
 `--mesh` sets the size of every `config` and `workload` build; the objective text does not.
 With no `--objective`, the script writes one from the workload and mesh, here `Verify the barrier_atomic.c gate workload passes on a 2x2 mesh.`
-Each configuration compiles its Verilator model once, and later runs reuse it.
+Each configuration compiles its Verilator model once, and later runs reuse it until the checkout changes.
 
 ## Flags
 

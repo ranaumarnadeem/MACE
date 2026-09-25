@@ -65,7 +65,7 @@ COVERAGE_LINE_FLAG = "-vlt_build_args=--coverage-line"
 
 `key` hashes a JSON object, serialized with sorted keys, that holds `sys`, `core`, `x_tiles`, `y_tiles`, `network_config`, `config_rtl` (sorted), `caches` (sorted by name), `extra_flags` (in order), `source_rev`, `ariane_rev`, `verilator_version`, and `diff`. [build()](workspace_node.md) passes `build_id` to `sims` as `-build_id`. `sims` writes every model to `rel-0.1` by default, so without a per-configuration ID two configurations overwrite each other's model.
 
-Beyond the configuration fields, the key covers only what `configure()` records: the committed revision, the Ariane submodule commit, the Verilator version, and the unstaged diff under `piton/verif/env/manycore`. Edits anywhere else in the working tree leave the key unchanged. A directly constructed `PitonConfig` leaves those four fields empty, so its key depends on the configuration fields alone. After an RTL or testbench change that the key does not cover, rebuild with `build(..., clean=True)` or remove the model with `clean()`; otherwise the build cache serves the earlier model.
+Beyond the configuration fields, the key covers only what `configure()` records: the committed revision, the Ariane submodule commit, the Verilator version, and the unstaged diff under `piton/verif/env/manycore`. Edits anywhere else in the working tree leave the key unchanged. A directly constructed `PitonConfig` leaves those four fields empty, so its key depends on the configuration fields alone. The build cache covers the rest of the checkout: [build()](workspace_node.md) reuses a model only while the checkout's source fingerprint matches the one recorded when the model was built.
 
 ## sims_flags()
 

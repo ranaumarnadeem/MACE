@@ -632,8 +632,9 @@ per tile, and a full-width `finish_mask`. Two real bugs surfaced:
   threads 1-3 timed out, and all three replans hit the same build. It was
   moved aside (not deleted) to
   `build/manycore/mace_d8be38b3186c.stale-pre-finish-mask-fix`; the clean
-  rebuild passed. Any build from before a monitor/RTL fix needs the same
-  treatment (`clean=True`, or move the build directory aside).
+  rebuild passed. Since 2026-09-25 the build marker also records a
+  fingerprint of the checkout, so `build()` rebuilds such a model on its
+  next use (see `docs/04_chia_openpiton/workspace_node.md`).
 
 The same 4x4 run's planner also asked for `CONFIG_RTL: ... |
 CONFIG_ENABLE_MESH_ATOMIC_FIX`, a define that appears nowhere in OpenPiton:

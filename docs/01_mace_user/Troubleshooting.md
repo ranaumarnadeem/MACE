@@ -2,22 +2,20 @@
 
 # Troubleshooting
 
-## Stale cached builds
+## Rebuilds and stale models
 
 Each model lives in `$PITON_ROOT/build/<sys>/<build_id>`, where `<sys>` is `manycore` for every task except a unit test.
 A build ID is `mace_` plus 12 hex digits.
-A successful build leaves a `.mace_build_ok` marker, and later builds with the same ID reuse the model without running `sims`.
+The loop builds each `PitonConfig` directly, without `configure()`, so its build IDs cover only the configuration: core, mesh, network, RTL defines, cache geometry, extra flags, and, for a unit test, the environment name.
 
-The loop builds each `PitonConfig` directly, without `configure()`.
-Its build IDs cover only the configuration: core, mesh, network, RTL defines, cache geometry, extra flags, and, for a unit test, the environment name.
-After an RTL or monitor edit, or a new fix from `scripts/patch_openpiton.sh`, the loop still reuses models built before the change.
-A typical symptom is the same failure in every iteration.
+A successful build leaves a `.mace_build_ok` marker that holds the configuration key and a fingerprint of the checkout.
+A later build with the same ID reuses the model only while both match.
+After an RTL or monitor edit, a new fix from `scripts/patch_openpiton.sh`, a new commit, or a change of Verilator, the next build of each configuration rebuilds its model and logs `the checkout or Verilator changed since it was built`.
+A model built before the fingerprint existed rebuilds once.
+[OpenPitonWorkspaceNode](../04_chia_openpiton/workspace_node.md) lists what the fingerprint covers.
 
-Move the stale model aside, or rebuild with `clean=True`, which first deletes the model's `obj_dir` and marker:
-
-```bash
-mv ~/openpiton/build/manycore/mace_<id> ~/openpiton/build/manycore/mace_<id>.stale
-```
+The fingerprint misses edits inside the Ariane submodule's own submodules unless they move a submodule commit.
+If the same failure repeats in every iteration after such an edit, rebuild with `clean=True`, which first deletes the model's `obj_dir` and marker:
 
 ```python
 art = get(node.build.chia_remote(cfg, clean=True))

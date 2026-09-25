@@ -19,11 +19,11 @@ The drivers in the repository, `examples/mace_end_to_end.py` and the `mace` shel
 
 `OpenPitonWorkspaceNode.build()` runs `sims <flags> -build_id=<build ID> -vlt_build`, passing `--no-timing` to Verilator 5 and later.
 A build succeeds when `sims` exits 0 within 7200 s and the model binary exists.
-When an earlier successful build with the same build ID left its binary and its `.mace_build_ok` marker, `build()` skips `sims` and returns that build with `reused=True`.
+When an earlier successful build with the same build ID left its binary and a `.mace_build_ok` marker that matches the checkout's source fingerprint, `build()` skips `sims` and returns that build with `reused=True`.
 
 `_config_for_task()` constructs its `PitonConfig` directly rather than through `configure()`, so the source-revision, Verilator-version, and diff fields stay empty.
 A loop task's build ID therefore covers its configuration only.
-A source edit leaves the build ID unchanged, and the loop reuses the earlier build.
+A source edit leaves the build ID unchanged but changes the fingerprint, so the next build of that configuration rebuilds the model (see [OpenPitonWorkspaceNode](../04_chia_openpiton/workspace_node.md)).
 
 ## Run
 

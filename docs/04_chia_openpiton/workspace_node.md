@@ -96,6 +96,8 @@ clean(piton_root: str, config: PitonConfig) -> bool
 
 `verilator_version_text(root, core="ariane", timeout_seconds=120) -> str` is a plain static method. It returns `verilator --version` as seen inside OpenPiton's environment and caches successful results per `(root, core)`.
 
+`source_fingerprint(root, version_text, timeout_seconds=60) -> str` is another plain static method. It returns the SHA-256 hex digest that the build cache checks, described under Build cache below.
+
 ### configure
 
 A given `address_map` replaces `piton/verif/env/manycore/devices_ariane.xml`, the checkout's single copy of the simulation device map. `configure` then runs four probes concurrently, and a failed git probe records `""`:
@@ -113,8 +115,8 @@ It returns the resulting `PitonConfig`, whose construction raises `ValueError` o
 
 1. Rejects a `sim_type` outside `vlt`, `vcs`, `ncv`, `icv`, `msm`, and `riv` with `ValueError`. Only `vlt` (Verilator) is license-free.
 2. Raises `ValueError` when `git diff -- piton/verif/env/manycore` differs from `config.diff`, for example after another `configure(address_map=...)` call on the checkout. The check runs only for a configuration that recorded the checkout's state, a non-empty `source_rev` or `diff`, as `configure()` sets. A configuration with both fields empty, such as each one MACE's loop constructs, builds the checkout as it stands.
-3. Returns the cached model, if one exists.
-4. With `clean=True`, deletes the model's `obj_dir` and marker.
+3. Returns the cached model, if one exists and the checkout has not changed since it was built.
+4. With `clean=True`, or when the cached model is stale, deletes the model's `obj_dir` and marker.
 5. For `sim_type="vlt"`, adds `--no-timing` when Verilator is version 5 or later, unless an `extra_build_args` entry already contains `timing`. The version comes from `config.verilator_version`, or from `verilator_version_text()`.
 6. Runs, in `$PITON_ROOT/build`:
 
@@ -126,9 +128,19 @@ sims <config.sims_flags()> -build_id=<config.build_id> -<sim_type>_build [-<sim_
 
 ### Build cache
 
-A successful build writes the marker file `.mace_build_ok`, containing `config.key`, into the model directory. With `clean=False`, `build` returns at once, without running `sims`, when the marker and the binary both exist. That artifact has `reused=True` and `wall_time_s=0.0`. `build` trusts the marker over the binary, because a worker killed mid-link can leave a truncated binary.
+A successful build writes the marker file `.mace_build_ok` into the model directory. The marker holds `config.key` and the checkout's source fingerprint, taken before `sims` ran. With `clean=False`, `build` returns at once, without running `sims`, when the binary exists and the marker holds the current key and fingerprint. That artifact has `reused=True` and `wall_time_s=0.0`. `build` trusts the marker over the binary, because a worker killed mid-link can leave a truncated binary.
 
-The cache does not see every source edit. [PitonConfig](piton_config.md) says when to rebuild.
+The fingerprint hashes the Verilator version and, for the checkout and its Ariane submodule, three things:
+
+- the commit, from `git rev-parse HEAD`;
+- the edits to tracked files, from `git diff HEAD`;
+- the untracked files that `.gitignore` does not list, by content, or by size and modification time above 1 MiB.
+
+OpenPiton's `.gitignore` lists the build outputs, such as pyHP's `.tmp.v` files and everything under `build/`, so a build leaves the fingerprint of its checkout unchanged. The `aws` submodule is left out: simulation does not read it, and its diff on a Linux checkout runs to hundreds of megabytes. On a patched checkout the fingerprint takes about 0.1 s.
+
+A build ID covers the configuration, so a patch, an RTL edit, or a new commit leaves it unchanged. When the marker's fingerprint no longer matches, `build` logs `the checkout or Verilator changed since it was built`, deletes the model's `obj_dir` and marker, and rebuilds. A marker written before the fingerprint existed holds only the key, so its model rebuilds once.
+
+Edits inside the Ariane submodule's own submodules, such as `corev_apu/rv_plic`, change the fingerprint only when they move a submodule commit or make a clean submodule dirty. After such an edit, rebuild with `clean=True`.
 
 ### run
 

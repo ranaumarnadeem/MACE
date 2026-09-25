@@ -73,7 +73,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-VER-9:** MACE shall stop an iteration after the first level that contains a failed task.
 - **REQ-VER-10:** MACE shall end the run with status `passed` when every task of an iteration passes.
 - **REQ-VER-11:** MACE shall end the run with status `failed` when an iteration produces no task results.
-- **REQ-VER-12:** MACE shall reuse an earlier successful build on the same checkout when its core, mesh, network, cache geometry, RTL defines, and flags match, even if the checkout's files have changed since.
+- **REQ-VER-12:** MACE shall reuse an earlier successful build on the same checkout only when its core, mesh, network, cache geometry, RTL defines, and flags match, and the checkout's commit, file edits, untracked files, Ariane submodule, and Verilator version are unchanged since that build.
 - **REQ-VER-13:** MACE shall record every run, iteration, and task result in a SQLite database, including the cache sizes and associativities in each build's configuration.
 - **REQ-VER-14:** MACE shall report each iteration's results to an optional caller-supplied callback after recording them and before failure analysis.
 - **REQ-VER-15:** MACE shall report five metrics for a recorded run: successful tasks, iterations, failures recovered, execution time, and compute cost.

@@ -43,7 +43,7 @@ symbol_check() -> str
 
 | Tool | Behaviour |
 |---|---|
-| `build` | Starts a build of the current configuration as a background job. A configuration that already built successfully is served from the build cache; `clean=True` forces a rebuild |
+| `build` | Starts a build of the current configuration as a background job. A configuration that already built successfully on the unchanged checkout is served from the build cache; `clean=True` forces a rebuild |
 | `run` | Starts a run of `test` against the current configuration's built model. `finish_mask` defaults to one digit per tile; `rtl_timeout` and `max_cycle` reach `sims` as `-rtl_timeout=` and `-max_cycle=` |
 | `job_status` | Waits up to `wait_seconds`, capped at 120, for the current job and reports its state |
 | `grep` | Searches one log of the last run with a Python regex and returns each match with `context` lines around it, capped at `max_lines`. `source` is `"sim_log"` (`sim.log`), `"status_log"` (`status.log`), or `"fake_uart"` (`fake_uart.log`, the program's console output) |
