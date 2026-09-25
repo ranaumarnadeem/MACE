@@ -51,7 +51,7 @@ An override line applies only to the task it names (see [Parallel Task Execution
 `Task.__post_init__` in `mace/spec.py` rejects an empty id, a kind outside `TASK_KINDS`, an empty dependency id, an unknown or duplicated cache name, a non-positive cache size or associativity, and a malformed or duplicated `config_rtl` flag.
 `parse_tasks()` drops any line whose `Task` fails these checks.
 `plan()` raises `PlanningError` when no task remains, or when `topological_levels()` finds a duplicate id, a dependency on an unknown id, or a cycle.
-The orchestrator then ends the run with status `planning_failed`.
+The orchestrator then logs the error, which quotes a reply with no `TASK:` lines or names the graph problem, and ends the run with status `planning_failed`.
 
 ## Task Kinds
 

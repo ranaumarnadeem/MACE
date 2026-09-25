@@ -241,7 +241,8 @@ def _run_started_loop(
                 iter_started = time.monotonic()
                 try:
                     tasks = plan(spec, llm, tools=tools, feedback="\n".join(feedback_history))
-                except PlanningError:
+                except PlanningError as e:
+                    logger.warning("run %s: %s", run_id, e)
                     status = "planning_failed"
                     break
 
