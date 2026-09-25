@@ -38,7 +38,7 @@
 \begin{abstract}
 MACE is an agentic AI system that plans, builds, and verifies multicore OpenPiton configurations on
 the CHIA framework. Phase 1 adds \code{chia\_openpiton}, a CHIA adapter for OpenPiton's configure,
-build, run, and collect operations, with 209 tests that need no OpenPiton checkout. Phase 2 adds the
+build, run, and collect operations, with 228 tests that need no OpenPiton checkout. Phase 2 adds the
 MACE loop: a planner breaks a hardware objective into tasks, the tasks run in parallel, and a
 deterministic integrator gates every change on Verilator simulation. A failure-analysis agent
 diagnoses failures, and the planner replans around them.
@@ -213,7 +213,7 @@ CHIA and Ray place each checkout's calls on its own worker.}
 \label{fig:arch}
 \end{figure}
 
-\textbf{Results.} The adapter's 209 tests that need no OpenPiton checkout all pass, and so do
+\textbf{Results.} The adapter's 228 tests that need no OpenPiton checkout all pass, and so do
 acceptance tests with full Verilator builds, including two checkouts building in parallel: 176s
 versus 324s serial. One acceptance test, 2x2 Ariane on a GCP worker, remains blocked by unreliable
 dispatch to that worker (Section~\ref{sec:limits}).
@@ -317,11 +317,16 @@ and verified both meshes, every tile confirmed, with no changes to its planning 
 planner chose to verify, and 4x4 in 250.9s on a cached build. On pico it passes in a single task at
 both sizes, the 4x4 run also on a cached build.
 
-\textbf{Recovery.} The detect, diagnose, and replan cycle is exercised only at the mechanism level,
-with a stub that fails once and then passes; no passing run above needed it. Its one live failure, a
-pico 4x4 build cached before the \code{finish\_mask} fix, went unrecovered: the build ID covers only the
-configuration, so all three iterations reused that stale build, and triage never identified it. A
-clean rebuild passed.
+\textbf{Recovery.} No run above needed a replan, so we broke the loop's first plan and let it
+continue, at 2x2 with at most three iterations. Adding \code{PITON\_FPGA\_SYNTH}, an FPGA-synthesis
+define, fails the ariane build, and removing \code{CONFIG\_DISABLE\_BIST\_CLEAR} times out the pico
+simulation. With the Table~\ref{tab:eval} objectives, the loop recovered in 4 of 6 ariane runs and 5
+of 6 pico runs, each in its first replan. One run ended at \code{planning\_failed}, and two crashed on
+an LLM reply cut off at its output limit, which the loop now survives. A replan starts from the
+objective and the triage feedback and never sees the broken plan, so these runs exercise the cycle
+more than the diagnosis: triage named the seeded define in 2 of its 8 diagnoses of the build failure
+and never named the BIST define. With a pico objective that names no define, the loop recovered in none of 3 runs, as
+every later simulation timed out on the missing BIST define.
 
 \section{Cost}
 \label{sec:cost}
@@ -367,7 +372,7 @@ writes it. A dashboard over the run database would show dispatch, build, and ver
 \sys{} shows that an agentic loop can plan, build, and verify multicore hardware, with every result
 gated by RTL simulation. Along the way we fixed RTL and testbench bugs and added PicoRV32 next to
 Ariane and OpenSPARC T1, and the loop then passed 2x2 and 4x4 meshes of both Ariane and PicoRV32. The next steps are a reusable
-adapter template for new cores and a recovery cycle proven on live failures.
+adapter template for new cores and failure analysis that finds a fix the objective does not name.
 
 \bibliographystyle{IEEEtran}
 \bibliography{mace_paper}
