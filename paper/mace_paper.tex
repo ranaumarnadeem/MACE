@@ -57,7 +57,7 @@ configuration it attempts.
 \includegraphics[width=\textwidth]{mace_figure1}
 \caption{The MACE pipeline. Verification gates every integrated change against Verilator
 simulation. The run ends when every task passes its gate workload; any failure triggers failure
-analysis and a replan.}
+analysis and a re-plan.}
 \label{fig:pipeline}
 \vspace{-0.4em}
 \end{figure*}
@@ -161,7 +161,7 @@ gated by whole-system Verilator simulation.
 \section{Phase 1: The OpenPiton Adapter}
 \label{sec:phase1}
 
-\textbf{Design.} Figure~\ref{fig:arch} shows where the adapter sits. \code{OpenPitonWorkspaceNode} is
+\textbf{Design:} Figure~\ref{fig:arch} shows where the adapter sits. \code{OpenPitonWorkspaceNode} is
 a CHIA \code{ColocatedNode} whose resource-pinned remote functions configure, build, run, and
 collect results. OpenPiton writes generated \code{.tmp.v} files into its source tree on every build,
 so each worker gets its own checkout, reserved through one \code{openpiton} resource unit. Pure
@@ -184,7 +184,7 @@ parsers read verdicts from OpenPiton's transcripts, using the strings its RTL mo
   \node[box, minimum width=1.8cm] (tri) at (7.4,2.75) {Triage\\(LLM)};
   \draw[arr] (plan) -- (int);
   \draw[arr] (int) -- (tri);
-  \draw[arr] (tri.north) -- ++(0,0.33) -| node[el, pos=0.25] {diagnosis, replan} (plan.north);
+  \draw[arr] (tri.north) -- ++(0,0.33) -| node[el, pos=0.25] {diagnosis, re-plan} (plan.north);
   % adapter
   \node[box, minimum width=4.9cm] (ws) at (2.6,0.95) {OpenPitonWorkspaceNode: configure, build,\\run, collect; verdicts from \texttt{sim.log}};
   \node[box, minimum width=2.8cm] (ts) at (6.95,0.95) {PitonToolServer:\\read-only log tools};
@@ -212,7 +212,7 @@ CHIA and Ray place each checkout's calls on its own worker.}
 \label{fig:arch}
 \end{figure}
 
-\textbf{Results.} The adapter's 228 tests that need no OpenPiton checkout all pass, and so do
+\textbf{Results:} The adapter's 228 tests that need no OpenPiton checkout all pass, and so do
 acceptance tests with full Verilator builds, including two checkouts building in parallel: 176s
 versus 324s serial. One acceptance test, 2x2 Ariane on a GCP worker, remains blocked by unreliable
 dispatch to that worker (Section~\ref{sec:limits}).
@@ -220,7 +220,7 @@ dispatch to that worker (Section~\ref{sec:limits}).
 \section{Phase 2: The \sys{} Loop}
 \label{sec:phase2}
 
-\textbf{Pipeline.} Figure~\ref{fig:pipeline} shows the loop. A planning agent turns a
+\textbf{Pipeline:} Figure~\ref{fig:pipeline} shows the loop. A planning agent turns a
 \code{MaceSpec} (core, target mesh, gate workloads, objective, budget) into a task DAG, and workers
 dispatch ready tasks in parallel through Ray, each pinned to its own checkout
 (Figure~\ref{fig:arch}). A deterministic
@@ -228,16 +228,16 @@ integrator runs the tasks in dependency order: each builds its own configuration
 cache or RTL-define overrides the planner gave it, and runs the first gate workload, whose
 \emph{verdict}, parsed from simulator output, must read \code{pass}. On
 a failure, a failure-analysis agent with read-only tools (log grep, file collection, a fixture
-diff, and an \code{objdump} symbol check) diagnoses the transcript, and the planner replans around
+diff, and an \code{objdump} symbol check) diagnoses the transcript, and the planner re-plans around
 its proposed fix.
 
-\textbf{Gate workloads surface a memory-visibility bug.} Writing the gate workloads
+\textbf{Gate workloads surface a memory-visibility bug:} Writing the gate workloads
 (barrier-and-atomic-counter, producer/consumer, hart-id scatter/gather) showed that a plain
 \code{volatile} read of a shared value was not reliably visible from the same hart shortly after the
 write, while an atomic fetch-and-add-zero read always was. Every gate workload now reads shared values through this
 \code{atomic\_read()} helper.
 
-\textbf{Resource enforcement.} \sys{} checks all three \code{Budget} dimensions (iterations, USD,
+\textbf{Resource enforcement:} \sys{} checks all three \code{Budget} dimensions (iterations, USD,
 wall-clock) before each iteration starts. The USD check reads zero on Vertex, because CHIA's Vertex
 backend reports no price (Section~\ref{sec:cost}). \sys{} verifies the checksums of its C gate
 programs before any LLM call or checkout access.
@@ -303,7 +303,7 @@ timed out with no tile finished. The two prompts differ: the planner's lists the
 and requires positive values, and the planner falls back to the defaults on a malformed cache line.
 The one-shot prompt has neither.
 
-\textbf{Mesh scaling to 2x2 and 4x4.} Manual scaling (a) first stalled at 2x2 and never reached 4x4,
+\textbf{Mesh scaling to 2x2 and 4x4:} Manual scaling (a) first stalled at 2x2 and never reached 4x4,
 for two reasons. Under Verilator~5, a known scheduling bug~\cite{verilator5829} makes CVA6's L1.5
 adapter drop cache invalidations (\mk{1} in Figure~\ref{fig:tile}), so the plain-load exit barrier in \code{syscalls.c} never sees other
 tiles' updates; OpenPiton pins a CVA6 that predates the upstream workaround~\cite{cva6pr2809}.
@@ -316,12 +316,12 @@ and verified both meshes, every tile confirmed, with no changes to its planning 
 planner chose to verify, and 4x4 in 250.9s on a cached build. On pico it passes in a single task at
 both sizes, the 4x4 run also on a cached build.
 
-\textbf{Recovery.} No run above needed a replan, so we broke the loop's first plan and let it
+\textbf{Recovery:} No run above needed a re-plan, so we broke the loop's first plan and let it
 continue, at 2x2 with at most three iterations. Adding \code{PITON\_FPGA\_SYNTH}, an FPGA-synthesis
 define, fails the ariane build, and removing \code{CONFIG\_DISABLE\_BIST\_CLEAR} times out the pico
 simulation. With the Table~\ref{tab:eval} objectives, the loop recovered in 4 of 6 ariane runs and 5
-of 6 pico runs, each in its first replan. One run ended at \code{planning\_failed}, and two crashed on
-an LLM reply cut off at its output limit, which the loop now survives. A replan starts from the
+of 6 pico runs, each in its first re-plan. One run ended at \code{planning\_failed}, and two crashed on
+an LLM reply cut off at its output limit, which the loop now survives. A re-plan starts from the
 objective and the triage feedback and never sees the broken plan, so these runs exercise the cycle
 more than the diagnosis: triage named the seeded define in 2 of its 8 diagnoses of the build failure
 and never named the BIST define. With a pico objective that names no define, the loop recovered in none of 3 runs, as
