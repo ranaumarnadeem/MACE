@@ -81,5 +81,5 @@ Keep `<tool>__<function>` within 64 characters for any tool you add.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Diags fail with `string.h: No such file` | A distribution `riscv64-unknown-elf-gcc` without newlib comes first on `PATH` | Set `RISCV` to your toolchain's install directory. |
-| Boot ROM C23 error on a fresh checkout or worker, while an older checkout builds | The older checkout is unpatched, and a stale `main.o`, which the boot ROM `clean` target keeps, hides the error there | Run `scripts/patch_openpiton.sh` (fix 2) on every checkout. |
+| Boot ROM build error at the `init_uart` call in `src/main.c` | GCC 15 and later compile C as C23, where `void init_uart();` takes no arguments, and the checkout lacks fix 2 | Run `scripts/patch_openpiton.sh` on every checkout. |
 | `/usr/bin/env: 'python3\r'`, or `dtc` fails on a path string | Checkout on a Windows-mounted drive | Clone on native Linux storage; fixes 3 and 4 repair an existing checkout. |

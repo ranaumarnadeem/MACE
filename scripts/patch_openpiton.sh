@@ -35,11 +35,8 @@ fi
 # 2. GCC 15+ defaults to C23, where "void init_uart();" declares a function
 #    taking NO arguments rather than an unspecified list -- so the boot ROM's
 #    own two-argument call became a hard error. Pin the dialect it was written
-#    for instead of editing the sources.
-#
-#    This one hides: the bootrom's `clean` target removes only the image and
-#    the DTB, never the .o files, so a stale main.o masks the failure until
-#    something invalidates it (a fresh checkout, a new worker, the image).
+#    for instead of editing the sources. sims runs `make clean` in this
+#    directory before every build, so the flag applies to the next build.
 if ! grep -q -- "-std=gnu17" <(grep "^CFLAGS" "$BOOTROM_MK"); then
     sed -i 's/^\(CFLAGS = .*\)$/\1 -std=gnu17/' "$BOOTROM_MK"
     echo "patched: -std=gnu17 pinned for the bootrom (GCC 15+ defaults to C23)"

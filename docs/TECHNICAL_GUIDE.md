@@ -294,11 +294,9 @@ safe to re-run on any checkout):
 1. **binutils 2.38+** split `zicsr`/`zifencei` out of base RV64I — the 2019-era
    boot ROM assembly no longer assembles without spelling them out explicitly.
 2. **GCC 15+ defaults to C23**, under which `void init_uart();` means the
-   function takes *zero* arguments — breaking the boot ROM's actual
-   two-argument call to it. This one **hides**: the boot ROM's own `clean`
-   target never removes stale `.o` files, so a fixed source tree can still
-   fail until something invalidates the object cache. If you ever see this
-   error after supposedly patching a checkout, check for a stale `.o` first.
+   function takes *zero* arguments, which breaks the boot ROM's
+   two-argument call to it. `sims` runs `make clean` for this boot ROM
+   before every build, so the fix applies to the next build.
 3. **Broken git symlinks on a Windows-mounted checkout.** `core.symlinks`
    defaults to `false` there, so git-tracked symlinks (a device-tree source,
    a couple of vendored libs) materialize as plain text files *containing
