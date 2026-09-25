@@ -13,7 +13,7 @@ The table gives each approach's Verilator verdict and end-to-end wall time. [Met
 
 \* Invalid configuration (L1.5 size 0), rejected before any build.
 
-The logs and run database behind the table are attached to the repository's [0.0.1 pre-release](https://github.com/ranaumarnadeem/MACE/releases/tag/v0.0.1).
+The logs and run databases behind this page are attached to the repository's [0.0.1 pre-release](https://github.com/ranaumarnadeem/MACE/releases/tag/v0.0.1).
 
 ## One-shot baseline
 
@@ -42,4 +42,16 @@ A 2x2 Ariane run of `barrier_atomic.c`, on a build instrumented for line coverag
 
 ## Recovery
 
-A stub that fails once and then passes exercises the detect, diagnose, and replan cycle; none of the passing runs above needed it. In live runs the cycle failed once, on a PicoRV32 4x4 build cached before patch fix 10. The build ID covers only the configuration, so all three iterations reused the stale build, and triage never identified it. A clean rebuild passed.
+No run in the table needed a replan. The seeded-failure runs (see [Baselines](../01_mace_user/Baselines.md)) break the loop's first plan and leave later plans alone. Each run builds a 2x2 mesh and has at most three iterations:
+
+| Core | Objective | Change to the first plan | Runs | Recovered |
+|---|---|---|---|---|
+| Ariane | The table's | Adds `PITON_FPGA_SYNTH`, so the build fails with `%Error-PINNOTFOUND` | 6 | 4 |
+| PicoRV32 | The table's, which names `CONFIG_DISABLE_BIST_CLEAR` | Removes that define, so the simulation times out | 6 | 5 |
+| PicoRV32 | The default, which names no define | Adds `PITON_FPGA_SYNTH` | 3 | 0 |
+
+Each recovered run passed in its first replan, in 90 to 404 s of loop time for Ariane and 96 to 251 s for PicoRV32. Of the other runs, one Ariane run ended with `planning_failed` when the planner's first reply held no usable task graph. One Ariane run and one PicoRV32 run crashed when a task prompt's reply was cut off at the model's output limit; the loop now logs that failure and builds the task anyway.
+
+A replan starts from the objective and the triage feedback and never sees the broken plan, so these runs exercise the cycle more than the diagnosis. Triage named `PITON_FPGA_SYNTH` in 2 of its 8 diagnoses of the seeded build failure, and the other 6 blamed the RTL behind the missing `async_mux` pin. For the timed-out PicoRV32 simulations, it twice found the core stuck at its reset vector, and it never named `CONFIG_DISABLE_BIST_CLEAR`.
+
+With the default objective, the planner requested no RTL defines, so after the seeded build failure every simulation timed out on the missing `CONFIG_DISABLE_BIST_CLEAR`. The later diagnoses followed the `async_mux` pin, invented defines such as `CONFIG_ASYNC_RESET`, or planned unit tests at a guessed module path. A fourth run stalled on an LLM call while the host slept, and is recorded as `error`.
