@@ -42,8 +42,23 @@ compares it with manual bring-up and a one-shot LLM configuration:
 
 [Results](https://ranaumarnadeem.github.io/MACE/06_mace_evaluation/results.html)
 explains each run. OpenSPARC T1 builds but does not run under the Verilator 5
-used here. The logs and run database behind the table are attached to the
+used here.
+
+### Run records
+
+The logs and SQLite run databases behind every result, including the table
+above, the seeded-failure runs on the Results page, and the coverage run, are in
+[`mace-0.0.1-runs.zip`](https://github.com/ranaumarnadeem/MACE/releases/download/v0.0.1/mace-0.0.1-runs.zip),
+attached to the
 [0.0.1 pre-release](https://github.com/ranaumarnadeem/MACE/releases/tag/v0.0.1).
+Its `runs/RUNS.md` names the log and run ID behind each result. Unzip it in the
+repository root, then list the recorded runs, or show one run's plan, builds,
+and failure analysis:
+
+```bash
+mace results --db-path runs/mace_end_to_end.db
+mace results --db-path runs/mace_end_to_end.db --run-id fd0c370667aa --trace
+```
 
 ## Install
 
