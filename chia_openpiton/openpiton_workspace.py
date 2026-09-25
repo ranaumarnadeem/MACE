@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import glob as _glob
+import hashlib
 import logging
 import os
 import shlex
@@ -96,8 +97,35 @@ def _find_model_binary(model_dir: str, sys: str) -> str:
 # Written after a successful build, alongside the binary. Presence of the
 # binary alone isn't proof of a good build: a worker killed mid-link can leave
 # a truncated file. The marker is only written after `build()` has already
-# confirmed success, so its presence is the actual signal to trust.
+# confirmed success, so its presence is the signal to trust. It holds
+# the config key and the checkout's source fingerprint, and build() reuses the
+# model only when both still match.
 BUILD_OK_MARKER = ".mace_build_ok"
+
+# The submodule whose RTL a Verilator build compiles. The checkout's other
+# initialized submodule, piton/design/aws, holds FPGA shells that simulation
+# never reads, and its `git diff` on a Linux checkout runs to hundreds of
+# megabytes, so the source fingerprint leaves it out.
+_BUILD_SUBMODULES = ("piton/design/chip/tile/ariane",)
+
+# The fingerprint hashes an untracked file up to this size by content, and a
+# larger one by size and modification time, so a stray waveform or archive in
+# the checkout does not slow every build() call.
+_HASH_CONTENT_LIMIT = 1 << 20
+
+
+def _file_digest(path: str) -> bytes:
+    """Digest of one untracked file for the source fingerprint."""
+    try:
+        if os.path.islink(path):
+            return b"link:" + os.readlink(path).encode()
+        st = os.stat(path)
+        if st.st_size > _HASH_CONTENT_LIMIT:
+            return f"size={st.st_size} mtime={st.st_mtime_ns}".encode()
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).digest()
+    except OSError:
+        return b"unreadable"
 
 
 def _require_root(piton_root: object, check_exists: bool = True) -> str:
@@ -541,14 +569,13 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         binary produces a build that fails on a flag mismatch.
 
         Memoized per ``(root, core)``: this doesn't change within one
-        process's lifetime, but :meth:`build` re-derives it on every
-        non-cache-hit build whenever the config wasn't produced by
-        :meth:`configure` (the only path that populates
-        ``PitonConfig.verilator_version`` -- the real mace loop never calls
-        it) -- not worth a fresh subprocess spawn (a full ``bash -lc``
-        environment-sourcing shell) every time. Only a successful lookup is
-        cached; a failure is retried on the next call, matching this
-        function's own best-effort, never-raises posture.
+        process's lifetime, but :meth:`build` re-derives it on every call
+        whenever the config wasn't produced by :meth:`configure` (the only
+        path that populates ``PitonConfig.verilator_version`` -- mace's
+        loop never calls it) -- not worth a fresh subprocess spawn (a
+        full ``bash -lc`` environment-sourcing shell) every time. Only a
+        successful lookup is cached; a failure is retried on the next call,
+        matching this function's own best-effort, never-raises posture.
         """
         key = (root, core)
         cached = _VERILATOR_VERSION_CACHE.get(key)
@@ -561,6 +588,59 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         if rc == 0:
             _VERILATOR_VERSION_CACHE[key] = text
         return text
+
+    @staticmethod
+    def source_fingerprint(root: str, version_text: str, timeout_seconds: int = 60) -> str:
+        """Hash of the checkout state that a build compiles.
+
+        Covers the commit, the uncommitted edits to tracked files, and the
+        untracked files of the checkout and of the Ariane submodule, plus
+        *version_text*, the Verilator version. Files that OpenPiton's
+        ``.gitignore`` lists, such as pyHP's generated ``.tmp.v`` files and
+        everything under ``build/``, are left out, so a build does not change
+        the fingerprint of the checkout it ran in. :meth:`build` writes the
+        fingerprint into the build marker and reuses a model only while it
+        matches.
+
+        Edits inside the Ariane submodule's own submodules show up only when
+        they move a submodule commit or flip its ``-dirty`` flag. Outside a
+        git checkout the fingerprint covers the Verilator version alone.
+        """
+        repos = [(".", root)] + [
+            (rel, os.path.join(root, rel))
+            for rel in _BUILD_SUBMODULES
+            if os.path.exists(os.path.join(root, rel, ".git"))
+        ]
+        # --submodule=short keeps a diff.submodule=diff user setting from
+        # pulling the aws submodule's diff into the superproject's.
+        queries = [
+            (rel, path, args)
+            for rel, path in repos
+            for args in (
+                ["rev-parse", "HEAD"],
+                ["diff", "HEAD", "--submodule=short"],
+                ["ls-files", "--others", "--exclude-standard", "-z"],
+            )
+        ]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(queries)) as pool:
+            outputs = list(
+                pool.map(lambda q: OpenPitonWorkspaceNode._git(q[1], q[2], timeout_seconds), queries)
+            )
+
+        digest = hashlib.sha256()
+
+        def add(label: str, data: bytes) -> None:
+            digest.update(f"{label}\0{len(data)}\0".encode())
+            digest.update(data)
+
+        add("verilator", version_text.strip().encode())
+        for (rel, path, args), out in zip(queries, outputs):
+            if args[0] != "ls-files":
+                add(f"{rel}:{args[0]}", out.encode())
+                continue
+            for name in sorted(n for n in out.split("\0") if n):
+                add(f"{rel}:untracked:{name}", _file_digest(os.path.join(path, name)))
+        return digest.hexdigest()
 
     # -- build -----------------------------------------------------------------
 
@@ -578,14 +658,15 @@ class OpenPitonWorkspaceNode(ColocatedNode):
 
         Every configuration gets its own ``-build_id`` (from
         :attr:`PitonConfig.build_id`), because sims otherwise writes every model
-        to ``rel-0.1`` and two configurations silently overwrite each other. That
-        same key means a config identical in everything that affects the model
-        (mesh, core, RTL defines, caches, extra flags, source revisions,
-        Verilator version) reliably produces the same binary -- so unless
-        ``clean=True``, a build whose marker (written only after a prior success)
-        already exists is served from disk instead of re-invoking ``sims``. This
-        is what makes "agent iterations that only change the test being run
-        never rebuild" true without needing CHIA's cache machinery.
+        to ``rel-0.1`` and two configurations silently overwrite each other.
+        Unless ``clean=True``, a build whose marker (written only after a prior
+        success) still matches both the config key and the checkout's
+        :meth:`source_fingerprint` is served from disk instead of re-invoking
+        ``sims``. This is what makes "agent iterations that only change the
+        test being run never rebuild" true without needing CHIA's cache
+        machinery. When the checkout or Verilator changed since that build, the
+        model is removed and rebuilt, because the build ID covers the
+        configuration and a patch or RTL edit leaves it unchanged.
 
         ``--no-timing`` is added for Verilator 5 only, decided from the version
         reported inside OpenPiton's own environment: v5 refuses OpenPiton's bare
@@ -601,10 +682,11 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 a directly constructed one builds the checkout as it stands.
             sim_type: Simulator selector; ``"vlt"`` (Verilator) is the only
                 license-free option.
-            clean: Force a rebuild even if this build_id already succeeded.
-                Also removes this build_id's ``obj_dir`` first -- sims' own
-                ``-clean`` only removes VCS leftovers and never touches
-                Verilator output, so this is done here.
+            clean: Force a rebuild even if this build_id already succeeded
+                on the current checkout. Also removes this build_id's
+                ``obj_dir`` first -- sims' own ``-clean`` only removes VCS
+                leftovers and never touches Verilator output, so this is done
+                here.
             extra_build_args: Extra ``-<sim>_build_args=`` values.
             timeout_seconds: Wall-clock limit; ``returncode=-1`` on expiry.
 
@@ -645,7 +727,9 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         # only, and it builds the checkout as it stands. Rechecking it anyway
         # compared the checkout to an empty diff, which refused every build on
         # a checkout with uncommitted edits under manycore -- including
-        # scripts/patch_openpiton.sh's own fixes 7 and 10.
+        # scripts/patch_openpiton.sh's own fixes 7 and 10. The source
+        # fingerprint in the build marker, checked below, is what stops such
+        # a config from reusing a model built before a later edit.
         if config.source_rev or config.diff:
             current_diff = OpenPitonWorkspaceNode._git(
                 root, ["diff", "--", "piton/verif/env/manycore"], timeout_seconds
@@ -664,23 +748,42 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         model_dir = os.path.join(root, "build", config.sys, config.build_id)
         binary = _find_model_binary(model_dir, config.sys)
         marker = os.path.join(model_dir, BUILD_OK_MARKER)
+        version_text = config.verilator_version or OpenPitonWorkspaceNode.verilator_version_text(
+            root, config.core
+        )
+        stamp = f"{config.key}\n{OpenPitonWorkspaceNode.source_fingerprint(root, version_text)}\n"
 
+        stale = False
         if not clean and os.path.exists(marker) and binary:
-            logger.info("reusing prior build at %s (build_id=%s)", model_dir, config.build_id)
-            return PitonBuildArtifact(
-                success=True,
-                returncode=0,
-                config=config,
-                sim_type=sim_type,
-                model_dir=model_dir,
-                binary_path=binary,
-                wall_time_s=0.0,
-                verilator_version=config.verilator_version,
-                cache_key=config.key,
-                reused=True,
+            try:
+                with open(marker) as f:
+                    recorded = f.read()
+            except OSError:
+                recorded = ""
+            if recorded == stamp:
+                logger.info("reusing prior build at %s (build_id=%s)", model_dir, config.build_id)
+                return PitonBuildArtifact(
+                    success=True,
+                    returncode=0,
+                    config=config,
+                    sim_type=sim_type,
+                    model_dir=model_dir,
+                    binary_path=binary,
+                    wall_time_s=0.0,
+                    verilator_version=version_text.strip(),
+                    cache_key=config.key,
+                    reused=True,
+                )
+            # A marker from before the fingerprint existed holds the key
+            # alone, so it never matches and its model is rebuilt once.
+            stale = True
+            logger.info(
+                "rebuilding %s (build_id=%s): the checkout or Verilator changed since it was built",
+                model_dir,
+                config.build_id,
             )
 
-        if clean:
+        if clean or stale:
             obj_dir = os.path.join(model_dir, "obj_dir")
             if os.path.isdir(obj_dir):
                 import shutil
@@ -693,9 +796,6 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 pass
 
         build_args = list(extra_build_args)
-        version_text = config.verilator_version or OpenPitonWorkspaceNode.verilator_version_text(
-            root, config.core
-        )
         if sim_type == "vlt" and parse.needs_no_timing(version_text):
             if not any("timing" in a for a in build_args):
                 build_args.append("--no-timing")
@@ -722,9 +822,11 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         if success:
             # Written last, and only on a confirmed-good build: its presence
             # is what a later call trusts to skip rebuilding, so it must never
-            # exist next to a truncated or failed binary.
+            # exist next to a truncated or failed binary. The fingerprint is
+            # the one taken before sims ran, so an edit made during the build
+            # makes the next call rebuild.
             with open(marker, "w") as f:
-                f.write(config.key)
+                f.write(stamp)
 
         return PitonBuildArtifact(
             success=success,

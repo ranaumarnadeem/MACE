@@ -350,16 +350,12 @@ class TestBuildResult:
 
         killed_pids = []
         real_communicate = subprocess_module.Popen.communicate
-        calls = {"n": 0}
 
         def fake_communicate(self, *a, **kw):
-            calls["n"] += 1
-            # build()'s own address-map staleness recheck (see
-            # TestBuildDetectsStaleAddressMap) now runs a `git diff`
-            # subprocess unconditionally before ever reaching the real
-            # sims build -- that's call 1; the real build is call 2, the
-            # one this test means to interrupt.
-            if calls["n"] == 2:
+            # build() runs git queries (the address-map recheck and the
+            # source fingerprint) before sims; only the sims call is the one
+            # this test means to interrupt.
+            if "sims " in str(self.args):
                 raise KeyboardInterrupt()
             return real_communicate(self, *a, **kw)
 
@@ -435,6 +431,147 @@ class TestBuildReuse:
         assert len(sims_argv) == 2  # the failed attempt must not be "reused"
         assert second.success is True
         assert second.reused is False
+
+
+class TestBuildReuseChecksTheCheckout:
+    """The build ID covers the configuration, so a patch, an RTL edit, or a
+    new commit leaves it unchanged. The source fingerprint in the build
+    marker is what makes such a change rebuild the model instead of serving
+    the one built before it. The config here is constructed directly, as
+    mace's loop builds every task's, so build() does no address-map recheck.
+    """
+
+    @pytest.fixture
+    def loop_cfg(self):
+        return PitonConfig(core="sparc", verilator_version="Verilator 4.014 2019-01-01")
+
+    @pytest.fixture
+    def checkout(self, monkeypatch):
+        """The git state build() sees, editable between builds."""
+        state = {"head": "c0ffee", "diff": "", "untracked": ""}
+
+        def fake_git(root, args, timeout_seconds=60):
+            return {"rev-parse": state["head"], "diff": state["diff"], "ls-files": state["untracked"]}.get(
+                args[0], ""
+            )
+
+        monkeypatch.setattr(OpenPitonWorkspaceNode, "_git", fake_git)
+        return state
+
+    def test_an_unchanged_checkout_reuses_the_build(self, node, loop_cfg, checkout, sims_argv):
+        node.build(loop_cfg)
+        second = node.build(loop_cfg)
+        assert len(sims_argv) == 1
+        assert second.reused is True
+
+    def test_a_tracked_edit_rebuilds(self, node, loop_cfg, checkout, sims_argv):
+        node.build(loop_cfg)
+        checkout["diff"] = "+ patch_openpiton.sh fix 10"
+        second = node.build(loop_cfg)
+        assert len(sims_argv) == 2
+        assert second.reused is False
+        assert second.success is True
+        assert node.build(loop_cfg).reused is True  # the rebuilt model is cached again
+
+    def test_a_new_commit_rebuilds(self, node, loop_cfg, checkout, sims_argv):
+        node.build(loop_cfg)
+        checkout["head"] = "decade"
+        assert node.build(loop_cfg).reused is False
+        assert len(sims_argv) == 2
+
+    def test_an_edit_to_an_untracked_file_rebuilds(self, node, loop_cfg, checkout, sims_argv, stub_piton_root):
+        added = stub_piton_root / "piton" / "unit_top.cpp"
+        added.write_text("int main() { return 0; }\n")
+        checkout["untracked"] = "piton/unit_top.cpp\0"
+        node.build(loop_cfg)
+        added.write_text("int main() { return 1; }\n")
+        assert node.build(loop_cfg).reused is False
+        assert len(sims_argv) == 2
+
+    def test_a_different_verilator_rebuilds(self, node, checkout, sims_argv, monkeypatch):
+        cfg = PitonConfig(core="sparc")  # no recorded version, as in the loop
+        version = {"text": "Verilator 5.020 2024-01-01"}
+        monkeypatch.setattr(
+            OpenPitonWorkspaceNode,
+            "verilator_version_text",
+            staticmethod(lambda root, core="ariane", timeout_seconds=120: version["text"]),
+        )
+        node.build(cfg)
+        version["text"] = "Verilator 5.052 2025-11-01"
+        assert node.build(cfg).reused is False
+        assert len(sims_argv) == 2
+
+    def test_a_marker_without_a_fingerprint_rebuilds_once(self, node, loop_cfg, checkout, sims_argv):
+        """Markers written before the fingerprint existed hold the key alone."""
+        first = node.build(loop_cfg)
+        with open(os.path.join(first.model_dir, ".mace_build_ok"), "w") as f:
+            f.write(loop_cfg.key)
+        assert node.build(loop_cfg).reused is False
+        assert node.build(loop_cfg).reused is True
+        assert len(sims_argv) == 2
+
+    def test_a_stale_model_is_removed_before_the_rebuild(self, node, loop_cfg, checkout, monkeypatch):
+        """If the rebuild fails, the old binary must not look like its output."""
+        node.build(loop_cfg)
+        checkout["diff"] = "+ an RTL edit that breaks the build"
+        monkeypatch.setenv("FAKE_SIMS_FAIL_BUILD", "1")
+        failed = node.build(loop_cfg)
+        assert failed.success is False
+        assert failed.binary_path == ""
+        assert not os.path.exists(os.path.join(failed.model_dir, "obj_dir"))
+
+
+class TestSourceFingerprintOnAGitCheckout:
+    """source_fingerprint against a git repository, with no stubbed git."""
+
+    @pytest.fixture
+    def repo(self, stub_piton_root):
+        import shutil
+        import subprocess
+
+        if shutil.which("git") is None:
+            pytest.skip("git is not installed")
+
+        def git(*args):
+            subprocess.run(["git", *args], cwd=stub_piton_root, check=True, capture_output=True)
+
+        (stub_piton_root / ".gitignore").write_text("build/\n*.tmp.v\n")
+        git("init", "-q")
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "stub")
+        return stub_piton_root
+
+    def fingerprint(self, root):
+        return OpenPitonWorkspaceNode.source_fingerprint(str(root), "Verilator 5.020 2024-01-01")
+
+    def test_ignored_build_outputs_leave_it_unchanged(self, repo):
+        before = self.fingerprint(repo)
+        (repo / "piton" / "pc_cmp.tmp.v").write_text("// generated\n")
+        (repo / "build" / "model.log").write_text("built\n")
+        assert self.fingerprint(repo) == before
+
+    def test_a_tracked_edit_changes_it(self, repo):
+        before = self.fingerprint(repo)
+        settings = repo / "piton" / "piton_settings.bash"
+        settings.write_text(settings.read_text() + "# edited\n")
+        assert self.fingerprint(repo) != before
+
+    def test_a_new_untracked_file_changes_it(self, repo):
+        before = self.fingerprint(repo)
+        (repo / "piton" / "new_top.v").write_text("module new_top; endmodule\n")
+        assert self.fingerprint(repo) != before
+
+    def test_the_verilator_version_changes_it(self, repo):
+        other = OpenPitonWorkspaceNode.source_fingerprint(str(repo), "Verilator 5.052 2025-11-01")
+        assert other != self.fingerprint(repo)
+
+    def test_a_build_does_not_change_its_own_checkout(self, repo, sims_argv):
+        """The stub sims writes a .tmp.v into the source tree, as pyHP does."""
+        node = OpenPitonWorkspaceNode(str(repo), require_colocated=False)
+        cfg = PitonConfig(core="sparc", verilator_version="Verilator 4.014 2019-01-01")
+        node.build(cfg)
+        assert node.build(cfg).reused is True
+        assert len(sims_argv) == 1
 
 
 class TestBuildDetectsStaleAddressMap:

@@ -170,9 +170,10 @@ class PitonToolServer(AsyncJobTool):
         ``{name}_config_set`` first to change the mesh, core, or RTL defines.
 
         Calling this again for a configuration that already built successfully
-        is cheap: it is served from disk instead of re-invoking the toolchain
-        (``job_status``'s ``reused`` field says whether that happened). Pass
-        ``clean=True`` to force a real rebuild.
+        is cheap while the checkout's files are unchanged: it is served from
+        disk instead of re-invoking the toolchain (``job_status``'s ``reused``
+        field says whether that happened). An edit to the checkout makes it
+        rebuild. Pass ``clean=True`` to force a rebuild.
 
         Args:
             clean: Force a rebuild even if this configuration already built

@@ -78,6 +78,9 @@ class PitonConfig:
     edits ``configure`` wrote into the checkout. Two configs with the same key
     produce the same model, so a build may be served from cache; any difference
     yields a different ``build_id`` and therefore a separate model directory.
+    A directly constructed config leaves the checkout fields empty, so its key
+    misses file edits; ``OpenPitonWorkspaceNode.build`` also checks the
+    checkout's source fingerprint before it serves a cached model.
     """
 
     # sims -sys=<name>: which testbench configuration to build/run. "manycore"
