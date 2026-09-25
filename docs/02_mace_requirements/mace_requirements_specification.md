@@ -59,6 +59,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EXEC-8:** For a `unit_test` task, MACE shall scaffold an OpenPiton unit-test environment for the RTL module the task names, give the agent the module's port list, and ask it to reconcile the scaffolded testbench with the module.
 - **REQ-EXEC-9:** When Ray is initialized, MACE shall give the agent of a `unit_test` task an edit tool limited to reading and rewriting that task's testbench file and reading the target module's source.
 - **REQ-EXEC-10:** MACE shall report to an optional caller-supplied callback each `config` and `workload` task's entry into the prompting, building, and running stages, and the start of each `unit_test` task as building.
+- **REQ-EXEC-11:** MACE shall build and run a `config` or `workload` task when its prompt call fails, and log the failure.
 
 ### Integration and Verification
 

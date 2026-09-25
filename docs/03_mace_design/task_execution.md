@@ -29,6 +29,7 @@ Within a batch, each `config` or `workload` task runs on its own thread as three
 - `node.run.chia_remote()` with the first gate workload, if the build succeeded.
 
 Each call carries a replay tag (see [Budgets and Replay](budget_and_replay.md)).
+The prompt's reply changes nothing that is built or run, so when that call fails, for example with a reply cut off at the model's output limit, the task logs a warning and still builds and runs.
 Tasks in a batch advance through these stages independently.
 The optional `on_task_progress(task_ids, stage)` callback reports `prompting`, `building`, and `running`.
 

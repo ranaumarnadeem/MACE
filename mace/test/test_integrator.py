@@ -422,6 +422,29 @@ class TestRunBatchRemotePipelining:
         # should be close to one delay, both tasks' pipelines overlapping.
         assert elapsed < delay * 1.75
 
+    def test_a_failed_task_prompt_still_builds_and_runs_the_task(self, monkeypatch):
+        """The reply is unused for the build, so an LLM error there, such as
+        a reply cut off at the output limit, must not end the run."""
+
+        class _FailingPromptAttr:
+            def chia_remote(self, llm, spec, tools, _chia_tag=None):
+                return _FakeRef(None)
+
+        def get_or_raise(ref):
+            if ref.value is None:
+                raise RuntimeError("response truncated at max_output_tokens")
+            return ref.value
+
+        monkeypatch.setattr("mace.integrator.get", get_or_raise)
+        llm = type("FakeLLM", (), {"prompt": _FailingPromptAttr()})()
+        task = Task(id="a", deps=(), kind="workload", spec="spec_a")
+
+        [result] = _run_batch([_FakeRemoteNode("/root_a")], make_spec(), [task], llm, (), str(WORKLOADS_DIR), None, 0)
+
+        assert result.passed is True
+        assert result.query.success is False
+        assert "max_output_tokens" in result.query.stderr
+
     def test_progress_callback_reports_each_task_independently(self, monkeypatch):
         monkeypatch.setattr("mace.integrator.get", _fake_get)
 
