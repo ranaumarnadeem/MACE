@@ -12,7 +12,7 @@ The authors set them while building MACE with Claude Code; `plan.md` in this dir
 |---|---|
 | `chia_openpiton/` | CHIA adapter for OpenPiton: configure, build, run, collect |
 | `mace/` | The loop (planner, integrator, triage, metrics, replay) and the `mace` CLI |
-| `examples/` | The end-to-end driver and the baselines |
+| `examples/` | The end-to-end driver, the baselines, and the seeded-failure runs |
 | `scripts/` | `patch_openpiton.sh` and standalone build and run scripts |
 | `docs/` | Sphinx site, published to GitHub Pages |
 | `paper/` | The 4-page paper |

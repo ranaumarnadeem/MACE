@@ -97,3 +97,21 @@ It passes only `--piton-root`, so both scripts use their default core and worklo
 (c) builds its default 1x1 mesh, and (b)'s default objective asks for one.
 Always pass the checkout path, because the built-in default is a path on the authors' machine.
 For 2x2 and 4x4 comparisons, run the two scripts directly with matching flags.
+
+## Seeded-failure runs
+
+No run in [Results](../06_mace_evaluation/results.md) needed a replan.
+`examples/recovery_seeded.py` breaks the loop's first plan, so the detect, diagnose, and replan cycle runs against Verilator builds and simulations:
+
+```bash
+export GOOGLE_CLOUD_PROJECT=<your-gcp-project> MAKEFLAGS=-j1
+python examples/recovery_seeded.py --piton-root ~/openpiton --core ariane --mesh 2x2 \
+    --workload barrier_atomic.c --fault build --runs 3
+```
+
+- `--fault build` adds `PITON_FPGA_SYNTH`, a define for FPGA synthesis, to every config and workload task in the first plan. The Verilator build then fails with `%Error-PINNOTFOUND`.
+- `--fault sim` removes `CONFIG_DISABLE_BIST_CLEAR` from the first plan. It needs `--core pico`, whose simulation then fails.
+
+Later plans are left alone.
+The script replaces `mace.orchestrator.plan` for each run, prints each iteration's results and diagnoses, and records the runs in `runs/recovery_seeded.db`.
+`--objective` sets the objective. Pass the one from the run being compared: the PicoRV32 runs in Results named `CONFIG_DISABLE_BIST_CLEAR` in theirs.

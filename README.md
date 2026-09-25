@@ -114,7 +114,7 @@ cover the flags, the shell commands, and the comparison runs.
 |---|---|
 | `chia_openpiton/` | CHIA adapter for OpenPiton, with its own [README](chia_openpiton/README.md) |
 | `mace/` | The loop and the `mace` command |
-| `examples/` | End-to-end driver and baselines |
+| `examples/` | End-to-end driver, baselines, and seeded-failure runs |
 | `scripts/` | OpenPiton patch script and standalone build and run scripts |
 | `docs/` | Source of the documentation site |
 | `paper/` | The 4-page paper and its figures |
