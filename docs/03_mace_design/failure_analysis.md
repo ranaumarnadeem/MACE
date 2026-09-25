@@ -8,8 +8,8 @@ Other failed tasks in that level get a row in the `tasks` table and no triage.
 ## Triage
 
 `triage(result, llm, tools=())` makes one LLM call.
-The prompt gives the task's id, kind, and instruction, the build outcome, and the run verdict.
-A failed build adds the failure reason and the last 1500 characters of stderr.
+The prompt gives the task's id, kind, and instruction, the build outcome, the run verdict, and the build's `sims` flags, which name its RTL defines and cache sizes.
+A failed build adds the failure reason, its error lines (see [PitonBuildArtifact](../04_chia_openpiton/workspace_node.md)), and the last 1500 characters of its stderr, or of its stdout when stderr is empty, as `sims` leaves it.
 A failed run adds the last 1500 characters of the simulation log and up to 8000 characters of the status log.
 The prompt asks for two directive lines:
 
@@ -22,7 +22,7 @@ FIX: <a short, concrete instruction for what to try next>
 `KNOWN_DIAGNOSES` lists the six labels, but any label is recorded.
 Without a `DIAGNOSIS:` line, triage raises `TriageError`, and the orchestrator records `unknown` with the fix `retry with more context`.
 
-A failed `unit_test` build whose stderr contains `%Error-PINNOTFOUND` skips the LLM call and gets `testbench_mismatch`, with a fix aimed at the testbench's port connections rather than the module.
+A failed `unit_test` build whose output contains `%Error-PINNOTFOUND` skips the LLM call and gets `testbench_mismatch`, with a fix aimed at the testbench's port connections rather than the module.
 
 ## Diagnostic Tools
 

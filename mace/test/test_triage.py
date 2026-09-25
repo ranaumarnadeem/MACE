@@ -47,6 +47,23 @@ class TestBuildPrompt:
         assert "verilator_bad_option" in prompt
         assert "%Error: bad flag" in prompt
 
+    def test_names_the_build_flags(self):
+        """The defines and cache sizes let triage tie a failure to the plan."""
+        prompt = build_prompt(make_failed_result())
+        assert "-config_rtl=MINIMAL_MONITORING" in prompt
+        assert "-config_l15_size=8192" in prompt
+
+    def test_build_failure_shows_error_lines_and_the_stdout_tail(self):
+        """sims prints Verilator's diagnostics to stdout and leaves stderr empty."""
+        failed = make_failed_result(build_success=False)
+        error = "%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'"
+        failed.build.stderr = ""
+        failed.build.stdout = error + "\n%Warning-WIDTH: x.v:1:1: w\n" * 3
+        failed.build.errors = (error,)
+        prompt = build_prompt(failed)
+        assert f"Build errors:\n{error}" in prompt
+        assert "%Warning-WIDTH" in prompt  # the stdout tail
+
 
 class TestTriage:
     def test_returns_parsed_diagnosis_and_fix(self):
@@ -96,6 +113,13 @@ class TestTestbenchMismatchShortCircuit:
         result = triage(self._pinnotfound_result(), llm)
         assert result.diagnosis == "testbench_mismatch"
         assert "t1" in result.fix
+
+    def test_finds_the_signature_in_stdout(self):
+        """Where sims leaves it: Verilator's output goes to stdout."""
+        result = self._pinnotfound_result()
+        result.build.stdout, result.build.stderr = result.build.stderr, ""
+        diagnosed = triage(result, FakeLLM(responses=[]))
+        assert diagnosed.diagnosis == "testbench_mismatch"
 
     def test_other_build_failures_still_go_through_the_llm(self):
         llm = FakeLLM(responses=["DIAGNOSIS: rtl_suspect\nFIX: investigate\n"])

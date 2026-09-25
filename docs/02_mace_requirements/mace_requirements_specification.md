@@ -81,8 +81,8 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 ### Failure Analysis and Replanning
 
 - **REQ-FAIL-1:** When an iteration contains a failed task, MACE shall diagnose the first failed task with one LLM call that asks for a diagnosis label and a suggested fix.
-- **REQ-FAIL-2:** MACE shall give the diagnosis call the task's id, kind, instruction, build outcome, and verdict, plus the failure reason and stderr tail of a failed build, or the simulation log tail and status log of a failed run.
-- **REQ-FAIL-3:** MACE shall classify a failed `unit_test` build whose stderr contains `%Error-PINNOTFOUND` as `testbench_mismatch`, without an LLM call.
+- **REQ-FAIL-2:** MACE shall give the diagnosis call the task's id, kind, instruction, build flags, build outcome, and verdict, plus the failure reason, error lines, and output tail of a failed build, or the simulation log tail and status log of a failed run.
+- **REQ-FAIL-3:** MACE shall classify a failed `unit_test` build whose output contains `%Error-PINNOTFOUND` as `testbench_mismatch`, without an LLM call.
 - **REQ-FAIL-4:** When a diagnosis response has no diagnosis line, MACE shall record the diagnosis `unknown` with the fix `retry with more context` and continue the run.
 - **REQ-FAIL-5:** When Ray is initialized, MACE shall offer the diagnosis call and the post-mortem call tools that search the failed run's logs, collect text files from its run directory, compare its transcript with a reference transcript, and show the compiled program's symbols beside the run's symbol table.
 - **REQ-FAIL-6:** The diagnostic tools MACE provides shall not write files, start a build, or start a simulation.

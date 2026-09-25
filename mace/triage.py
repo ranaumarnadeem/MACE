@@ -40,10 +40,16 @@ class TriageError(Exception):
 def build_prompt(result: StepResult) -> str:
     build = result.build
     run = result.run
-    context_parts = []
+    # The flags show which RTL defines and cache sizes were built, so a
+    # failure can be traced to the plan's own choices.
+    context_parts = [f"Build flags: {' '.join(build.config.sims_flags())}"]
     if not build.success:
         context_parts.append(f"Build failure reason: {build.failure_reason}")
-        context_parts.append(f"Build stderr (tail):\n{build.stderr[-1500:]}")
+        if build.errors:
+            context_parts.append("Build errors:\n" + "\n".join(build.errors)[:1500])
+        # sims prints Verilator's output to stdout and leaves stderr empty.
+        output = build.stderr or build.stdout
+        context_parts.append(f"Build output (tail):\n{output[-1500:]}")
     elif run is not None:
         context_parts.append(f"Sim log (tail):\n{run.sim_log_tail[-1500:]}")
         context_parts.append(f"Status log:\n{run.status_log}")
@@ -61,8 +67,10 @@ def triage(result: StepResult, llm, tools=()) -> Triage:
     """One LLM call, turned into a validated diagnosis.
 
     Skips that call entirely when the failed task is a ``unit_test`` and the
-    build's own stderr already carries the real, unambiguous signature of a
-    testbench/DUT port mismatch (see mace.agents.is_testbench_port_mismatch)
+    build's output (its error lines, stdout, and stderr; sims prints
+    Verilator's diagnostics to stdout) already carries the unambiguous
+    signature of a testbench/DUT port mismatch (see
+    mace.agents.is_testbench_port_mismatch)
     -- there's nothing for an LLM to diagnose that a mechanical check can't
     already say for certain, and it saves the call. Gated on task kind
     because %Error-PINNOTFOUND is a generic Verilator "port not found"
@@ -79,7 +87,8 @@ def triage(result: StepResult, llm, tools=()) -> Triage:
             mace.planner.plan document.
     """
     build = result.build
-    if result.task.kind == "unit_test" and not build.success and is_testbench_port_mismatch(build.stderr):
+    output = "\n".join((*build.errors, build.stdout, build.stderr))
+    if result.task.kind == "unit_test" and not build.success and is_testbench_port_mismatch(output):
         return Triage(
             diagnosis="testbench_mismatch",
             fix=(

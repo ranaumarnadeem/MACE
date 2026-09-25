@@ -268,10 +268,10 @@ def parse_next_steps(text: str) -> str | None:
 _PINNOTFOUND = re.compile(r"%Error-PINNOTFOUND\b")
 
 
-def is_testbench_port_mismatch(build_stderr: str) -> bool:
-    """Whether a build's stderr shows the real signature of a scaffolded
+def is_testbench_port_mismatch(build_output: str) -> bool:
+    """Whether a build's output shows the signature of a scaffolded
     unit-test testbench naming a DUT port that doesn't exist -- see
     :data:`KNOWN_DIAGNOSES`'s ``testbench_mismatch`` entry for why this is
     kept distinct from an ``rtl_suspect`` diagnosis.
     """
-    return bool(_PINNOTFOUND.search(build_stderr))
+    return bool(_PINNOTFOUND.search(build_output))
