@@ -41,7 +41,7 @@ the CHIA framework. Phase 1 adds \code{chia\_openpiton}, a CHIA adapter for Open
 build, run, and collect operations, with 228 tests that need no OpenPiton checkout. Phase 2 adds the
 MACE loop: a planner breaks a hardware objective into tasks, the tasks run in parallel, and a
 deterministic integrator gates every change on Verilator simulation. A failure-analysis agent
-diagnoses failures, and the planner replans around them.
+diagnoses failures, and the planner re-plans around them.
 
 We tested MACE against two baselines, manual mesh scaling and a one-shot LLM prompt, on 2x2 and 4x4
 meshes, with every result gated by Verilator simulation of the RTL. Besides OpenPiton's Ariane and
@@ -73,8 +73,8 @@ verification that takes minutes to hours per attempt.
 
 MACE is designed for this environment. Given a hardware objective, such as ``bring up a 2x2 mesh''
 or ``verify workload $W$ passes,'' MACE plans tasks, builds and simulates each configuration,
-diagnoses failures from Verilator~\cite{verilator} output, and iterates. Every result in this paper
-comes from Verilator simulation.
+diagnoses failures from Verilator~\cite{verilator} output, and iterates. Every validation in MACE
+is gated by Verilator simulation.
 
 \subsection{Features}
 
@@ -83,15 +83,14 @@ MACE contributes:
 \item \code{chia\_openpiton} (Section~\ref{sec:phase1}): a CHIA adapter for OpenPiton with a
 configure/build/run/collect interface, following the structure of CHIA's ESP adapter.
 \item The MACE loop (Section~\ref{sec:phase2}): planning, parallel task execution, deterministic
-integration, and LLM-driven failure triage, tested end to end against full Verilator runs, with cost, time, and task
-metrics.
+integration, and LLM-driven failure triage, tested end to end against full Verilator runs, with cost, time, and task metrics.
 \item PicoRV32 support (Section~\ref{sec:pico}), next to Ariane and OpenSPARC T1, from two fixes to
 its upstream OpenPiton integration and one existing define.
 \item An interactive CLI and Verilator code coverage as a second verification axis
 (Section~\ref{sec:cli}).
 \end{itemize}
 
-\section{Background}
+\section{Background and Related Work}
 
 CHIA~\cite{chia} (release 1.0.1) provides the agent, tool, and dispatch layer this project builds on: colocated
 resource-pinned worker nodes, an LLM abstraction layer spanning multiple backends, and
@@ -150,7 +149,7 @@ tracking.}
 \label{fig:tile}
 \end{figure}
 
-\textbf{Related work.} LLM-based hardware design has mostly been evaluated at module scale.
+\textbf{Related work:} LLM-based hardware design has mostly been evaluated at module scale.
 VerilogEval~\cite{verilogeval} scores single-module Verilog generation, ChipNeMo~\cite{chipnemo}
 adapts LLMs to chip-design tasks, and AutoChip~\cite{autochip}, RTLFixer~\cite{rtlfixer},
 VerilogCoder~\cite{verilogcoder}, and MAGE~\cite{mage} feed compiler or simulation results back to
