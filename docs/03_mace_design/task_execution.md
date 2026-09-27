@@ -51,6 +51,8 @@ Two tasks in one level can therefore build different cache geometries.
 ## Unit-Test Tasks
 
 `_run_unit_test_step()` reads `task.spec` as an RTL path.
+It first checks the path: it must be relative, stay inside the checkout, end in `.v`, `.sv`, or `.pyv`, and name an existing file.
+A path that fails the check fails the task at once, with failure reason `unit_test_bad_module_path` and an error line that names the problem, so triage sees it; nothing is scaffolded, prompted, or built.
 It scaffolds an environment named by `unit_test_env_name()` with OpenPiton's `create_env.py`, reads the module's ports, and prompts the agent to fix the scaffolded `<env>_top.v`.
 It then builds `PitonConfig(sys=env_name)`.
 

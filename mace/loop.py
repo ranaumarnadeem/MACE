@@ -18,9 +18,10 @@ import os
 from pathlib import Path
 
 import ray
+from chia.base.llm_call import QueryResult
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
-from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonConfig
+from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonBuildArtifact, PitonConfig
 from mace.spec import MaceSpec, StepResult, Task
 from mace.tools import TestbenchEditTool
 from mace.unit_test_scaffold import (
@@ -109,6 +110,9 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
     tool can.
     """
     module_path = task.spec.strip()
+    problem = _module_path_problem(piton_root, module_path)
+    if problem:
+        return _bad_module_path_result(task, module_path, problem)
     env_name = unit_test_env_name(module_path)
     rtl_path = str(Path(piton_root) / module_path)
     module_dv_path = os.path.relpath(rtl_path, str(Path(piton_root) / "piton"))
@@ -162,6 +166,46 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
 
     build = OpenPitonWorkspaceNode.build(piton_root, PitonConfig(sys=env_name))
     return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
+
+
+# The RTL sources a unit_test task can target: Verilog, SystemVerilog, and
+# OpenPiton's pyhp templates of either (``.v.pyv``).
+_RTL_SUFFIXES = (".v", ".sv", ".pyv")
+
+
+def _module_path_problem(piton_root: str, module_path: str) -> str:
+    """Why *module_path* cannot name a unit test's module, or "" when it can.
+
+    The planner writes this path. A guessed path used to be scaffolded
+    anyway, leaving stray environment files in the checkout and a build that
+    failed without saying the file was missing.
+    """
+    if not module_path:
+        return "is empty"
+    if os.path.isabs(module_path):
+        return "is absolute; give it relative to the checkout root"
+    root = os.path.realpath(piton_root)
+    full = os.path.realpath(os.path.join(root, module_path))
+    if not full.startswith(root + os.sep):
+        return "resolves outside the checkout"
+    if not module_path.endswith(_RTL_SUFFIXES):
+        return f"is not an RTL source ({', '.join(_RTL_SUFFIXES)})"
+    if not os.path.isfile(full):
+        return "does not exist in the checkout"
+    return ""
+
+
+def _bad_module_path_result(task: Task, module_path: str, problem: str) -> StepResult:
+    """A failed step for a unit_test task whose module path was refused,
+    worded so triage can see what to fix."""
+    message = f"unit_test module path {module_path!r} {problem}"
+    build = PitonBuildArtifact(
+        success=False, returncode=-1, config=PitonConfig(sys=unit_test_env_name(module_path or "_")),
+        sim_type="vlt", model_dir="", binary_path="", wall_time_s=0.0,
+        failure_reason="unit_test_bad_module_path", errors=(message,),
+    )
+    query = QueryResult(result="", returncode=1, stderr=message, stream_result="")
+    return StepResult(task=task, query=query, build=build, run=None, passed=False)
 
 
 def _unit_test_tool_name(task_id: str) -> str:

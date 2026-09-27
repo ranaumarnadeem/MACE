@@ -12,6 +12,8 @@ Ray/network/cost-bearing.
 
 from __future__ import annotations
 
+import pytest
+
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
 from mace.loop import _unit_test_tool_name, run_mace_step
@@ -341,16 +343,38 @@ class TestUnitTestTask:
         assert "done" in prompt_used
         assert "design_foo_ut" in prompt_used
 
-    def test_missing_module_file_does_not_crash_the_step(self, stub_piton_root, monkeypatch):
-        self._scaffold(stub_piton_root, env_name="nonexistent_foo_ut")
-        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
-        llm = FakeLLM(responses=["reconciled the ports"])
+    def test_a_missing_module_file_fails_before_scaffolding_or_building(self, stub_piton_root, sims_argv):
+        """The planner guesses these paths; a guessed one used to be
+        scaffolded and built, and the build failed without saying why."""
+        llm = FakeLLM(responses=[])  # raises if the step prompts the agent
         task = Task(id="t1", deps=(), kind="unit_test", spec="nonexistent/foo.v")
 
         result = run_mace_step(str(stub_piton_root), make_spec(), task, llm)
 
-        assert "could not read real ports" in llm.calls[0][0]
-        assert result.build.success is True  # build still proceeds regardless
+        assert result.passed is False and result.run is None
+        assert result.build.failure_reason == "unit_test_bad_module_path"
+        assert result.build.errors == ("unit_test module path 'nonexistent/foo.v' does not exist in the checkout",)
+        assert len(sims_argv) == 0
+        assert not (stub_piton_root / "piton" / "verif" / "env" / "nonexistent_foo_ut").exists()
+
+    @pytest.mark.parametrize(
+        ("spec", "problem"),
+        [
+            ("/etc/foo.v", "is absolute"),
+            ("../../outside/foo.v", "resolves outside the checkout"),
+            ("design/notes.txt", "is not an RTL source"),
+        ],
+    )
+    def test_other_bad_module_paths_are_refused(self, stub_piton_root, sims_argv, spec, problem):
+        (stub_piton_root / "design").mkdir(exist_ok=True)
+        (stub_piton_root / "design" / "notes.txt").write_text("not RTL\n")
+        task = Task(id="t1", deps=(), kind="unit_test", spec=spec)
+
+        result = run_mace_step(str(stub_piton_root), make_spec(), task, FakeLLM(responses=[]))
+
+        assert result.passed is False
+        assert problem in result.build.errors[0]
+        assert len(sims_argv) == 0
 
     def test_non_utf8_module_file_does_not_crash_the_step(self, stub_piton_root, monkeypatch):
         """A non-UTF-8 RTL file (e.g. a stray Latin-1 comment from an old
