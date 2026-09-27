@@ -1,0 +1,81 @@
+name: nix shell
+
+# Enters `nix develop` on a clean runner, the one-command setup the README
+# gives, and checks what the shell provides. It runs when the files that
+# define the shell change, and on demand, since a first entry downloads the
+# whole toolchain.
+
+on:
+  push:
+    branches: [main]
+    paths: ["flake.nix", "flake.lock", "pyproject.toml", ".github/workflows/nix.yml"]
+  pull_request:
+    paths: ["flake.nix", "flake.lock", "pyproject.toml", ".github/workflows/nix.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  devshell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: First entry installs CHIA and MACE
+        run: |
+          nix develop --command true
+          nix develop --command bash -euo pipefail -c '
+            pip show chialoops
+            pip show mace
+          '
+
+      - name: Second entry installs nothing
+        run: |
+          out=$(nix develop --command true 2>&1)
+          echo "$out"
+          if grep -q "Installing" <<<"$out"; then exit 1; fi
+
+      - name: Toolchain and Python packages
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            verilator --version
+            riscv64-unknown-elf-gcc --version | head -1
+            python -c "import ray, chia, mace; print(\"imports ok\")"
+            mace --help > /dev/null
+          '
+
+      - name: Verilator builds and runs a model
+        run: |
+          mkdir -p "$RUNNER_TEMP/vl"
+          cat > "$RUNNER_TEMP/vl/top.v" <<'EOF'
+          module top;
+            initial begin
+              $display("verilator ok");
+              $finish;
+            end
+          endmodule
+          EOF
+          nix develop --command bash -euo pipefail -c '
+            cd "$RUNNER_TEMP/vl"
+            verilator --binary --no-timing top.v
+            ./obj_dir/Vtop | grep -q "verilator ok"
+          '
+
+      - name: RISC-V GCC compiles for Ariane and PicoRV32
+        run: |
+          echo 'int main(void) { return 0; }' > "$RUNNER_TEMP/t.c"
+          nix develop --command bash -euo pipefail -c '
+            riscv64-unknown-elf-gcc -march=rv64imafdc -mabi=lp64d -c "$RUNNER_TEMP/t.c" -o "$RUNNER_TEMP/t64.o"
+            riscv64-unknown-elf-gcc -march=rv32ima -mabi=ilp32 -c "$RUNNER_TEMP/t.c" -o "$RUNNER_TEMP/t32.o"
+          '
+
+      - name: Tier-0 tests
+        run: >
+          nix develop --command
+          pytest chia_openpiton/test mace/test -q
+          --ignore=chia_openpiton/test/cluster --ignore=mace/test/cluster

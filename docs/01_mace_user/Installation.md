@@ -35,6 +35,8 @@ MACE_CHIA_SOURCE=/path/to/chia nix develop
 
 That copies the checkout into `.venv`. To edit CHIA while you work, run `pip install -e /path/to/chia` inside the shell instead.
 When `PITON_ROOT` names a checkout, the shell also checks it for fix 5 of `scripts/patch_openpiton.sh` and reports whether the checkout is patched.
+The `nix shell` workflow in `.github/workflows/nix.yml` enters the shell on a clean GitHub runner whenever `flake.nix`, `flake.lock`, or `pyproject.toml` changes.
+It checks that the second entry installs nothing, builds and runs a small Verilator model, compiles for Ariane and PicoRV32 with the RISC-V GCC, and runs the tier-0 tests.
 
 To use only the pinned Verilator in another environment, build the flake's `verilator` package and put it first on `PATH`:
 
