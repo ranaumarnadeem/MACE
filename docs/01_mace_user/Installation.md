@@ -3,7 +3,7 @@
 # Installation
 
 MACE needs a Python 3.10 environment with CHIA installed, Verilator, a RISC-V GCC toolchain, and a patched OpenPiton checkout.
-The Nix flake provides Verilator and the toolchain.
+The Nix flake provides all of it except OpenPiton, CHIA and MACE included.
 The conda route uses tools you install yourself.
 Both routes finish with the OpenPiton checkout and patch steps at the end of this page.
 
@@ -24,16 +24,16 @@ The shell provides:
 - The prebuilt `riscv64-unknown-elf` GCC toolchain, release 2026.08.27, exported as `RISCV` and added to `PATH`.
 - The system packages OpenPiton's scripts expect, including `tcsh`, `dtc`, `perl`, `bison`, `flex`, and `gnumake`.
 
-On first entry the shell creates and activates `.venv`.
-CHIA is not part of the Nix closure, so install it and MACE into the venv yourself:
+On first entry the shell creates and activates `.venv`, then installs CHIA from its v1.0.1 git tag and MACE, editable with its test extras.
+This needs network access and takes a few minutes.
+Later entries reuse `.venv` and install only a package it lacks, so a first entry interrupted by the network finishes on the next one.
+To install CHIA from another source, such as a local checkout, set `MACE_CHIA_SOURCE` to anything `pip install` accepts before the first entry:
 
 ```bash
-git clone --branch v1.0.1 https://github.com/ucb-bar/chia.git /path/to/chia
-pip install -e /path/to/chia
-pip install -e '.[test]'
+MACE_CHIA_SOURCE=/path/to/chia nix develop
 ```
 
-Later entries reuse `.venv`.
+That copies the checkout into `.venv`. To edit CHIA while you work, run `pip install -e /path/to/chia` inside the shell instead.
 When `PITON_ROOT` names a checkout, the shell also checks it for fix 5 of `scripts/patch_openpiton.sh` and reports whether the checkout is patched.
 
 To use only the pinned Verilator in another environment, build the flake's `verilator` package and put it first on `PATH`:

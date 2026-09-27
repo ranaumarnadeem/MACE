@@ -154,12 +154,9 @@
           # reference turns that mistake into a hard "undefined variable"
           # eval error instead.
           buildInputs = [
-            # Python + the two real PyPI deps mace declares (typer, rich) --
-            # chia and mace itself install editable via pip inside the venv
-            # below, same as every non-Nix install this project has ever
-            # used (chia is intentionally not a Nix/PyPI package -- see
-            # pyproject.toml's own comment on why: not on PyPI at the pinned
-            # revision this project builds against).
+            # Python and pip. CHIA and MACE install into .venv from the
+            # shellHook below: CHIA from its v1.0.1 git tag, the revision
+            # every result used, and MACE editable with its test extras.
             pkgs.python310
             pkgs.python310Packages.pip
             pkgs.python310Packages.virtualenv
@@ -212,16 +209,40 @@
             export RISCV=${riscvToolchain}
             export PATH="$RISCV/bin:$PATH"
 
+            # Pip wheels such as Ray's load libstdc++ and libz from the usual
+            # system paths, which Nix's Python does not search, so without this
+            # `import ray` fails. The libstdc++ is the one from Verilator's
+            # newer nixpkgs pin: it also runs code built against the older one,
+            # so Verilator and the models it builds keep working.
+            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs-verilator.stdenv.cc.cc.lib pkgs.zlib ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
             if [ ! -d .venv ]; then
               echo "Creating .venv (first run)..."
               python3 -m venv .venv
               source .venv/bin/activate
               pip install --quiet --upgrade pip
-              echo "venv ready. Install chia + mace editable yourself:"
-              echo "  pip install -e /path/to/chia   # a clone of CHIA's v1.0.1 release; see README"
-              echo "  pip install -e '.[test]'"
             else
               source .venv/bin/activate
+            fi
+
+            # CHIA and MACE go into .venv, not the Nix closure: CHIA is not a
+            # nixpkgs package, and MACE installs editable so source edits take
+            # effect. Each is installed only when .venv lacks it, so the first
+            # entry downloads them and later entries start at once. `pip show`,
+            # not `import`: from the repository root, `import mace` finds the
+            # source tree whether or not MACE is installed.
+            # MACE_CHIA_SOURCE replaces CHIA's v1.0.1 release with any source
+            # pip accepts, such as a local checkout.
+            chia_source="''${MACE_CHIA_SOURCE:-git+https://github.com/ucb-bar/chia.git@v1.0.1}"
+            if ! pip show --quiet chialoops >/dev/null 2>&1; then
+              echo "Installing CHIA from $chia_source into .venv..."
+              pip install --quiet "$chia_source" \
+                || echo "  CHIA did not install; run nix develop again once the network is up."
+            fi
+            if ! pip show --quiet mace >/dev/null 2>&1; then
+              echo "Installing MACE (editable, with test extras) into .venv..."
+              pip install --quiet -e '.[test]' \
+                || echo "  MACE did not install; run nix develop again once the network is up."
             fi
 
             echo ""

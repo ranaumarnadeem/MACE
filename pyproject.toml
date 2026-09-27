@@ -7,9 +7,9 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.11"
 dependencies = ["typer>=0.12", "rich>=13", "ray>=2.54,<3"]
 
-# CHIA (the `chialoops` distribution) is intentionally NOT listed here: it is
-# not on PyPI, so it is installed separately from a clone of its v1.0.1
-# release (`git clone --branch v1.0.1 ...`, then `pip install -e /path/to/chia`).
+# CHIA (the `chialoops` distribution) is not listed here: it is installed from
+# its v1.0.1 git tag, the revision every result used. `nix develop` does this
+# itself; other setups clone the tag and run `pip install -e /path/to/chia`.
 # See README.
 
 [project.scripts]
