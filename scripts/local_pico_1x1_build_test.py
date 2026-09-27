@@ -1,57 +1,39 @@
-"""One-off: does a 1x1 PicoRV32 tile build AND pass under Verilator?
+"""One-off: does a 1x1 PicoRV32 tile build and pass under Verilator?
 
-OpenPiton's own CI builds PicoRV32 under Verilator (.gitlab-ci.yml's
-vlt-pico job: sims -vlt_build -x_tiles=1 -y_tiles=1 -pico) but has never
-run it under any simulator, Verilator included -- the run job is commented
-out, targets a stage that doesn't even exist in the stages list, and even
-when live specified -sim_type=msm, never vlt. A real pass/fail verdict
-here would be a first, by anyone, not just this project.
+OpenPiton's CI builds PicoRV32 under Verilator (.gitlab-ci.yml's vlt-pico
+job: sims -vlt_build -x_tiles=1 -y_tiles=1 -pico) but does not run it: the
+run job is commented out, names a stage missing from the stages list, and
+asks for -sim_type=msm.
 
-See the plan doc section 19 for the full toolchain investigation: no
-riscv32-unknown-elf toolchain exists on this machine or in OpenPiton's own
-CI, but the installed riscv64-unknown-elf-gcc supports rv32ima/ilp32 via
-multilib, confirmed by both -print-multi-directory and a real trial
-assemble+link of this exact diag (Phase 0, already done, passed cleanly).
-chia_openpiton.state_def.PitonConfig.sims_flags() now emits
--rv32_target_triple=riscv64-unknown-elf for core="pico" to make sims'
-own rv32_as script use that compiler.
+There is no riscv32-unknown-elf toolchain here or in OpenPiton's CI, but
+riscv64-unknown-elf-gcc builds rv32ima/ilp32 through multilib, which
+-print-multi-directory and a trial assemble and link of this diag
+confirmed. PitonConfig.sims_flags() therefore passes
+-rv32_target_triple=riscv64-unknown-elf for core="pico", so sims' rv32_as
+script uses that compiler.
 
-Deliberately 1x1 only -- see the plan doc for why multi-tile pico is out
-of scope for this pass.
+This script covers 1x1 only; the loop covers the 2x2 and 4x4 meshes.
 
-Run from WSL, real checkout:
-    python scripts/local_pico_1x1_build_test.py
+Run with PITON_ROOT set to a patched OpenPiton checkout:
+    PITON_ROOT=~/openpiton python scripts/local_pico_1x1_build_test.py
 
-Update: real PASS achieved (status.log: "Diag: addi.S-... PASS", sim.log:
-"Info: spc(0) thread(0) Hit Good trap" / "Simulation -> PASS (HIT GOOD
-TRAP)") -- the first real Verilator pass for PicoRV32 on OpenPiton, by
-anyone. Getting there took three independent, real, waveform-verified
-fixes (scripts/patch_openpiton.sh findings 6-8), each a genuine
-previously-undiscovered gap in OpenPiton's own RTL/testbench/build
-infrastructure, not a chia_openpiton adapter bug:
-  6. picorv32.v's own resetn gate only ever turned on via an L15
-     interrupt nothing sends in a bare config -- the core never left
-     reset.
-  7. pc_cmp.v's RTL_PICO0 active_thread tracking was gated on that same
-     dead interrupt, so even a genuinely-running core (after fix 6)
-     never got recognized as active by the monitor.
-  8. A real, previously-undiscovered simulation-infrastructure race: a
-     power-on BIST self-clear sweep in the generic SRAM model
-     (bram_1rw_wrapper.v) silently discards every real write to an
-     array until its own multi-microsecond sweep finishes -- pico boots
-     fast enough to land its very first memory request entirely inside
-     that window; ariane/sparc apparently never do. CONFIG_DISABLE_BIST_
-     CLEAR (already used by the FPGA flows, for the same underlying
-     reason -- BIST is a real-silicon bring-up concern with no role in
-     RTL functional simulation) fixes it, scoped to this script only
-     for now -- not yet the project's config_rtl default, since ariane/
-     sparc's own published numbers were generated without it and
-     re-verifying every existing result wasn't warranted just to widen
-     this fix's scope.
+It passes (status.log "Diag: addi.S-... PASS", sim.log "Info: spc(0)
+thread(0) Hit Good trap" and "Simulation -> PASS (HIT GOOD TRAP)") with
+three changes, each checked in waveforms:
+  - Patch fix 6: picorv32.v's resetn gate opened only on an L15 interrupt
+    that a bare configuration never sends, so the core never left reset.
+  - Patch fix 7: pc_cmp.v's RTL_PICO0 active_thread tracking waited on the
+    same interrupt, so the monitor never saw the core run.
+  - The CONFIG_DISABLE_BIST_CLEAR define, which this script sets in
+    config_rtl: the generic SRAM model (bram_1rw_wrapper.v) discards writes
+    until its power-on BIST self-clear sweep finishes, and PicoRV32 boots
+    fast enough to write inside that window. OpenPiton's FPGA flows set the
+    same define. The loop's planner requests it through a CONFIG_RTL: line.
 """
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 import ray
@@ -59,7 +41,7 @@ import ray
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 
-ROOT = "/mnt/c/Users/Potato/Desktop/openpiton"
+ROOT = os.environ.get("PITON_ROOT") or sys.exit("Set PITON_ROOT to a patched OpenPiton checkout.")
 os.environ["MAKEFLAGS"] = "-j1"  # tonight's OOM precedent; pico should need far less, stay conservative
 
 # address="local" forces a brand-new local instance regardless of any stale
@@ -89,7 +71,7 @@ try:
     assert os.path.exists(art.binary_path), "build reported success but binary is missing"
     print("1x1 PICO BUILD: PASS", flush=True)
 
-    print("running addi.S (never run under any simulator before, by anyone)...", flush=True)
+    print("running addi.S...", flush=True)
     started = time.monotonic()
     res = get(node.run.chia_remote(cfg, "addi.S", timeout_seconds=600))
     wall = time.monotonic() - started
@@ -99,7 +81,7 @@ try:
         print(f"STDOUT_TAIL:\n{res.stdout[-1500:]}", flush=True)
         raise SystemExit(1)
 
-    print("1x1 PICO RUN: PASS -- first Verilator pass for PicoRV32, ever", flush=True)
+    print("1x1 PICO RUN: PASS", flush=True)
 finally:
     node.close()
     ray.shutdown()

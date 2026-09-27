@@ -367,9 +367,9 @@ PYEOF
 #    free/open Verilator path never did). Without this, `sims -sys=<any
 #    non-manycore env> -vlt_build` always tries to elaborate a "cmp_top"
 #    module that doesn't exist in that sys's own flist and fails immediately
-#    -- meaning none of OpenPiton's own unit-test environments (piton/verif/
-#    env/*, registered via piton/tools/src/sims/*.config) have ever actually
-#    been built under Verilator, by anyone, only under commercial simulators.
+#    -- so OpenPiton's unit-test environments (piton/verif/env/*, registered
+#    via piton/tools/src/sims/*.config) cannot build under Verilator through
+#    sims, only under the commercial simulators.
 #
 #    Separately, my_top.cpp (the C++ driver -vlt_build links against) is
 #    itself hardcoded to a manycore Vcmp_top instantiation with real

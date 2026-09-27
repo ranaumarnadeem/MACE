@@ -1,40 +1,24 @@
-"""One-off: does a multi-tile Ariane mesh actually build and pass on real
-hardware?
+"""One-off: build and run a multi-tile Ariane mesh locally.
 
-The GCP acceptance test (chia_openpiton/test/cluster/openpiton_e2e_test.py::
-TestAcceptance2) is blocked on a chia-side tailnet-relay issue that has
-nothing to do with OpenPiton/mesh size -- but the technical claim it exists
-to prove (multi-tile Ariane coherence) was always documented with a local
-stand-in ("Docker image on WSL" in the original plan). This is that stand-in,
-run directly (no Docker -- see the plan's Phase 1 retrospective on why
-Docker was dropped entirely).
+It stands in for the GCP acceptance test (chia_openpiton/test/cluster/
+openpiton_e2e_test.py::TestAcceptance2), whose dispatch to the
+tailnet-relayed worker is unreliable (see the paper's Limitations).
 
-Every real run so far (this whole project) has only ever been 1x1. First
-attempt at anything larger was 2x2 (4 tiles): the build succeeded (after
-fixing three real environment bugs -- a broken git-symlink checkout, a
-missing toolchain patch, 66 CRLF-broken shebangs), but the RUN hung --
-fake_uart.log showed only hart 0 ever said hello ("hart 0 of 4 harts"),
-and only trace_hart_00.dasm was ever produced; harts 1-3 never booted.
-Raising max_cycle 1.5M -> 10M changed nothing (identical hang point, just
-took longer to hit the cap), ruling out "just needs more cycles."
+Despite the file name, it builds 4x4. The first 2x2 runs hung with only
+hart 0 reporting, and the one multi-tile Ariane configuration in OpenPiton's
+CI and master_diaglist_princeton was ariane_tile16_simple at 4x4, so this
+script uses that shape and the diaglist's arguments
+(master_diaglist_princeton:429-435): hello_world_many.c, a -finish_mask with
+one '1' per hart, and -rtl_timeout 10000000. On a patched checkout 2x2
+passes too; docs/05_mace_cores/ariane.md describes the fixes.
 
-Checked OpenPiton's own .gitlab-ci.yml + master_diaglist_princeton: the
-ONLY Verilator-validated multi-tile Ariane config upstream is
-ariane_tile16_simple at exactly 4x4 (16 tiles) -- 2x2 has no upstream
-precedent at all under any simulator. That's the likely reason: this may
-be a genuine, previously-undiscovered boot-distribution bug specific to
-non-4x4 multi-tile shapes, not something wrong in this project's own code.
-Rather than debug OpenPiton's own untested-shape RTL blind, pivot to the
-one multi-tile config actually known to work, using the diaglist's own
-exact args (master_diaglist_princeton:429-435): -finish_mask (one '1' per
-hart) and -rtl_timeout 10000000, hello_world_many.c.
-
-Run from WSL, real checkout, real toolchain already proven:
-    python scripts/local_2x2_build_test.py
+Run with PITON_ROOT set to a patched OpenPiton checkout:
+    PITON_ROOT=~/openpiton python scripts/local_2x2_build_test.py
 """
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 import ray
@@ -42,7 +26,7 @@ import ray
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 
-ROOT = "/mnt/c/Users/Potato/Desktop/openpiton"
+ROOT = os.environ.get("PITON_ROOT") or sys.exit("Set PITON_ROOT to a patched OpenPiton checkout.")
 # binutils 2.38+ split zicsr/zifencei out of base RV64I; OpenPiton's 2019
 # diags need it spelled out (see chia_openpiton/test/cluster/openpiton_e2e_test.py).
 ZICSR = ("-rv64_march=rv64imafdc_zicsr_zifencei",)
@@ -62,7 +46,7 @@ FINISH_MASK = "1" * (X_TILES * Y_TILES)
 # doesn't itself pass -j -- including whatever sims's own Perl invokes to
 # build the generated C++ -- so setting it here, before a single subprocess
 # spawns, propagates the same way RISCV/PATH already do throughout this
-# codebase. -j2 trades build time for headroom; worth it after tonight.
+# codebase. -j1 trades build time for memory headroom.
 os.environ["MAKEFLAGS"] = "-j1"
 
 # address="local" forces a brand-new local instance regardless of any
