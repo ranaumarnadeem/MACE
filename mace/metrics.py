@@ -17,6 +17,7 @@ read time (see summary()), not stored as their own thing.
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 import uuid
 
@@ -117,6 +118,43 @@ def open_db(db_path: str, *, ray_placement: bool = True) -> SQLiteNode:
         if "duplicate column" not in str(e).lower():
             raise
     return node
+
+
+class DBReader:
+    """The read side of a metrics DB, opened with the standard library's sqlite3.
+
+    It offers the ``query``, ``query_one``, and ``query_value`` calls that
+    :func:`summary`, :func:`all_runs`, :func:`failure_taxonomy`, and
+    :func:`trace_run` make, so a read-only report needs no CHIA. The first
+    call on a SQLiteNode starts Ray, because CHIA's profiler looks up its
+    collector actor, and ``mace results`` should not pay that for a query.
+    Like :func:`open_db`, it adds the ``caches`` and ``module`` columns an
+    older database lacks; after that, the connection refuses writes.
+    """
+
+    def __init__(self, db_path: str):
+        self._conn = sqlite3.connect(db_path)
+        self._conn.row_factory = sqlite3.Row
+        existing = {row["name"] for row in self._conn.execute("PRAGMA table_info(tasks)")}
+        for column in ("caches", "module"):
+            if existing and column not in existing:
+                self._conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+        self._conn.commit()
+        self._conn.execute("PRAGMA query_only = ON")
+
+    def query(self, sql: str, params: tuple = ()) -> list[dict]:
+        return [dict(row) for row in self._conn.execute(sql, params)]
+
+    def query_one(self, sql: str, params: tuple = ()) -> dict | None:
+        row = self._conn.execute(sql, params).fetchone()
+        return dict(row) if row is not None else None
+
+    def query_value(self, sql: str, params: tuple = (), *, default=None):
+        row = self._conn.execute(sql, params).fetchone()
+        return row[0] if row is not None else default
+
+    def close(self) -> None:
+        self._conn.close()
 
 
 def start_run(db: SQLiteNode, spec: MaceSpec, run_id: str | None = None) -> str:

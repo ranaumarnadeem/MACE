@@ -290,6 +290,42 @@ class TestResults:
         assert result.exit_code == 0
         assert "No runs recorded" in result.output
 
+    def test_reads_the_database_without_a_sqlite_node(self, tmp_path, monkeypatch):
+        """A SQLiteNode call starts Ray through CHIA's profiler, which a
+        read-only report must not pay for."""
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "runs.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1"))
+        metrics.record_failure(db, run_id, 0, "a", "timeout")
+
+        def no_sqlite_node(*args, **kwargs):
+            raise AssertionError("mace results constructed a SQLiteNode")
+
+        monkeypatch.setattr(metrics, "SQLiteNode", no_sqlite_node)
+        for args in ([], ["--run-id", run_id], ["--run-id", run_id, "--trace"]):
+            result = CliRunner().invoke(app, ["results", "--db-path", str(db_path), *args])
+            assert result.exit_code == 0, result.output
+            assert run_id in result.output or "timeout" in result.output
+
+    def test_an_older_database_gets_the_module_column_it_lacks(self, tmp_path):
+        import sqlite3
+
+        from typer.testing import CliRunner
+
+        db_path = tmp_path / "old.db"
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, MaceSpec(workloads=("hello_world.c",), objective="bring up 1x1"))
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("ALTER TABLE tasks DROP COLUMN module")
+
+        result = CliRunner().invoke(app, ["results", "--db-path", str(db_path), "--run-id", run_id, "--trace"])
+
+        assert result.exit_code == 0, result.output
+        with sqlite3.connect(db_path) as conn:
+            assert "module" in [row[1] for row in conn.execute("PRAGMA table_info(tasks)")]
+
     def test_a_missing_database_is_an_error_and_is_not_created(self, tmp_path):
         from typer.testing import CliRunner
 

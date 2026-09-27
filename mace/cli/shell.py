@@ -51,6 +51,7 @@ from mace.cli.session import KNOWN_MESH_OUTCOMES, Session
 from mace.cli.spec_file import parse_spec_file
 from mace.llm import default_model_for_backend, make_llm
 from mace.metrics import (
+    DBReader,
     all_runs,
     failure_taxonomy,
     get_post_mortem,
@@ -1195,12 +1196,19 @@ def results(
     if not os.path.isfile(db_path):
         console.print(f"[bold red]✗ ERROR: no metrics database at {escape(db_path)}[/bold red]")
         raise typer.Exit(code=1)
-    db = open_db(os.path.abspath(db_path), ray_placement=False)
-
     if trace and run_id is None:
         console.print("[bold red]✗ ERROR: --trace needs --run-id[/bold red]")
         raise typer.Exit(code=1)
+    # DBReader, not open_db: a SQLiteNode call would start Ray for a read.
+    db = DBReader(os.path.abspath(db_path))
+    try:
+        _report(console, db, db_path, run_id, trace)
+    finally:
+        db.close()
 
+
+def _report(console: Console, db: DBReader, db_path: str, run_id: str | None, trace: bool) -> None:
+    """The body of ``mace results``, over an open database."""
     if run_id is not None and trace:
         t = trace_run(db, run_id)
         if t is None:

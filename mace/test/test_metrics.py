@@ -409,6 +409,38 @@ class TestTraceRun:
         assert got["iterations"] == []
 
 
+class TestDBReader:
+    """The sqlite3 reader behind `mace results` must answer every read the
+    same way SQLiteNode does."""
+
+    def test_every_read_matches_the_sqlite_node(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec(core="pico"))
+        metrics.record_iteration(db, run_id, 0, (make_result("t1", False, kind="config"),), wall_s=3.0, usd=0.01)
+        metrics.record_failure(db, run_id, 0, "t1", "timeout", fix="add the define")
+        metrics.record_iteration(db, run_id, 1, (make_result("t2", True),), wall_s=2.0)
+        metrics.mark_all_recovered(db, run_id)
+        metrics.finish_run(db, run_id, "passed")
+
+        reader = metrics.DBReader(str(tmp_path / "metrics.db"))
+        try:
+            assert metrics.all_runs(reader) == metrics.all_runs(db)
+            assert metrics.trace_run(reader, run_id) == metrics.trace_run(db, run_id)
+            assert metrics.failure_taxonomy(reader, run_id) == metrics.failure_taxonomy(db, run_id)
+            assert metrics.summary(reader, run_id) == metrics.summary(db, run_id)
+        finally:
+            reader.close()
+
+    def test_refuses_writes(self, tmp_path):
+        open_test_db(tmp_path)
+        reader = metrics.DBReader(str(tmp_path / "metrics.db"))
+        try:
+            with pytest.raises(sqlite3.OperationalError):
+                reader.query("DELETE FROM runs")
+        finally:
+            reader.close()
+
+
 class TestModuleStatus:
     def test_one_unit_test_task_reports_its_module(self, tmp_path):
         db = open_test_db(tmp_path)

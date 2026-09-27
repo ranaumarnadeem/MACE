@@ -52,14 +52,15 @@ A run that ends `failed` or `budget_exceeded` after at least one iteration gets 
 | `compute_usd` | Sum of `iterations.usd`. |
 
 ```python
-from mace.metrics import all_runs, open_db
+from mace.metrics import DBReader, all_runs
 
-db = open_db("runs/mace_end_to_end.db", ray_placement=False)
+db = DBReader("runs/mace_end_to_end.db")
 for run in all_runs(db):
     print(run["run_id"], run["status"], run["successful_tasks"], run["execution_time_s"])
 ```
 
-`ray_placement=False` opens the database without Ray.
+`DBReader` reads the database with Python's `sqlite3` and starts no Ray. It adds the `caches` and `module` columns that an older database lacks, then refuses writes.
+The loop writes through `open_db(path)`, a CHIA `SQLiteNode`; the first call on one starts Ray, because CHIA's profiler looks up its collector actor.
 `all_runs(db)` returns every run, newest first, with its summary merged in.
 `trace_run(db, run_id)` gives one run's iterations with their tasks and failures.
 `failure_taxonomy(db, run_id)` counts failures by diagnosis.
@@ -68,7 +69,7 @@ for run in all_runs(db):
 
 ## mace results
 
-`mace results` reads the database without a shell session, and exits with an error when the file does not exist.
+`mace results` reads the database through `DBReader`, so it needs no shell session and starts no Ray. It exits with an error when the file does not exist.
 Its `--db-path` default is `runs/mace_cli.db`, so name the loop script's database explicitly:
 
 ```bash
