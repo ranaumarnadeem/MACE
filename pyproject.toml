@@ -7,10 +7,10 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.11"
 dependencies = ["typer>=0.12", "rich>=13", "ray>=2.54,<3"]
 
-# CHIA (the `chialoops` distribution) is not listed here: it is installed from
-# its v1.0.1 git tag, the revision every result used. `nix develop` does this
-# itself; other setups clone the tag and run `pip install -e /path/to/chia`.
-# See README.
+# CHIA (the `chialoops` distribution) installs separately, before MACE, at the
+# v1.0.1 release every result used: `nix develop` runs
+# `pip install chialoops==1.0.1` itself, and other setups run it first, or
+# `pip install -e` on a clone of the v1.0.1 tag. See README.
 
 [project.scripts]
 mace = "mace.cli:main"

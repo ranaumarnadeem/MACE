@@ -20,7 +20,7 @@ The authors set them while building MACE with Claude Code; `plan.md` in this dir
 
 ## Commands
 
-`nix develop` installs CHIA and MACE into `.venv` on first entry. Without Nix, first clone CHIA's v1.0.1 release (`git clone --branch v1.0.1 https://github.com/ucb-bar/chia.git`) and install it with `pip install -e /path/to/chia`.
+`nix develop` installs CHIA and MACE into `.venv` on first entry. Without Nix, first install CHIA's v1.0.1 release with `pip install chialoops==1.0.1`, or clone the `v1.0.1` tag and run `pip install -e /path/to/chia` to edit CHIA.
 
 ```bash
 pip install -e ".[test]"

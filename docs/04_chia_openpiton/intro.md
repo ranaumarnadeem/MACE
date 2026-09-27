@@ -33,7 +33,7 @@ When no worker advertises enough `openpiton` units, the placement-group reservat
 
 `chia_openpiton` imports nothing from `mace`, so it can move into an upstream CHIA checkout as `chia/openpiton/` unchanged.
 
-The `tier0` job in `.github/workflows/ci.yml` checks the rule on every push and pull request. It installs CHIA from source, imports the package, and fails if any `mace` module was loaded:
+The `tier0` job in `.github/workflows/ci.yml` checks the rule on every push and pull request. It installs CHIA's v1.0.1 release, imports the package, and fails if any `mace` module was loaded:
 
 ```bash
 python -c "
