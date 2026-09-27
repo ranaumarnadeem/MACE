@@ -1,29 +1,23 @@
 # MACE Technical Guide
 
-This is the deep-dive doc — written for a teammate picking up this project,
-not just running it. It explains what's here, why it's built the way it is,
-what's actually proven versus hoped, and what's genuinely left to do. Where
-something is a CHIA or OpenPiton concept you might not already know, it's
-explained here rather than assumed — that's deliberate, so you can pick this
-up without a separate crash course.
+This is the development log the authors kept while building MACE. It
+records what was tried, what failed, and why each decision was made, in the
+order it happened, so some sections describe states that later work
+superseded. For how MACE works now, read the
+[documentation site](https://ranaumarnadeem.github.io/MACE/) and the paper;
+the logs and databases behind the paper's results are attached to the
+[0.0.1 pre-release](https://github.com/ranaumarnadeem/MACE/releases/tag/v0.0.1).
 
-For a quick "how do I run this" without the depth, see [`README.md`](../README.md)
-instead — Section 9 and Section 10 below cover the same ground plus GCP clustering setup
-and a full walkthrough, in more depth. This doc is the one to actually read
-start to end.
-
-Everything below reflects the repository as it stands right now — every
-number, every file, every bug described was checked against the real source
-or a real run while writing this, not carried forward from an earlier plan.
-Where something is a genuine open question rather than a settled fact, it
-says so explicitly rather than guessing.
+Where something is a CHIA or OpenPiton concept you might not already know,
+it is explained here rather than assumed. For a short "how do I run this",
+see [`README.md`](../README.md); Sections 9 and 10 below add GCP clustering
+setup and a full walkthrough.
 
 ## 1. The big picture
 
 MACE (Multicore Agentic Co-Design Engine) is a submission to the A3 CHIA
-Hackathon (Google + NVIDIA, MICRO 2026 workshop). Judging criteria: a 4-page
-paper, an open-sourced CHIA loop, and its results. Deadline **Sep 20 AoE**
-(~17:00 PKT Sep 21), code freeze Sep 19.
+Hackathon at MICRO 2026. Judging criteria: a 4-page paper, an open-sourced
+CHIA loop, and its results.
 
 The idea: take [CHIA](https://github.com/ucb-bar/chia), an existing framework
 for orchestrating agentic hardware-design workflows on Ray clusters, and
@@ -408,18 +402,17 @@ pull in the bootrom/device-tree chain that fixes 2–4 above exist for).
 **Update, superseding the rest of this section as originally written:** the
 run initially reached verdict `maxcycles` (see below for why that read as a
 real finding, not an environment bug) -- but unlike 2×2 Ariane, this one
-*was* chased to a waveform-level root cause, and pico now genuinely
-**passes** (`Simulation -> PASS (HIT GOOD TRAP)`), a first for this core
-under any simulator, by anyone. Three real, independently waveform-verified
-bugs, all fixed: picorv32's own `resetn`/`booted` self-boot gate
-(`scripts/patch_openpiton.sh` fix 6 -- it was waiting forever for an
-interrupt nothing in a bare config ever sends), the manycore monitor's
-`active_thread` tracking for pico's tile (fix 7 in the same script), and a
-real-silicon BIST self-clear race silently discarding pico's first, very
-early memory writes. See README.md's "What's proven, honestly" section for
-the current, authoritative summary (this doc's own narrative below was
-written before this was resolved, and is kept for its RTL-investigation
-methodology, not its conclusion).
+*was* chased to a waveform-level root cause, and pico now **passes**
+(`Simulation -> PASS (HIT GOOD TRAP)`). Three changes, each checked in
+waveforms: picorv32's own `resetn`/`booted` self-boot gate
+(`scripts/patch_openpiton.sh` fix 6 -- it waited for an interrupt that a bare
+configuration never sends), the manycore monitor's `active_thread` tracking
+for pico's tile (fix 7 in the same script), and the `CONFIG_DISABLE_BIST_CLEAR`
+define, which stops the SRAM model's power-on BIST self-clear from discarding
+pico's first memory writes. The docs site's
+[PicoRV32 page](https://ranaumarnadeem.github.io/MACE/05_mace_cores/pico.html)
+has the current summary; the narrative below was written before this was resolved, and is
+kept for its RTL-investigation method, not its conclusion.
 
 **Note for whoever touches the loop driver next:** `examples/mace_end_to_end.py`'s
 own `--core` argparse choices are still hardcoded to `("ariane", "sparc")` —
@@ -475,10 +468,9 @@ both fixed, both committed locally in the checkout.**
    1401-1515s for every failing attempt before the fix).
 
 Why the earlier "likely RTL gap, not chased further" framing was reasonable
-at the time: OpenPiton's own diagnostic lists show 2×2 has no upstream
-Verilator precedent at any tile count other than 1×1 and 4×4 — nobody had
-ever validated that shape, so a first-ever attempt surfacing a first-ever bug
-was expected, not a surprise. What changed is doing the actual waveform-free,
+at the time: OpenPiton's diagnostic lists run multi-tile Ariane under
+Verilator only at 4×4, so a 2×2 run was untested upstream, and a bug there
+was no surprise. What changed is doing the actual waveform-free,
 trace-file-and-source-reading investigation (the same discipline already
 used for pico's own three bugs) rather than stopping at the "not chased
 further" line.
