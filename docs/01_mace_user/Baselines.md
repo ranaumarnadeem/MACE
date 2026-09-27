@@ -95,7 +95,7 @@ It runs `examples/baseline_one_shot_llm.py`, then `examples/mace_end_to_end.py`,
 Output and exit codes go to `runs/baseline_b_output.log` and `runs/baseline_c_output.log` in the repository root.
 It passes only `--piton-root`, so both scripts use their default core and workload.
 (c) builds its default 1x1 mesh, and (b)'s default objective asks for one.
-Always pass the checkout path, because the built-in default is a path on the authors' machine.
+Pass the checkout path as its argument, or set `PITON_ROOT`; with neither, it stops with a usage message.
 For 2x2 and 4x4 comparisons, run the two scripts directly with matching flags.
 
 ## Seeded-failure runs

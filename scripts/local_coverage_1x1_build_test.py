@@ -38,12 +38,13 @@ annotated-source dump (uncovered lines marked %00) -- genuinely per-module,
 just not as a single pre-computed percentage table the way --report hier
 would have given if it existed on this Verilator version.
 
-Run from WSL, real checkout, after scripts/patch_openpiton.sh:
-    python scripts/local_coverage_1x1_build_test.py
+Run with PITON_ROOT set to a patched OpenPiton checkout:
+    PITON_ROOT=~/openpiton python scripts/local_coverage_1x1_build_test.py
 """
 from __future__ import annotations
 
 import os
+import sys
 import subprocess
 import time
 
@@ -53,7 +54,7 @@ from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT
 
-ROOT = "/mnt/c/Users/Potato/Desktop/openpiton"
+ROOT = os.environ.get("PITON_ROOT") or sys.exit("Set PITON_ROOT to a patched OpenPiton checkout.")
 os.environ["MAKEFLAGS"] = "-j1"  # this project's own standing OOM precedent
 
 # address="local" forces a brand-new local instance regardless of any stale

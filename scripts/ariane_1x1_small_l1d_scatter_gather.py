@@ -52,10 +52,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--piton-root",
-        default="/mnt/c/Users/Potato/Desktop/openpiton",
+        default=os.environ.get("PITON_ROOT"),
         help="OpenPiton checkout on native Linux storage",
     )
     args = ap.parse_args()
+    if not args.piton_root:
+        ap.error("pass --piton-root or set PITON_ROOT to a patched OpenPiton checkout")
 
     piton_root = os.path.abspath(args.piton_root)
     if not os.path.isdir(piton_root):

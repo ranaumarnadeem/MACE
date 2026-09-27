@@ -16,12 +16,13 @@ from the sims flags. The config key hashes the cache geometry, so this build
 lands in its own model directory (distinct build_id) and cannot collide with
 either the default-geometry or the (4096,4) 1x1 Ariane models.
 
-Run from WSL, real checkout:
-    python scripts/ariane_1x1_tiny_l1d_build.py
+Run with PITON_ROOT set to a patched OpenPiton checkout:
+    PITON_ROOT=~/openpiton python scripts/ariane_1x1_tiny_l1d_build.py
 """
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 import ray
@@ -29,7 +30,7 @@ import ray
 from chia.base.ChiaFunction import get
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 
-ROOT = "/mnt/c/Users/Potato/Desktop/openpiton"
+ROOT = os.environ.get("PITON_ROOT") or sys.exit("Set PITON_ROOT to a patched OpenPiton checkout.")
 
 # l1d reduced to (128, 1): a single 128-byte direct-mapped set. All other
 # caches at DEFAULT_CACHES.

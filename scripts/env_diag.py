@@ -5,9 +5,12 @@ build runs in, rather than a hand-reconstructed guess in an interactive shell.
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import ray
 
-ROOT = "/mnt/c/Users/Potato/Desktop/openpiton"
+ROOT = os.environ.get("PITON_ROOT") or sys.exit("Set PITON_ROOT to a patched OpenPiton checkout.")
 
 ray.init(address="local", resources={"openpiton": 1}, log_to_driver=False)
 

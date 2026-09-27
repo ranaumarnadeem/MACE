@@ -27,7 +27,9 @@ from chia.models.vertex import VertexGeminiLLM
 from mace.loop import run_mace_step
 from mace.spec import MaceSpec, Task
 
-PITON_ROOT = sys.argv[1] if len(sys.argv) > 1 else "/mnt/c/Users/Potato/Desktop/openpiton"
+PITON_ROOT = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("PITON_ROOT")) or sys.exit(
+    "Pass a patched OpenPiton checkout as the first argument, or set PITON_ROOT."
+)
 GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 GEMINI_MODEL = "gemini-2.5-flash"
 

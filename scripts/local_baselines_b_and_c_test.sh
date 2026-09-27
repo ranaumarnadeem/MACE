@@ -19,7 +19,11 @@ conda activate chia_env
 cd "$(dirname "$0")/.."
 mkdir -p runs  # gitignored, so a fresh clone has no runs/ yet
 
-PITON_ROOT="${1:-/mnt/c/Users/Potato/Desktop/openpiton}"
+PITON_ROOT="${1:-${PITON_ROOT:-}}"
+if [ -z "$PITON_ROOT" ]; then
+    echo "usage: $0 <patched OpenPiton checkout>, or set PITON_ROOT" >&2
+    exit 2
+fi
 
 echo "=== BASELINE (b): one-shot LLM, no tools ===" > runs/baseline_b_output.log
 python3 examples/baseline_one_shot_llm.py --piton-root "$PITON_ROOT" >> runs/baseline_b_output.log 2>&1
