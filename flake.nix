@@ -155,7 +155,7 @@
           # eval error instead.
           buildInputs = [
             # Python and pip. CHIA and MACE install into .venv from the
-            # shellHook below: CHIA from its v1.0.1 git tag, the revision
+            # shellHook below: CHIA's v1.0.1 release from PyPI, the revision
             # every result used, and MACE editable with its test extras.
             pkgs.python310
             pkgs.python310Packages.pip
@@ -231,18 +231,22 @@
             # entry downloads them and later entries start at once. `pip show`,
             # not `import`: from the repository root, `import mace` finds the
             # source tree whether or not MACE is installed.
+            # CHIA comes from PyPI, where the `chialoops` 1.0.1 wheel holds
+            # the same Python files as CHIA's v1.0.1 git tag. A git+https URL would not work:
+            # pip then clones CHIA's submodules, and one of them points at a
+            # commit its remote no longer serves.
             # MACE_CHIA_SOURCE replaces CHIA's v1.0.1 release with any source
             # pip accepts, such as a local checkout.
-            chia_source="''${MACE_CHIA_SOURCE:-git+https://github.com/ucb-bar/chia.git@v1.0.1}"
+            chia_source="''${MACE_CHIA_SOURCE:-chialoops==1.0.1}"
             if ! pip show --quiet chialoops >/dev/null 2>&1; then
               echo "Installing CHIA from $chia_source into .venv..."
               pip install --quiet "$chia_source" \
-                || echo "  CHIA did not install; run nix develop again once the network is up."
+                || echo "  CHIA did not install; fix the pip error above, then run nix develop again."
             fi
             if ! pip show --quiet mace >/dev/null 2>&1; then
               echo "Installing MACE (editable, with test extras) into .venv..."
               pip install --quiet -e '.[test]' \
-                || echo "  MACE did not install; run nix develop again once the network is up."
+                || echo "  MACE did not install; fix the pip error above, then run nix develop again."
             fi
 
             echo ""
