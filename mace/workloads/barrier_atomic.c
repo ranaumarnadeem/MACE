@@ -2,7 +2,9 @@
 // counter between two barriers, maximizing contention on it. A broken
 // coherence implementation loses updates under concurrent read-modify-
 // write, so the final count comes up short of num_harts; a correct one
-// always reaches exactly num_harts.
+// always reaches exactly num_harts. Every hart then reads the count and
+// returns nonzero if it is short, so a hart that sees a stale value fails
+// its own run, not just hart 0's.
 //
 // Every read of a location this file writes with ATOMIC_OP goes through
 // atomic_read() (a fetch-add-zero), never a plain load: measured on real
@@ -38,10 +40,9 @@ int main(int argc, char** argv) {
   ATOMIC_OP(arrived2, 1, add, w);
   while (atomic_read(&arrived2) < num_harts);  // barrier: everyone has incremented
 
-  if (hart_id == 0) {
-    uint32_t final = atomic_read(&counter);
+  uint32_t final = atomic_read(&counter);
+  if (hart_id == 0) {  // one line of output, not one per hart
     printf("counter=%u expected=%u\n", final, num_harts);
-    return final != num_harts;
   }
-  return 0;
+  return final != num_harts;
 }

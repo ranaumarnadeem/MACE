@@ -1,8 +1,8 @@
 // scatter_gather.c -- gate workload: every hart scatters its own id into a
 // shared array at its own index (no two harts write the same slot, so any
 // failure here is a visibility/coherence bug, not a race); after a sync
-// point, hart 0 gathers the whole array and checksums it against the
-// known id sequence.
+// point, every hart gathers the whole array and checksums it against the
+// known id sequence, and returns nonzero on a mismatch.
 //
 // slots[] is written with ATOMIC_OP and read with atomic_read()
 // (ATOMIC_FETCH_OP), never a plain load or store: measured on real
@@ -38,16 +38,14 @@ int main(int argc, char** argv) {
   ATOMIC_OP(arrived, 1, add, w);
   while (atomic_read(&arrived) < num_harts);
 
-  if (hart_id == 0) {
-    uint32_t n = num_harts < MAX_HARTS ? num_harts : MAX_HARTS;
-    uint32_t checksum = 0;
-    for (uint32_t i = 0; i < n; i++) {
-      checksum += atomic_read(&slots[i]);
-    }
-    uint32_t expected = n * (n + 1) / 2;
-    printf("checksum=%u expected=%u\n", checksum, expected);
-    return checksum != expected;
+  uint32_t n = num_harts < MAX_HARTS ? num_harts : MAX_HARTS;
+  uint32_t checksum = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    checksum += atomic_read(&slots[i]);
   }
-
-  return 0;
+  uint32_t expected = n * (n + 1) / 2;
+  if (hart_id == 0) {  // one line of output, not one per hart
+    printf("checksum=%u expected=%u\n", checksum, expected);
+  }
+  return checksum != expected;
 }
