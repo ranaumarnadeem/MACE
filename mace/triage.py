@@ -20,7 +20,7 @@ from mace.agents import is_testbench_port_mismatch, parse_diagnosis, parse_fix
 from mace.spec import StepResult, Triage
 
 _PROMPT_TEMPLATE = """\
-Task {task_id} ({kind}: {spec}) failed its verification gate.
+{objective}Task {task_id} ({kind}: {spec}) failed its verification gate.
 
 Build succeeded: {build_success}
 Run verdict: {verdict}
@@ -86,10 +86,14 @@ def failure_evidence(result: StepResult) -> str:
     return "\n\n".join(context_parts)
 
 
-def build_prompt(result: StepResult) -> str:
+def build_prompt(result: StepResult, objective: str = "") -> str:
+    """Triage's prompt for *result*. *objective*, the run's objective,
+    leads the prompt when given: it can name what a build needs, such as an
+    RTL define, that the failed plan left out."""
     build = result.build
     run = result.run
     return _PROMPT_TEMPLATE.format(
+        objective=f"Run objective: {objective}\n\n" if objective else "",
         task_id=result.task.id,
         kind=result.task.kind,
         spec=result.task.spec,
@@ -99,7 +103,7 @@ def build_prompt(result: StepResult) -> str:
     )
 
 
-def triage(result: StepResult, llm, tools=()) -> Triage:
+def triage(result: StepResult, llm, tools=(), objective: str = "") -> Triage:
     """One LLM call, turned into a validated diagnosis.
 
     Skips that call entirely when the failed task is a ``unit_test`` and the
@@ -135,7 +139,7 @@ def triage(result: StepResult, llm, tools=()) -> Triage:
             ),
         )
 
-    query = usage.prompt(llm, "triage", build_prompt(result), tools)
+    query = usage.prompt(llm, "triage", build_prompt(result, objective), tools)
     diagnosis = parse_diagnosis(query.result)
     if diagnosis is None:
         raise TriageError(f"no DIAGNOSIS: line in the triage response: {query.result!r}")

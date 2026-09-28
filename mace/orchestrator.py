@@ -313,7 +313,7 @@ def _run_started_loop(
                         if tool_server is not None:
                             triage_tools = (*tools, tool_server)
                     try:
-                        diagnosis = triage(failed, llm, tools=triage_tools)
+                        diagnosis = triage(failed, llm, tools=triage_tools, objective=spec.objective)
                     except TriageError:
                         diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
                     feedback = (

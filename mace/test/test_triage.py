@@ -171,3 +171,23 @@ class TestChangesFromDefaults:
         result = make_failed_result(build_success=False)
         result.build.config = PitonConfig(config_rtl=("MINIMAL_MONITORING", "PITON_FPGA_SYNTH"))
         assert "Changes from the defaults: RTL defines added: PITON_FPGA_SYNTH" in build_prompt(result)
+
+
+class TestObjectiveInTheprompt:
+    def test_the_objective_leads_the_prompt_when_given(self):
+        from mace.triage import build_prompt
+
+        prompt = build_prompt(make_failed_result(), objective="Bring up pico; it needs CONFIG_DISABLE_BIST_CLEAR.")
+        assert prompt.startswith("Run objective: Bring up pico; it needs CONFIG_DISABLE_BIST_CLEAR.\n\nTask t1")
+
+    def test_without_an_objective_the_prompt_starts_with_the_task(self):
+        from mace.triage import build_prompt
+
+        assert build_prompt(make_failed_result()).startswith("Task t1")
+
+    def test_triage_passes_the_objective_to_the_llm(self):
+        from mace.triage import triage
+
+        llm = FakeLLM(responses=["DIAGNOSIS: config_error\nFIX: add the define"])
+        triage(make_failed_result(), llm, objective="needs CONFIG_DISABLE_BIST_CLEAR")
+        assert "Run objective: needs CONFIG_DISABLE_BIST_CLEAR" in llm.calls[0][0]

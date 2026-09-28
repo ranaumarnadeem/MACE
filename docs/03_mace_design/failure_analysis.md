@@ -7,7 +7,8 @@ Other failed tasks in that level get a row in the `tasks` table and no triage.
 
 ## Triage
 
-`triage(result, llm, tools=())` makes one LLM call.
+`triage(result, llm, tools=(), objective="")` makes one LLM call.
+The orchestrator passes the run's objective, which leads the prompt: it can name what a build needs, such as an RTL define the failed plan left out.
 The prompt gives the task's id, kind, and instruction, the build outcome, the run verdict, and the build's `sims` flags, which name its RTL defines and cache sizes.
 A line of changes from the defaults picks out the plan's own choices among them: the RTL defines it adds, each cache whose geometry differs, and a crossbar interconnect (`changes_from_defaults()`).
 A failed build adds the failure reason, its error lines (see [PitonBuildArtifact](../04_chia_openpiton/workspace_node.md)), and the last 1500 characters of its stderr, or of its stdout when stderr is empty, as `sims` leaves it.

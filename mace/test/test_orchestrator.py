@@ -204,7 +204,7 @@ class TestNodeLifecycleAcrossIterations:
         )
         monkeypatch.setattr(
             "mace.orchestrator.triage",
-            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
+            lambda result, llm, tools=(), **kwargs: Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
         )
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
 
@@ -295,7 +295,7 @@ class TestStatusTransitions:
         )
         monkeypatch.setattr(
             "mace.orchestrator.triage",
-            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
+            lambda result, llm, tools=(), **kwargs: Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
         )
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
 
@@ -325,7 +325,7 @@ class TestStatusTransitions:
         )
         monkeypatch.setattr(
             "mace.orchestrator.triage",
-            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
+            lambda result, llm, tools=(), **kwargs: Triage(diagnosis="rtl_suspect", fix="try a different mesh"),
         )
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
 
@@ -359,7 +359,7 @@ class TestStatusTransitions:
 
         monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
         monkeypatch.setattr("mace.orchestrator.integrate_parallel", fail_fail_then_pass)
-        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): next(diagnoses))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: next(diagnoses))
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
 
         run_mace_loop(
@@ -430,7 +430,7 @@ class TestEveryExceptionRecordsError:
         )
         monkeypatch.setattr(
             "mace.orchestrator.triage",
-            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try again"),
+            lambda result, llm, tools=(), **kwargs: Triage(diagnosis="rtl_suspect", fix="try again"),
         )
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
 
@@ -456,7 +456,7 @@ class TestEveryExceptionRecordsError:
         )
         monkeypatch.setattr(
             "mace.orchestrator.triage",
-            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try again"),
+            lambda result, llm, tools=(), **kwargs: Triage(diagnosis="rtl_suspect", fix="try again"),
         )
 
         with pytest.raises(RuntimeError, match="database is locked"):
@@ -512,7 +512,7 @@ class TestTriageToolServerConstructionFailure:
         )
         triage_tools = []
 
-        def recording_triage(result, llm, tools=()):
+        def recording_triage(result, llm, tools=(), **kwargs):
             triage_tools.append(tools)
             return Triage(diagnosis="rtl_suspect", fix="try a different mesh")
 
@@ -573,7 +573,7 @@ class TestTriageToolServerSeesTheFailure:
         monkeypatch.setattr("mace.orchestrator.integrate_parallel", fake_integrate_parallel([failed]))
         seen = []
 
-        def grepping_triage(result, llm, tools=()):
+        def grepping_triage(result, llm, tools=(), **kwargs):
             seen.append(servers.grep_sim_log(tools)[1])
             return Triage(diagnosis="test_bug", fix="fix the diag")
 
@@ -600,7 +600,7 @@ class TestTriageToolServerSeesTheFailure:
         )
         seen = []
 
-        def grepping_triage(result, llm, tools=()):
+        def grepping_triage(result, llm, tools=(), **kwargs):
             tool, out = servers.grep_sim_log(tools)
             seen.append((tool, out, list(servers.stopped)))
             return Triage(diagnosis="rtl_suspect", fix="try again")
@@ -635,7 +635,7 @@ class TestTriageToolServerSeesTheFailure:
         )
         monkeypatch.setattr(
             "mace.orchestrator.triage",
-            lambda result, llm, tools=(): Triage(diagnosis="rtl_suspect", fix="try again"),
+            lambda result, llm, tools=(), **kwargs: Triage(diagnosis="rtl_suspect", fix="try again"),
         )
         seen = []
 
@@ -771,7 +771,7 @@ class TestLoopOptions:
         received = []
         self._failing_then_recorded(monkeypatch, received)
         monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="w"),)]))
-        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("timeout", "wait"))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: Triage("timeout", "wait"))
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
         opts = LoopOptions(check="build", reuse_builds=False)
         before = time.monotonic()
@@ -828,7 +828,7 @@ class TestLoopOptions:
             raise AssertionError("post-mortem is off")
 
         monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="w"),)]))
-        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("timeout", "wait"))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: Triage("timeout", "wait"))
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", no_post_mortem)
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
@@ -857,7 +857,7 @@ class TestFeedbackNamesThePlansChanges:
         )
         monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
         monkeypatch.setattr("mace.orchestrator.integrate_parallel", lambda *a, **k: (failed,))
-        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("config_error", "drop it"))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: Triage("config_error", "drop it"))
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
 
         run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=2)), FakeLLM([]), make_db(tmp_path))
@@ -879,7 +879,7 @@ class TestPlanHook:
             return (step_result("t1", passed=len(received) == 2, verdict="pass" if len(received) == 2 else "fail"),)
 
         monkeypatch.setattr("mace.orchestrator.integrate_parallel", integrate)
-        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("config_error", "fix"))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: Triage("config_error", "fix"))
 
         def hook(iteration, tasks):
             return tuple(Task(id=f"{t.id}-i{iteration}", deps=(), kind=t.kind, spec=t.spec) for t in tasks)
@@ -889,3 +889,21 @@ class TestPlanHook:
         )
         assert [tasks[0].id for tasks in received] == ["t1-i0", "t1-i1"]
         assert result.status == "passed"
+
+
+class TestTriageHearsTheObjective:
+    def test_the_run_s_objective_reaches_triage(self, tmp_path, monkeypatch):
+        seen = {}
+
+        def recording(result, llm, tools=(), **kwargs):
+            seen.update(kwargs)
+            return Triage("config_error", "add the define")
+
+        monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="w"),)]))
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel", lambda *a, **k: (step_result("t1", passed=False, verdict="timeout"),)
+        )
+        monkeypatch.setattr("mace.orchestrator.triage", recording)
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+        run_mace_loop(("/fake",), make_spec(objective="needs CONFIG_DISABLE_BIST_CLEAR"), FakeLLM([]), make_db(tmp_path))
+        assert seen["objective"] == "needs CONFIG_DISABLE_BIST_CLEAR"
