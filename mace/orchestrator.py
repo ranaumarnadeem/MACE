@@ -48,8 +48,8 @@ from mace.metrics import (
 )
 from mace.planner import PlanningError, plan
 from mace.report import ReportError, generate_post_mortem
-from mace.spec import LoopResult, MaceSpec, StepResult, Triage
-from mace.triage import TriageError, triage
+from mace.spec import LoopOptions, LoopResult, MaceSpec, StepResult, Triage
+from mace.triage import TriageError, failure_evidence, triage
 from mace.workloads import verify_checksums
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,7 @@ def run_mace_loop(
     on_iteration=None,
     on_task_progress=None,
     labels: RunLabels | None = None,
+    options: LoopOptions | None = None,
 ) -> LoopResult:
     """Plan, execute, and -- if a task fails its gate -- triage and replan,
     until something passes or the spec's budget runs out.
@@ -101,6 +102,15 @@ def run_mace_loop(
     ``labels``, if given, are recorded with the run (see
     :class:`~mace.metrics.RunLabels`); the batch runner uses them to say
     which method, suite task, and repeat a run was.
+
+    ``options`` (:class:`~mace.spec.LoopOptions`, the full loop by default)
+    turn off one part of the loop for a baseline or an ablation. With
+    ``triage="raw"``, a failure's raw evidence (see
+    :func:`~mace.triage.failure_evidence`) goes to the next plan in place
+    of a diagnosis; with ``triage="off"``, nothing does. Either way the
+    failure is still recorded, with the diagnosis ``raw_evidence`` or
+    ``not_triaged``. Every build and run also gets a timeout no longer than
+    the time left in ``spec.budget.max_wall_s``.
 
     ``on_task_progress``, if given, is passed straight through to
     :func:`~mace.integrator.integrate_parallel` -- see its own docstring.
@@ -159,7 +169,8 @@ def run_mace_loop(
     try:
         with usage.recording(calls):
             return _run_started_loop(
-                run_id, piton_roots, spec, llm, db, tools, on_iteration, on_task_progress, calls
+                run_id, piton_roots, spec, llm, db, tools, on_iteration, on_task_progress, calls,
+                options or LoopOptions(),
             )
     except BaseException:
         _record_error(db, run_id)
@@ -185,6 +196,7 @@ def _run_started_loop(
     on_iteration,
     on_task_progress,
     calls: usage.UsageLog,
+    options: LoopOptions,
 ) -> LoopResult:
     """run_mace_loop's body, from the checksum check to the final status
     write. Every exception it raises, including one from verify_checksums,
@@ -257,7 +269,8 @@ def _run_started_loop(
                     nodes = open_nodes(piton_roots)
                 results = integrate_parallel(
                     piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
-                    on_task_progress=on_task_progress, nodes=nodes,
+                    on_task_progress=on_task_progress, nodes=nodes, options=options,
+                    deadline=started + spec.budget.max_wall_s,
                 )
                 iter_wall_s = time.monotonic() - iter_started
                 iter_calls = calls.take()
@@ -283,33 +296,47 @@ def _run_started_loop(
                     break
 
                 had_a_failure = True
-                triage_tools = tools
-                if ray.is_initialized():
-                    if tool_server is not None:
-                        tool_server.stop()
-                    tool_server = _start_triage_tool_server(run_id, piton_roots[0], failed)
-                    if tool_server is not None:
-                        triage_tools = (*tools, tool_server)
-                try:
-                    diagnosis = triage(failed, llm, tools=triage_tools)
-                except TriageError:
-                    diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
+                if options.triage == "llm":
+                    triage_tools = tools
+                    if ray.is_initialized():
+                        if tool_server is not None:
+                            tool_server.stop()
+                        tool_server = _start_triage_tool_server(run_id, piton_roots[0], failed)
+                        if tool_server is not None:
+                            triage_tools = (*tools, tool_server)
+                    try:
+                        diagnosis = triage(failed, llm, tools=triage_tools)
+                    except TriageError:
+                        diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
+                    feedback = (
+                        f"Task {failed.task.id} ({failed.task.spec}) failed: "
+                        f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
+                    )
+                elif options.triage == "raw":
+                    diagnosis = Triage(diagnosis="raw_evidence", fix="")
+                    verdict = failed.run.verdict if failed.run is not None else None
+                    feedback = (
+                        f"Task {failed.task.id} ({failed.task.spec}) failed "
+                        f"(build succeeded: {failed.build.success}, run verdict: {verdict}). "
+                        f"What the build and simulation reported:\n{failure_evidence(failed)}"
+                    )
+                else:
+                    diagnosis = Triage(diagnosis="not_triaged", fix="")
+                    feedback = ""
                 diagnoses[-1] = (failed.task.id, diagnosis)
                 record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
                 triage_calls = calls.take()
                 if triage_calls:
                     add_iteration_usd(db, run_id, iteration, sum(c.usd for c in triage_calls))
                     record_llm_calls(db, run_id, iteration, triage_calls)
-                feedback_history.append(
-                    f"Task {failed.task.id} ({failed.task.spec}) failed: "
-                    f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
-                )
+                if feedback:
+                    feedback_history.append(feedback)
         finally:
             if nodes is not None:
                 close_nodes(nodes)
 
         post_mortem = None
-        if status in _POST_MORTEM_STATUSES and iterations:
+        if options.post_mortem and status in _POST_MORTEM_STATUSES and iterations:
             report_tools = (*tools, tool_server) if tool_server is not None else tools
             try:
                 post_mortem = generate_post_mortem(

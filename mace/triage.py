@@ -38,7 +38,13 @@ class TriageError(Exception):
     """The triage response produced no diagnosis."""
 
 
-def build_prompt(result: StepResult) -> str:
+def failure_evidence(result: StepResult) -> str:
+    """What a failed task's build and simulation reported, capped in length.
+
+    Triage's prompt carries this text. The ``raw`` triage mode and the
+    retry-agent baseline hand the same text to their next plan, so they see
+    what triage would have read, without its diagnosis.
+    """
     build = result.build
     run = result.run
     # The flags show which RTL defines and cache sizes were built, so a
@@ -54,13 +60,19 @@ def build_prompt(result: StepResult) -> str:
     elif run is not None:
         context_parts.append(f"Sim log (tail):\n{run.sim_log_tail[-1500:]}")
         context_parts.append(f"Status log:\n{run.status_log}")
+    return "\n\n".join(context_parts)
+
+
+def build_prompt(result: StepResult) -> str:
+    build = result.build
+    run = result.run
     return _PROMPT_TEMPLATE.format(
         task_id=result.task.id,
         kind=result.task.kind,
         spec=result.task.spec,
         build_success=build.success,
         verdict=run.verdict if run else None,
-        context="\n\n".join(context_parts),
+        context=failure_evidence(result),
     )
 
 

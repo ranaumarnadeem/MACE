@@ -364,8 +364,10 @@ class _FakePromptAttr:
 class _FakeBuildAttr:
     def __init__(self, delay=0.0):
         self.delay = delay
+        self.calls = []
 
-    def chia_remote(self, config, _chia_tag=None):
+    def chia_remote(self, config, _chia_tag=None, **kwargs):
+        self.calls.append(kwargs)
         build = PitonBuildArtifact(
             success=True, returncode=0, config=config, sim_type="vlt", model_dir="/x",
             binary_path="/x/Vcmp_top", wall_time_s=0.0,
@@ -374,7 +376,11 @@ class _FakeBuildAttr:
 
 
 class _FakeRunAttr:
-    def chia_remote(self, config, workload, asm_diag_root=None, rtl_timeout=None, _chia_tag=None):
+    def __init__(self):
+        self.calls = []
+
+    def chia_remote(self, config, workload, asm_diag_root=None, rtl_timeout=None, _chia_tag=None, **kwargs):
+        self.calls.append(kwargs)
         run = PitonRunResult(
             success=True, returncode=0, test=workload, sim_type="vlt", run_dir="/x/runs/1",
             verdict="pass",
@@ -504,3 +510,93 @@ class TestTaskCallsAreRecorded:
             _run_batch([_FakeRemoteNode("/root_a")], make_spec(), [task("a")], llm, (), str(WORKLOADS_DIR), None, 0)
         (call,) = log.calls()
         assert (call.phase, call.ok) == ("task", False)
+
+
+class TestTimeoutBefore:
+    def test_no_deadline_keeps_the_default(self):
+        from mace.integrator import timeout_before
+
+        assert timeout_before(None, 7200) == 7200
+
+    def test_a_far_deadline_keeps_the_default(self):
+        from mace.integrator import timeout_before
+
+        assert timeout_before(time.monotonic() + 10_000, 3600) == 3600
+
+    def test_a_near_deadline_caps_it(self):
+        from mace.integrator import timeout_before
+
+        assert 100 <= timeout_before(time.monotonic() + 120, 3600) <= 120
+
+    def test_a_passed_deadline_is_zero(self):
+        from mace.integrator import timeout_before
+
+        assert timeout_before(time.monotonic() - 5, 3600) == 0
+
+
+class _NoPromptAttr:
+    def chia_remote(self, *args, **kwargs):
+        raise AssertionError("task prompts are off, so no task may prompt")
+
+
+class TestLoopOptionsInTheBatch:
+    def _run(self, monkeypatch, node, options=None, deadline=None, prompt=None):
+        from mace.spec import LoopOptions
+
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        llm = type("FakeLLM", (), {"prompt": prompt or _FakePromptAttr({})})()
+        [result] = _run_batch(
+            [node], make_spec(), [task("a")], llm, (), str(WORKLOADS_DIR), None, 0,
+            options=options or LoopOptions(), deadline=deadline,
+        )
+        return result
+
+    def test_build_and_run_get_timeouts_capped_by_the_deadline(self, monkeypatch):
+        node = _FakeRemoteNode("/root_a")
+        self._run(monkeypatch, node, deadline=time.monotonic() + 600)
+        (build_kwargs,) = node.build.calls
+        (run_kwargs,) = node.run.calls
+        assert 590 <= build_kwargs["timeout_seconds"] <= 600
+        assert 590 <= run_kwargs["timeout_seconds"] <= 600
+        assert build_kwargs["clean"] is False
+
+    def test_without_a_deadline_the_defaults_apply(self, monkeypatch):
+        from mace.integrator import BUILD_TIMEOUT_S, RUN_TIMEOUT_S
+
+        node = _FakeRemoteNode("/root_a")
+        self._run(monkeypatch, node)
+        assert node.build.calls[0]["timeout_seconds"] == BUILD_TIMEOUT_S
+        assert node.run.calls[0]["timeout_seconds"] == RUN_TIMEOUT_S
+
+    def test_a_passed_deadline_starts_no_build(self, monkeypatch):
+        node = _FakeRemoteNode("/root_a")
+        result = self._run(monkeypatch, node, deadline=time.monotonic() - 1)
+        assert node.build.calls == []
+        assert result.passed is False
+        assert result.build.failure_reason == "budget_exhausted"
+
+    def test_no_build_reuse_asks_for_a_clean_build(self, monkeypatch):
+        from mace.spec import LoopOptions
+
+        node = _FakeRemoteNode("/root_a")
+        self._run(monkeypatch, node, options=LoopOptions(reuse_builds=False))
+        assert node.build.calls[0]["clean"] is True
+
+    def test_a_build_only_check_passes_on_the_build_and_never_runs(self, monkeypatch):
+        from mace.spec import LoopOptions
+
+        node = _FakeRemoteNode("/root_a")
+        result = self._run(monkeypatch, node, options=LoopOptions(check="build"))
+        assert result.passed is True
+        assert result.run is None
+        assert node.run.calls == []
+
+    def test_task_prompts_off_makes_no_task_call(self, monkeypatch):
+        from mace.spec import LoopOptions
+
+        node = _FakeRemoteNode("/root_a")
+        result = self._run(
+            monkeypatch, node, options=LoopOptions(task_prompts=False), prompt=_NoPromptAttr()
+        )
+        assert result.passed is True
+        assert result.query.result == ""

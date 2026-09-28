@@ -96,6 +96,43 @@ class MaceSpec:
             raise ValueError(f"budget must be a Budget, got {type(self.budget).__name__}")
 
 
+TRIAGE_MODES: frozenset[str] = frozenset(("llm", "raw", "off"))
+CHECK_MODES: frozenset[str] = frozenset(("sim", "build"))
+
+
+@dataclass(frozen=True)
+class LoopOptions:
+    """Parts of the loop an evaluation turns off, one at a time.
+
+    The defaults are the full loop. The baselines and ablations each change
+    one field:
+
+    - ``triage``: ``"llm"`` diagnoses a failed task with triage's LLM call;
+      ``"raw"`` hands the re-plan the failure's raw evidence instead;
+      ``"off"`` gives the re-plan nothing.
+    - ``check``: ``"sim"`` passes a task when its gate programs pass in
+      simulation; ``"build"`` passes it when its build succeeds.
+    - ``reuse_builds``: ``False`` rebuilds every task, even a configuration
+      already built on the checkout.
+    - ``task_prompts``: ``False`` skips each task's own LLM call, whose
+      reply changes nothing that is built.
+    - ``post_mortem``: ``False`` skips the post-mortem of a run that ends
+      without passing.
+    """
+
+    triage: str = "llm"
+    check: str = "sim"
+    reuse_builds: bool = True
+    task_prompts: bool = True
+    post_mortem: bool = True
+
+    def __post_init__(self) -> None:
+        if self.triage not in TRIAGE_MODES:
+            raise ValueError(f"triage must be one of {sorted(TRIAGE_MODES)}, got {self.triage!r}")
+        if self.check not in CHECK_MODES:
+            raise ValueError(f"check must be one of {sorted(CHECK_MODES)}, got {self.check!r}")
+
+
 TASK_KINDS: frozenset[str] = frozenset(("config", "workload", "unit_test"))
 
 

@@ -238,3 +238,20 @@ def test_loop_result_post_mortem_defaults_to_none_but_is_settable():
     pm = PostMortem(assessment="likely_hardware_limitation")
     result = LoopResult(run_id="r1", status="budget_exceeded", iterations=(), post_mortem=pm)
     assert result.post_mortem is pm
+
+
+class TestLoopOptions:
+    def test_defaults_are_the_full_loop(self):
+        from mace.spec import LoopOptions
+
+        opts = LoopOptions()
+        assert (opts.triage, opts.check, opts.reuse_builds, opts.task_prompts, opts.post_mortem) == (
+            "llm", "sim", True, True, True,
+        )
+
+    @pytest.mark.parametrize("field,value", [("triage", "maybe"), ("check", "lint")])
+    def test_an_unknown_mode_raises(self, field, value):
+        from mace.spec import LoopOptions
+
+        with pytest.raises(ValueError, match=field):
+            LoopOptions(**{field: value})

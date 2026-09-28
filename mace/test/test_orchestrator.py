@@ -105,7 +105,7 @@ def fake_integrate_parallel(results_by_iteration):
 
     def _integrate_parallel(
         piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None,
-        nodes=None,
+        nodes=None, **kwargs,
     ):
         return (results_by_iteration[iteration],)
 
@@ -129,7 +129,7 @@ class TestIterationWallTimeIncludesPlanning:
 
         def fake_integrate_parallel(
             piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None,
-            nodes=None,
+            nodes=None, **kwargs,
         ):
             return (step_result(tasks[0].id),)
 
@@ -155,7 +155,7 @@ class TestOnTaskProgressIsThreadedThrough:
 
         def capturing_integrate_parallel(
             piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None,
-            nodes=None,
+            nodes=None, **kwargs,
         ):
             received["on_task_progress"] = on_task_progress
             return (step_result(tasks[0].id),)
@@ -198,7 +198,7 @@ class TestNodeLifecycleAcrossIterations:
         )
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None, **kwargs: (
                 step_result("t1", passed=False, verdict="fail"),
             ),
         )
@@ -243,7 +243,7 @@ class TestStatusTransitions:
         monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)]))
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None, **kwargs: (
                 step_result("t1"),
             ),
         )
@@ -289,7 +289,7 @@ class TestStatusTransitions:
         )
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None, **kwargs: (
                 step_result("t1", passed=False, verdict="fail"),
             ),
         )
@@ -319,7 +319,7 @@ class TestStatusTransitions:
         monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
         monkeypatch.setattr(
             "mace.orchestrator.integrate_parallel",
-            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None: (
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None, **kwargs: (
                 step_result("t1", passed=False, verdict="fail"),
             ),
         )
@@ -352,7 +352,7 @@ class TestStatusTransitions:
             return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
 
         def fail_fail_then_pass(
-            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None
+            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None, **kwargs
         ):
             passed = iteration == 2  # third iteration is the one that finally passes
             return (step_result("t1", passed=passed, verdict="pass" if passed else "fail"),)
@@ -755,3 +755,87 @@ class TestLlmCallsAreRecorded:
         )
         row = db.query_one("SELECT method, task, repeat FROM runs WHERE run_id = ?", (result.run_id,))
         assert (row["method"], row["task"], row["repeat"]) == ("one_shot", "ariane-2x2", 1)
+
+
+class TestLoopOptions:
+    def _failing_then_recorded(self, monkeypatch, received):
+        def integrate(piton_roots, spec, tasks, llm, **kwargs):
+            received.append(kwargs)
+            return (step_result("t1", passed=False, verdict="timeout"),)
+
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", integrate)
+
+    def test_options_and_a_deadline_reach_the_integrator(self, tmp_path, monkeypatch):
+        from mace.spec import LoopOptions
+
+        received = []
+        self._failing_then_recorded(monkeypatch, received)
+        monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="w"),)]))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("timeout", "wait"))
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+        opts = LoopOptions(check="build", reuse_builds=False)
+        before = time.monotonic()
+        run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=1, max_wall_s=900)), FakeLLM([]), make_db(tmp_path), options=opts)
+
+        assert received[0]["options"] is opts
+        assert before + 890 <= received[0]["deadline"] <= time.monotonic() + 900
+
+    def _replan_feedback(self, tmp_path, monkeypatch, options):
+        feedback_seen = []
+
+        def recording_plan(spec, llm, tools=(), feedback=""):
+            feedback_seen.append(feedback)
+            return (Task(id="t1", deps=(), kind="workload", spec="w"),)
+
+        def no_triage(*args, **kwargs):
+            raise AssertionError("triage's LLM call must not run in this mode")
+
+        monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
+        monkeypatch.setattr("mace.orchestrator.triage", no_triage)
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda *a, **k: (step_result("t1", passed=False, verdict="timeout"),),
+        )
+        db = make_db(tmp_path)
+        result = run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=2)), FakeLLM([]), db, options=options)
+        diagnosis = db.query_value(
+            "SELECT diagnosis FROM failures WHERE run_id = ? AND iteration = 0", (result.run_id,)
+        )
+        return feedback_seen, diagnosis
+
+    def test_raw_triage_hands_the_evidence_to_the_next_plan(self, tmp_path, monkeypatch):
+        from mace.spec import LoopOptions
+
+        feedback, diagnosis = self._replan_feedback(tmp_path, monkeypatch, LoopOptions(triage="raw"))
+        assert feedback[0] == ""
+        assert "What the build and simulation reported" in feedback[1]
+        assert "Build flags:" in feedback[1]
+        assert "run verdict: timeout" in feedback[1]
+        assert diagnosis == "raw_evidence"
+
+    def test_triage_off_hands_the_next_plan_nothing(self, tmp_path, monkeypatch):
+        from mace.spec import LoopOptions
+
+        feedback, diagnosis = self._replan_feedback(tmp_path, monkeypatch, LoopOptions(triage="off"))
+        assert feedback == ["", ""]
+        assert diagnosis == "not_triaged"
+
+    def test_post_mortem_off_skips_it(self, tmp_path, monkeypatch):
+        from mace.spec import LoopOptions
+
+        def no_post_mortem(*args, **kwargs):
+            raise AssertionError("post-mortem is off")
+
+        monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="w"),)]))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("timeout", "wait"))
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", no_post_mortem)
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda *a, **k: (step_result("t1", passed=False, verdict="timeout"),),
+        )
+        result = run_mace_loop(
+            ("/fake",), make_spec(), FakeLLM([]), make_db(tmp_path), options=LoopOptions(post_mortem=False)
+        )
+        assert result.status == "budget_exceeded"
+        assert result.post_mortem is None

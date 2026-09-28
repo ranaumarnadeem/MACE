@@ -29,13 +29,44 @@ import time
 from chia.base.ChiaFunction import get
 from chia.base.llm_call import QueryResult
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
+from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import usage
 from mace.loop import _config_for_task, run_mace_step
 from mace.replay import tag_for
-from mace.spec import MaceSpec, StepResult, Task
+from mace.spec import LoopOptions, MaceSpec, StepResult, Task
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 logger = logging.getLogger(__name__)
+
+# OpenPitonWorkspaceNode's own defaults for one build and one run. A run
+# with a deadline gets the smaller of these and the time left.
+BUILD_TIMEOUT_S = 7200
+RUN_TIMEOUT_S = 3600
+NOT_STARTED = "budget_exhausted"
+
+
+def timeout_before(deadline: float | None, default: int) -> int:
+    """*default* seconds, or the whole seconds left before *deadline* (a
+    ``time.monotonic()`` value) if fewer; 0 once it has passed."""
+    if deadline is None:
+        return default
+    return max(0, min(default, int(deadline - time.monotonic())))
+
+
+def _not_built(config: PitonConfig) -> PitonBuildArtifact:
+    """The build a task gets when its run's time budget ran out first."""
+    return PitonBuildArtifact(
+        success=False, returncode=-1, config=config, sim_type="vlt", model_dir="",
+        binary_path="", wall_time_s=0.0, failure_reason=NOT_STARTED,
+    )
+
+
+def _not_run(test: str) -> PitonRunResult:
+    """The run a task gets when its run's time budget ran out after its build."""
+    return PitonRunResult(
+        success=False, returncode=-1, test=test, sim_type="vlt", run_dir="",
+        stderr=f"{NOT_STARTED}: the run's time budget ran out before this simulation",
+    )
 
 
 def open_nodes(piton_roots: tuple[str, ...]) -> list:
@@ -171,6 +202,8 @@ def integrate_parallel(
     iteration: int = 0,
     on_task_progress=None,
     nodes: list | None = None,
+    options: LoopOptions | None = None,
+    deadline: float | None = None,
 ) -> tuple[StepResult, ...]:
     """Apply *tasks* across *piton_roots* in parallel, one level at a time.
 
@@ -225,7 +258,15 @@ def integrate_parallel(
     change. Omitted (the default, ``None``), this function builds and
     closes its own nodes from *piton_roots*, exactly as before -- the right
     default for a single call.
+
+    ``options`` (:class:`~mace.spec.LoopOptions`) decide whether each task
+    makes its own LLM call, whether a build may be reused, and whether a
+    task passes on its build alone. ``deadline``, a ``time.monotonic()``
+    value, caps every build's and run's timeout at the time left before it;
+    a build or run that would start after it is not started, and its task
+    fails with ``failure_reason="budget_exhausted"``.
     """
+    options = options or LoopOptions()
     owns_nodes = nodes is None
     if owns_nodes:
         nodes = open_nodes(piton_roots)
@@ -234,7 +275,8 @@ def integrate_parallel(
         results: list[StepResult] = []
         for level in topological_levels(tasks):
             level_results = _run_level(
-                nodes, spec, level, llm, tools, root_dir, run_id, iteration, on_task_progress
+                nodes, spec, level, llm, tools, root_dir, run_id, iteration, on_task_progress,
+                options, deadline,
             )
             results.extend(level_results)
             if not all(r.passed for r in level_results):
@@ -255,6 +297,8 @@ def _run_level(
     run_id: str | None,
     iteration: int,
     on_task_progress=None,
+    options: LoopOptions | None = None,
+    deadline: float | None = None,
 ) -> list[StepResult]:
     """One level, batched to at most ``len(nodes)`` tasks in flight at once."""
     results: list[StepResult] = []
@@ -265,7 +309,7 @@ def _run_level(
         results.extend(
             _run_batch(
                 nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root, run_id, iteration,
-                on_task_progress,
+                on_task_progress, options, deadline,
             )
         )
     return results
@@ -281,6 +325,8 @@ def _run_batch(
     run_id: str | None,
     iteration: int,
     on_task_progress=None,
+    options: LoopOptions | None = None,
+    deadline: float | None = None,
 ) -> list[StepResult]:
     """One (node, task) pair per entry.
 
@@ -312,6 +358,7 @@ def _run_batch(
     each), but within it, wall time now approaches the slowest single
     task's own pipeline, not the sum of each stage's slowest task.
     """
+    options = options or LoopOptions()
     progress_lock = threading.Lock()
 
     def _progress(task_ids: tuple[str, ...], stage: str) -> None:
@@ -342,37 +389,58 @@ def _run_batch(
         return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None
 
     def _run_one(node, config: object, task: Task) -> StepResult:
-        _progress((task.id,), "prompting")
-        started = time.monotonic()
-        try:
-            query = get(
-                llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
-            )
-            usage.note("task", query, time.monotonic() - started)
-        except Exception as e:
-            usage.note_failure("task", time.monotonic() - started)
-            # The reply changes nothing that is built or run: the config
-            # comes from the plan's task. So a failed call, such as a reply
-            # cut off at the model's output limit, is logged and the task
-            # still builds and runs.
-            logger.warning("task %s: prompt failed, building without its reply: %s", task.id, e)
-            query = QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
+        query = QueryResult(result="", returncode=0, stderr="", stream_result="", success=True)
+        if options.task_prompts:
+            _progress((task.id,), "prompting")
+            started = time.monotonic()
+            try:
+                query = get(
+                    llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
+                )
+                usage.note("task", query, time.monotonic() - started)
+            except Exception as e:
+                usage.note_failure("task", time.monotonic() - started)
+                # The reply changes nothing that is built or run: the config
+                # comes from the plan's task. So a failed call, such as a reply
+                # cut off at the model's output limit, is logged and the task
+                # still builds and runs.
+                logger.warning("task %s: prompt failed, building without its reply: %s", task.id, e)
+                query = QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
 
-        _progress((task.id,), "building")
-        build = get(node.build.chia_remote(config, _chia_tag=_tag(task.id, "build")))
+        build_timeout = timeout_before(deadline, BUILD_TIMEOUT_S)
+        if build_timeout == 0:
+            build = _not_built(config)
+        else:
+            _progress((task.id,), "building")
+            build = get(
+                node.build.chia_remote(
+                    config,
+                    clean=not options.reuse_builds,
+                    timeout_seconds=build_timeout,
+                    _chia_tag=_tag(task.id, "build"),
+                )
+            )
+
+        if options.check == "build":
+            return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
 
         run = None
         if build.success:
-            _progress((task.id,), "running")
-            run = get(
-                node.run.chia_remote(
-                    config,
-                    spec.workloads[0],
-                    asm_diag_root=asm_diag_root,
-                    rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
-                    _chia_tag=_tag(task.id, "run"),
+            run_timeout = timeout_before(deadline, RUN_TIMEOUT_S)
+            if run_timeout == 0:
+                run = _not_run(spec.workloads[0])
+            else:
+                _progress((task.id,), "running")
+                run = get(
+                    node.run.chia_remote(
+                        config,
+                        spec.workloads[0],
+                        asm_diag_root=asm_diag_root,
+                        rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
+                        timeout_seconds=run_timeout,
+                        _chia_tag=_tag(task.id, "run"),
+                    )
                 )
-            )
         passed = run.success if run is not None else False
         return StepResult(task=task, query=query, build=build, run=run, passed=passed)
 
