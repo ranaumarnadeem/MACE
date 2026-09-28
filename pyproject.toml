@@ -17,6 +17,8 @@ mace = "mace.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest==9.0.3"]
+# The co-design Bayesian-optimization baseline (mace.codesign.search.BayesianSearch).
+eval = ["optuna>=3.6"]
 
 [build-system]
 requires = ["setuptools>=77"]  # 77 added the SPDX `license` string

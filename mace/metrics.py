@@ -104,6 +104,21 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     PRIMARY KEY (run_id, seq)
 );
 
+CREATE TABLE IF NOT EXISTS evaluations (
+    run_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    design TEXT NOT NULL,
+    passed INTEGER NOT NULL,
+    feasible INTEGER NOT NULL,
+    sim_time INTEGER,
+    area_um2 REAL,
+    read_energy_nj REAL,
+    area_source TEXT,
+    wall_s REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, idx)
+);
+
 CREATE TABLE IF NOT EXISTS resimulations (
     run_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
@@ -295,6 +310,21 @@ def record_llm_calls(
             )
             for c in calls
         ]
+    )
+
+
+def record_evaluation(db: SQLiteNode, run_id: str, evaluation) -> None:
+    """One design a co-design search tried (a
+    ``mace.codesign.run.Evaluation``)."""
+    e = evaluation
+    db.execute(
+        "INSERT OR REPLACE INTO evaluations "
+        "(run_id, idx, round, design, passed, feasible, sim_time, area_um2, read_energy_nj, area_source, wall_s) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id, e.index, e.round, e.design.as_json(), int(e.passed), int(e.feasible), e.sim_time,
+            e.area_um2, e.read_energy_nj, e.area_source, e.wall_s,
+        ),
     )
 
 
