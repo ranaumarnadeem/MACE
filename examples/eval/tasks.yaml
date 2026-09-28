@@ -1,0 +1,130 @@
+# MACE evaluation suite: the tasks every method runs on.
+#
+# examples/eval_batch.py runs each method on each task; mace/eval/suite.py
+# describes the fields. A task passes when every gate workload passes on
+# every tile. `expert` is the known passing configuration the expert
+# reference builds; `verified: true` means that configuration has passed.
+# Candidates stay `verified: false` until a pilot run passes them, and the
+# batch runner skips them unless given --include-unverified.
+#
+# The four verified tasks are the cells of the hackathon paper's Table 1,
+# with the objectives those runs used.
+
+version: 1
+
+defaults:
+  budget:
+    max_iterations: 3
+    max_wall_s: 3600
+    max_usd: 20.0
+
+tasks:
+  - id: ariane-2x2-barrier
+    core: ariane
+    mesh: [2, 2]
+    workloads: [barrier_atomic.c]
+    objective: Verify the barrier_atomic.c gate workload passes on a 2x2 mesh.
+    verified: true
+    expert: {}
+
+  - id: ariane-4x4-barrier
+    core: ariane
+    mesh: [4, 4]
+    workloads: [barrier_atomic.c]
+    objective: Verify the barrier_atomic.c gate workload passes on a 4x4 mesh.
+    verified: true
+    # A cold 4x4 Ariane build at MAKEFLAGS=-j1 has taken over an hour.
+    budget: {max_wall_s: 7200}
+    expert: {}
+
+  - id: pico-2x2-addi
+    core: pico
+    mesh: [2, 2]
+    workloads: [addi.S]
+    objective: >-
+      Verify the addi.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    verified: true
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-4x4-addi
+    core: pico
+    mesh: [4, 4]
+    workloads: [addi.S]
+    objective: >-
+      Verify the addi.S gate workload passes on a 4x4 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    verified: true
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  # Candidates. Each needs one passing expert run before it counts.
+
+  - id: ariane-4x2-barrier
+    core: ariane
+    mesh: [4, 2]
+    workloads: [barrier_atomic.c]
+    objective: Verify the barrier_atomic.c gate workload passes on a 4x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-hello-many
+    core: ariane
+    mesh: [2, 2]
+    workloads: [hello_world_many.c]
+    objective: Verify the hello_world_many.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-shared-var
+    core: ariane
+    mesh: [2, 2]
+    workloads: [add_shared_var.c]
+    objective: Verify the add_shared_var.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-lrsc
+    core: ariane
+    mesh: [2, 2]
+    workloads: [lrsc_test.c]
+    objective: Verify the lrsc_test.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-two-programs
+    core: ariane
+    mesh: [2, 2]
+    workloads: [barrier_atomic.c, hello_world_many.c]
+    objective: >-
+      Verify the barrier_atomic.c and hello_world_many.c gate workloads both
+      pass on a 2x2 mesh.
+    expert: {}
+
+  - id: pico-4x2-addi
+    core: pico
+    mesh: [4, 2]
+    workloads: [addi.S]
+    objective: >-
+      Verify the addi.S gate workload passes on a 4x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-amoadd
+    core: pico
+    mesh: [2, 2]
+    workloads: [amoadd_w.S]
+    objective: >-
+      Verify the amoadd_w.S gate workload passes on a 2x2 pico mesh in a
+      single task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-8x8-addi
+    core: pico
+    mesh: [8, 8]
+    workloads: [addi.S]
+    objective: >-
+      Verify the addi.S gate workload passes on an 8x8 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    budget: {max_wall_s: 7200}
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
