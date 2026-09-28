@@ -11,6 +11,7 @@
 # Idempotent: safe to re-run, and safe to run on an already-patched tree.
 #
 # Usage: scripts/patch_openpiton.sh [PITON_ROOT]
+#        PATCH_SKIP="11" scripts/patch_openpiton.sh [PITON_ROOT]   (leave fix 11 out)
 set -euo pipefail
 
 ROOT="${1:-${PITON_ROOT:-}}"
@@ -24,9 +25,22 @@ BOOTROM_MK="$ROOT/piton/design/chipset/rv64_platform/bootrom/linux/Makefile"
 
 changed=0
 
+# PATCH_SKIP names fixes to leave out, as space-separated numbers (for
+# example PATCH_SKIP="11"). An evaluation uses it to prepare a checkout that
+# lacks exactly one fix, so the failure that fix addresses comes back; every
+# other fix still applies.
+PATCH_SKIP=" ${PATCH_SKIP:-} "
+skip() {
+    if [[ "$PATCH_SKIP" == *" $1 "* ]]; then
+        echo "skipped fix $1 (PATCH_SKIP)"
+        return 0
+    fi
+    return 1
+}
+
 # 1. binutils 2.38+ split zicsr/zifencei out of base RV64I, so the boot ROM's
 #    "csrr s2, mhartid" no longer assembles under -march=rv64imac.
-if grep -q -- "-march=rv64imac " "$BOOTROM_MK"; then
+if ! skip 1 && grep -q -- "-march=rv64imac " "$BOOTROM_MK"; then
     sed -i 's/-march=rv64imac /-march=rv64imac_zicsr_zifencei /' "$BOOTROM_MK"
     echo "patched: zicsr/zifencei added to bootrom -march"
     changed=1
@@ -37,7 +51,7 @@ fi
 #    own two-argument call became a hard error. Pin the dialect it was written
 #    for instead of editing the sources. sims runs `make clean` in this
 #    directory before every build, so the flag applies to the next build.
-if ! grep -q -- "-std=gnu17" <(grep "^CFLAGS" "$BOOTROM_MK"); then
+if ! skip 2 && ! grep -q -- "-std=gnu17" <(grep "^CFLAGS" "$BOOTROM_MK"); then
     sed -i 's/^\(CFLAGS = .*\)$/\1 -std=gnu17/' "$BOOTROM_MK"
     echo "patched: -std=gnu17 pinned for the bootrom (GCC 15+ defaults to C23)"
     changed=1
@@ -60,6 +74,7 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
 #    bootrom and dtc choked trying to parse a path string as a device tree.
 #    Not needed on a native Linux checkout (a GCP worker's ext4 clone, for
 #    instance) -- git there defaults to real symlinks already.
+if ! skip 3; then
 (
     cd "$ROOT"
     if git config core.symlinks | grep -q true; then
@@ -80,6 +95,7 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
         fi
     fi
 )
+fi
 
 # 4. Same Windows-checkout root cause, different symptom: git's own CRLF
 #    auto-conversion (or a plain Windows checkout) leaves some .py/.sh
@@ -94,6 +110,7 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
 #    worth the churn once the pattern is this clear. Only strips \r from
 #    lines that actually need it (sed 's/\r$//' is a no-op on a clean LF
 #    file), so this is safe to run on an already-fixed tree too.
+if ! skip 4; then
 (
     cd "$ROOT"
     fixed=0
@@ -108,6 +125,7 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
         echo "no CRLF shebangs found: $ROOT"
     fi
 )
+fi
 
 # 5. Verilator's --coverage-* flags instrument the model, but the hand-written
 #    testbench Verilator links against never calls Verilator's own
@@ -130,6 +148,7 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
 #    exactly the builds this guard was supposed to no-op on. Found by
 #    bisecting a link failure that turned out to have nothing to do with
 #    the Verilator version installed.
+if ! skip 5; then
 (
     cd "$ROOT"
     MY_TOP_CPP="piton/tools/verilator/my_top.cpp"
@@ -211,6 +230,7 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
         fi
     fi
 )
+fi
 
 # 6. PicoRV32's own internal `resetn` gate (distinct from the tile-wide
 #    reset_l every core shares) only ever turns on via an L15 interrupt
@@ -231,6 +251,7 @@ grep -n "^CFLAGS" "$BOOTROM_MK"
 #    breaking that mechanism entirely. python3 (not sed) for this one: it's
 #    a multi-line structural block, and an exact-match-count replace is
 #    safer here than chaining several line-number-dependent sed inserts.
+if ! skip 6; then
 (
     cd "$ROOT"
     PICO_RTL="piton/design/chip/tile/pico/rtl/picorv32.v"
@@ -286,6 +307,7 @@ PYEOF
         fi
     fi
 )
+fi
 
 # 7. pc_cmp.v's RTL_PICO0 active_thread tracking never turns on: unlike
 #    RTL_ARIANE0's own equivalent block (a clocked always @(posedge clk)
@@ -303,6 +325,7 @@ PYEOF
 #    itself actually does. Matches RTL_ARIANE0's own clocked, unconditional
 #    pattern (same rst_l reset signal already in scope) rather than
 #    inventing a new mechanism.
+if ! skip 7; then
 (
     cd "$ROOT"
     PC_CMP="piton/verif/env/manycore/pc_cmp.v.pyv"
@@ -358,6 +381,7 @@ PYEOF
         fi
     fi
 )
+fi
 
 
 # 8. sims' -vlt_build/-vlt_run hardcode "cmp_top"/"Vcmp_top" in three places,
@@ -383,6 +407,7 @@ PYEOF
 #    it's a bare identifier rather than an already-quoted string (the latter
 #    doesn't survive sims' own system() call, Verilator's Makefile
 #    generation, and make's own recipe shell intact).
+if ! skip 8; then
 (
     cd "$ROOT"
     SIMS_PL="piton/tools/src/sims/sims,2.0"
@@ -535,6 +560,7 @@ CPPEOF
         fi
     fi
 )
+fi
 
 # 9. sims' own vlt_build step invokes a bare "make -j" (unlimited parallel
 #    jobs) to compile Verilator's generated C++, with no number after -j --
@@ -546,6 +572,7 @@ CPPEOF
 #    during a 4x4 Ariane build. Drop the bare -j so this make invocation
 #    falls back to ordinary GNU Make behavior: parallel only when MAKEFLAGS
 #    from the environment actually asks for it, serial otherwise.
+if ! skip 9; then
 (
     cd "$ROOT"
     SIMS_PL="piton/tools/src/sims/sims,2.0"
@@ -573,6 +600,7 @@ print("patched: sims,2.0's vlt_build make step no longer hardcodes bare -j, MAKE
 PYEOF
     fi
 )
+fi
 
 # 10. pc_cmp.v declares finish_mask as a Verilog "integer" (always exactly 32
 #     bits) under Verilator only, while its siblings active_thread/good are
@@ -583,6 +611,7 @@ PYEOF
 #     Declaring it "reg [31:0]" everywhere lets the template widen it too.
 #     Deliberately no Verilog comment added here: a backtick inside one
 #     broke Verilator's parse of the generated file.
+if ! skip 10; then
 (
     cd "$ROOT"
     PC_CMP="piton/verif/env/manycore/pc_cmp.v.pyv"
@@ -615,6 +644,7 @@ print("patched: pc_cmp.v.pyv's finish_mask is now reg [31:0], widened per tile l
 PYEOF
     fi
 )
+fi
 
 # 11. Ariane's shared syscalls.c (linked into every ariane C diagnostic)
 #     polls its multi-hart exit barrier (finish_sync0/finish_sync1) with
@@ -623,6 +653,7 @@ PYEOF
 #     another tile's atomic update, so on any multi-tile mesh every hart but
 #     the last spins forever (a 1x1 mesh hides it, since nc=1). Poll through
 #     an atomic fetch-add-zero instead.
+if ! skip 11; then
 (
     cd "$ROOT"
     SYSCALLS="piton/verif/diag/assembly/include/riscv/ariane/syscalls.c"
@@ -654,12 +685,14 @@ print("patched: syscalls.c's exit barrier now polls through atomic fetch-add-zer
 PYEOF
     fi
 )
+fi
 
 # 12. CVA6's Verilator instruction tracer opens a hardcoded
 #     "trace_hart_00.dasm" regardless of hart_id_i, so every tile of a
 #     multi-tile Ariane build truncates and shares one file, and every tile
 #     but one looks like it never booted. Name the file per hart, the way
 #     instr_tracer.sv already does. Lives in the ariane submodule.
+if ! skip 12; then
 (
     cd "$ROOT"
     CVA6_SV="piton/design/chip/tile/ariane/core/cva6.sv"
@@ -688,6 +721,7 @@ print("patched: cva6.sv's tracer now writes trace_hart_<hart_id>.dasm per tile")
 PYEOF
     fi
 )
+fi
 
 # Addition (not a bug fix): pico_reset_ut, a real, standalone unit test for
 # picorv32.v's self-boot behavior (finding 6) -- proves finding 8's -sys=

@@ -15,6 +15,12 @@ Run it once per checkout, on every worker that hosts one. The GCP worker in `clu
 
 The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 12 skip with a `not found, skipping fix N` message when their target file is absent.
 
+`PATCH_SKIP` names fixes to leave out, as space-separated numbers, and the script prints `skipped fix N (PATCH_SKIP)` for each. A checkout patched with `PATCH_SKIP="11"` has every fix but 11, so the failure fix 11 addresses comes back; the evaluation's reverted-fix runs prepare their checkouts this way.
+
+```bash
+PATCH_SKIP="11" bash scripts/patch_openpiton.sh /path/to/openpiton
+```
+
 The script's edits change the checkout's source fingerprint, so a model built before the script ran is rebuilt on its next `build()` (see [OpenPitonWorkspaceNode](workspace_node.md)).
 
 ## Fixes

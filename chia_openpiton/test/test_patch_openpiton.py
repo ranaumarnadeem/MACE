@@ -269,3 +269,47 @@ class TestMultiTileFixesApplyToASyntheticTree:
             assert f"({fix})" in second.stdout, fix
         for p, text in after_first.items():
             assert (multitile_piton_root / p).read_text() == text
+
+
+def _run_patch_skipping(piton_root: Path, skip: str) -> subprocess.CompletedProcess:
+    import os
+
+    return subprocess.run(
+        ["bash", str(SCRIPT), str(piton_root)],
+        capture_output=True, text=True, timeout=60, env={**os.environ, "PATCH_SKIP": skip},
+    )
+
+
+class TestPatchSkip:
+    """PATCH_SKIP leaves the named fixes out and applies every other one, so
+    an evaluation can reproduce the failure one fix addresses."""
+
+    def test_a_skipped_fix_leaves_its_file_alone(self, multitile_piton_root):
+        before = (multitile_piton_root / SYSCALLS).read_text()
+        result = _run_patch_skipping(multitile_piton_root, "11")
+        assert result.returncode == 0, result.stderr
+        assert "skipped fix 11 (PATCH_SKIP)" in result.stdout
+        assert (multitile_piton_root / SYSCALLS).read_text() == before
+        assert FINISH_MASK_NEW in (multitile_piton_root / PC_CMP).read_text()
+        assert CVA6_TRACE_NEW in (multitile_piton_root / CVA6).read_text()
+
+    def test_several_fixes_can_be_skipped(self, multitile_piton_root):
+        result = _run_patch_skipping(multitile_piton_root, "10 12")
+        assert result.returncode == 0, result.stderr
+        assert FINISH_MASK_OLD in (multitile_piton_root / PC_CMP).read_text()
+        assert CVA6_TRACE_OLD in (multitile_piton_root / CVA6).read_text()
+        for new in SYSCALLS_NEW:
+            assert new in (multitile_piton_root / SYSCALLS).read_text()
+
+    def test_skipping_the_boot_rom_fixes_leaves_its_makefile_alone(self, synthetic_piton_root):
+        makefile = synthetic_piton_root / "piton/design/chipset/rv64_platform/bootrom/linux/Makefile"
+        before = makefile.read_text()
+        result = _run_patch_skipping(synthetic_piton_root, "1 2")
+        assert result.returncode == 0, result.stderr
+        assert makefile.read_text() == before
+        assert "skipped fix 1 (PATCH_SKIP)" in result.stdout
+        assert "skipped fix 2 (PATCH_SKIP)" in result.stdout
+
+    def test_without_patch_skip_nothing_is_skipped(self, multitile_piton_root):
+        result = _run_patch(multitile_piton_root)
+        assert "skipped fix" not in result.stdout
