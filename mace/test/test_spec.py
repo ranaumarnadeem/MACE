@@ -265,3 +265,16 @@ class TestRtlTimeout:
     def test_must_be_a_positive_int(self, bad):
         with pytest.raises(ValueError, match="rtl_timeout"):
             MaceSpec(workloads=("w.c",), objective="o", rtl_timeout=bad)
+
+
+class TestTaskNetwork:
+    def test_defaults_to_none(self):
+        assert Task(id="t", deps=(), kind="config", spec="s").network is None
+
+    def test_accepts_the_two_interconnects(self):
+        for network in ("2dmesh_config", "xbar_config"):
+            assert Task(id="t", deps=(), kind="config", spec="s", network=network).network == network
+
+    def test_rejects_anything_else(self):
+        with pytest.raises(ValueError, match="network"):
+            Task(id="t", deps=(), kind="config", spec="s", network="torus")

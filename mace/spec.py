@@ -141,6 +141,7 @@ class LoopOptions:
 
 
 TASK_KINDS: frozenset[str] = frozenset(("config", "workload", "unit_test"))
+NETWORKS: frozenset[str] = frozenset(("2dmesh_config", "xbar_config"))
 
 
 @dataclass(frozen=True)
@@ -170,8 +171,14 @@ class Task:
     # neither does this -- only that each one looks like a real RTL define,
     # not typo'd or empty.
     config_rtl: tuple[str, ...] | None = None
+    # The interconnect this task's build uses, "2dmesh_config" or
+    # "xbar_config"; None keeps PitonConfig's default mesh. The planner has
+    # no directive for it; co-design searches set it (see mace.codesign).
+    network: str | None = None
 
     def __post_init__(self) -> None:
+        if self.network is not None and self.network not in NETWORKS:
+            raise ValueError(f"network must be one of {sorted(NETWORKS)}, got {self.network!r}")
         if not isinstance(self.id, str) or not self.id.strip():
             raise ValueError(f"task id must be a non-empty string, got {self.id!r}")
         if self.kind not in TASK_KINDS:

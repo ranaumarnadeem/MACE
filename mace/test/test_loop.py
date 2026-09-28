@@ -463,3 +463,16 @@ class TestRunGatePrograms:
         from mace.loop import run_gate_programs
 
         assert run_gate_programs(lambda p: self._result(p, True), ()) == ((), False)
+
+
+class TestTaskNetworkReachesTheBuild:
+    def test_a_crossbar_task_builds_with_xbar_config(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        task = Task(id="t1", deps=(), kind="config", spec="crossbar", network="xbar_config")
+        run_mace_step(str(stub_piton_root), make_spec(), task, FakeLLM(responses=["edit"]))
+        assert "-network_config=xbar_config" in sims_argv.lines()[0]
+
+    def test_no_network_keeps_the_mesh(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        run_mace_step(str(stub_piton_root), make_spec(), TASK, FakeLLM(responses=["edit"]))
+        assert "-network_config=2dmesh_config" in sims_argv.lines()[0]

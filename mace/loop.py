@@ -253,4 +253,6 @@ def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
         kwargs["caches"] = task.caches_dict
     if task.config_rtl is not None:
         kwargs["config_rtl"] = tuple(sorted(set(PitonConfig().config_rtl) | set(task.config_rtl)))
+    if task.network is not None:
+        kwargs["network_config"] = task.network
     return PitonConfig(**kwargs)
