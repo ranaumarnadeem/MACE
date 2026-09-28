@@ -148,3 +148,30 @@ class TestExtractCostUsd:
 
         query = FakeLLM(responses=["hi"]).prompt("hi")
         assert extract_cost_usd(query) == 0.0
+
+
+class TestVertexCost:
+    def test_prices_input_and_output_per_million_tokens(self):
+        from mace.llm import vertex_cost_usd
+
+        assert vertex_cost_usd("gemini-2.5-flash", 1_000_000, 0, 0) == pytest.approx(0.30)
+        assert vertex_cost_usd("gemini-2.5-flash", 0, 1_000_000, 0) == pytest.approx(2.50)
+
+    def test_thinking_tokens_cost_the_output_price(self):
+        from mace.llm import vertex_cost_usd
+
+        assert vertex_cost_usd("gemini-2.5-flash", 0, 0, 1_000_000) == pytest.approx(2.50)
+
+    def test_an_unpriced_model_costs_nothing(self):
+        from mace.llm import vertex_cost_usd
+
+        assert vertex_cost_usd("some-other-model", 1000, 1000, 1000) == 0.0
+
+    def test_extract_cost_usd_reads_a_vertex_reply(self):
+        from mace.llm import VertexQueryResult
+
+        query = VertexQueryResult(
+            result="ok", returncode=0, stderr="", stream_result="ok", success=True,
+            usage={"cost_usd": 0.01, "input_tokens": 5},
+        )
+        assert extract_cost_usd(query) == 0.01

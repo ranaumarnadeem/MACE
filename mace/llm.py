@@ -16,12 +16,45 @@ import of google-genai.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from typing import Optional
 
 from chia.base.llm_call import LLMCallBase, QueryResult
 
 
 class UnknownLLMBackendError(ValueError):
     """MACE_LLM (or the backend argument) named something not recognized."""
+
+
+# Vertex list prices in US dollars per million tokens, as (input, output).
+# Gemini bills thinking tokens at the output price. These are the Gemini 2.5
+# Flash prices the hackathon paper used; a model missing here costs 0.0 while
+# its tokens are still counted.
+VERTEX_USD_PER_M_TOKENS: dict[str, tuple[float, float]] = {
+    "gemini-2.5-flash": (0.30, 2.50),
+}
+
+
+def vertex_cost_usd(model: str, input_tokens: int, output_tokens: int, thinking_tokens: int) -> float:
+    """Dollar cost of one Vertex call at :data:`VERTEX_USD_PER_M_TOKENS`."""
+    prices = VERTEX_USD_PER_M_TOKENS.get(model)
+    if prices is None:
+        return 0.0
+    input_price, output_price = prices
+    return (input_tokens * input_price + (output_tokens + thinking_tokens) * output_price) / 1e6
+
+
+@dataclass
+class VertexQueryResult(QueryResult):
+    """:class:`QueryResult` that carries one Vertex call's token counts.
+
+    ``usage`` holds ``model``, ``input_tokens``, ``output_tokens``,
+    ``thinking_tokens``, and ``cost_usd``, summed over every model turn of
+    the call. It rides on the reply, so it survives a ``.chia_remote(...)``
+    round-trip, as ``OpenCodeQueryResult.usage`` does.
+    """
+
+    usage: Optional[dict] = None
 
 
 # This project's only funded backend -- confirmed reachable on its GCP
@@ -53,20 +86,12 @@ def extract_cost_usd(query: QueryResult) -> float:
 
     Only backends whose QueryResult subclass carries usage data on the
     result itself survive a ``.chia_remote(...)`` round-trip:
-    ``OpenCodeQueryResult.usage`` and ``AntigravityQueryResult.usage`` both
-    do. Claude's cost tracking lives on the ``LLMCallBase`` instance's own
+    ``OpenCodeQueryResult.usage``, ``AntigravityQueryResult.usage``, and
+    :class:`VertexQueryResult` ``.usage`` (from :mod:`mace.vertex`) do.
+    Claude's cost tracking lives on the ``LLMCallBase`` instance's own
     ``_last_metadata`` instead (chia.models.claude), which is a different
-    copy on the remote worker after dispatch and never visible back here --
-    so this always returns ``0.0`` for that backend. **Vertex, this
-    project's only funded backend, is the same story**: ``VertexGeminiLLM``
-    returns the plain base ``QueryResult`` (chia.base.llm_call), which has
-    no ``usage`` field at all -- confirmed against chia's own source, not
-    guessed -- so every ``compute_usd`` figure recorded from a real vertex
-    run (both captured baseline logs show ``compute_usd: 0.0``) is an
-    unconditional zero, not a partial real measurement of a genuinely free
-    call. Not a bug to fix in this function: a real API-shape limitation
-    this project doesn't control, not something worth papering over with a
-    wrong number.
+    copy on the remote worker after dispatch and never visible back here,
+    so this returns ``0.0`` for that backend.
     """
     usage = getattr(query, "usage", None)
     if not usage:
@@ -99,11 +124,11 @@ def _build_antigravity(model, overrides):
 
 
 def _build_vertex(model, overrides):
-    from chia.models.vertex import VertexGeminiLLM
+    from mace.vertex import UsageVertexLLM
 
     kwargs = {"model": model} if model else {}
     kwargs.update(overrides)
-    return VertexGeminiLLM(**kwargs)  # raises TypeError if no model ends up set
+    return UsageVertexLLM(**kwargs)  # raises TypeError if no model ends up set
 
 
 _BACKENDS = {
