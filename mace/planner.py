@@ -15,13 +15,16 @@ from mace.agents import parse_tasks
 from mace.integrator import topological_levels
 from mace.spec import MaceSpec, Task
 
-_PROMPT_TEMPLATE = """\
-You are planning the work for one MACE loop run against OpenPiton/{core}.
-
+# The run's inputs, in the words every LLM method's prompt uses. The
+# baselines render them with render_inputs() too (see mace/baselines/), so
+# a comparison differs in what each method does, never in what it is told.
+_INPUTS_TEMPLATE = """\
 Objective: {objective}
 Target mesh: {x_tiles}x{y_tiles} tiles
 Gate workloads (must all still pass after every task): {workloads}
+"""
 
+_TASK_RULES = """\
 Break this into an ordered set of tasks. Respond with one line per task,
 in exactly this format (a footer, not prose):
 
@@ -37,7 +40,11 @@ TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|un
   picorv32.v), nothing else.
 - Emit at least one TASK: line. Nothing else you write is parsed, but keep
   the rest brief.
+"""
 
+# How a task asks for a non-default cache geometry or extra RTL defines.
+# Shared with the baselines, whose one design per attempt is one task.
+OVERRIDE_RULES = """\
 If a task must build against a non-default cache geometry, also emit one
 line naming that task's id (defaults if omitted: l1i=16384,4 l1d=8192,4
 l15=8192,4 l2=65536,4):
@@ -60,17 +67,25 @@ with no CONFIG_RTL: line keeps the mesh's default RTL defines only.
 """
 
 
+def render_inputs(spec: MaceSpec) -> str:
+    """The objective, mesh, and gate workloads of *spec*, as every LLM
+    method's prompt states them."""
+    return _INPUTS_TEMPLATE.format(
+        objective=spec.objective,
+        x_tiles=spec.target_mesh[0],
+        y_tiles=spec.target_mesh[1],
+        workloads=", ".join(spec.workloads),
+    )
+
+
 class PlanningError(Exception):
     """The Planner's response produced no usable task DAG."""
 
 
 def build_prompt(spec: MaceSpec, feedback: str = "") -> str:
-    prompt = _PROMPT_TEMPLATE.format(
-        core=spec.core,
-        objective=spec.objective,
-        x_tiles=spec.target_mesh[0],
-        y_tiles=spec.target_mesh[1],
-        workloads=", ".join(spec.workloads),
+    prompt = (
+        f"You are planning the work for one MACE loop run against OpenPiton/{spec.core}.\n\n"
+        f"{render_inputs(spec)}\n{_TASK_RULES}\n{OVERRIDE_RULES}"
     )
     if feedback:
         prompt += f"\nFeedback from a previous attempt, to inform this plan:\n{feedback}\n"
