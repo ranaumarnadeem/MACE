@@ -131,7 +131,7 @@ Design space:
 {space}
 
 Total cache area budget: {budget} square microns over all tiles.
-
+{area_notes}
 Propose {n} new designs, one per line, in exactly this format (a footer, not
 prose), using only values from the space above:
 
@@ -150,11 +150,16 @@ class LLMProposer:
     name = "mace"
     phase = "propose"
 
-    def __init__(self, llm, spec: MaceSpec, space: DesignSpace, area_budget_um2: float | None):
+    def __init__(
+        self, llm, spec: MaceSpec, space: DesignSpace, area_budget_um2: float | None, area_notes: str = ""
+    ):
         self.llm = llm
         self.spec = spec
         self.space = space
         self.area_budget_um2 = area_budget_um2
+        # Each cache geometry's area (see mace.codesign.area.area_notes); a
+        # design over budget is rejected before it is built.
+        self.area_notes = area_notes
 
     def build_prompt(self, history: list, n: int) -> str:
         budget = "none" if self.area_budget_um2 is None else f"{self.area_budget_um2:.0f}"
@@ -162,7 +167,15 @@ class LLMProposer:
             _PROPOSER_HEADER.format(core=self.spec.core)
             + render_inputs(self.spec)
             + "\n"
-            + _PROPOSER_RULES.format(space=self.space.describe(), budget=budget, n=n)
+            + _PROPOSER_RULES.format(
+                space=self.space.describe(), budget=budget, n=n,
+                area_notes=(
+                    "Cache area in square microns over all tiles, per cache and geometry; a design's area is "
+                    "the sum over its four caches, and a design over budget is rejected without a simulation:\n"
+                    f"{self.area_notes}\n"
+                    if self.area_notes else ""
+                ),
+            )
         )
         if history:
             rows = []

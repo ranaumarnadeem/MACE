@@ -248,17 +248,35 @@ class TestRunCodesign:
         assert all(r["area_source"] == "analytical" for r in rows)
         assert db.query_value("SELECT method FROM runs WHERE run_id = ?", (result.run_id,)) == "codesign_random"
 
-    def test_a_design_over_the_area_budget_is_not_feasible(self, tmp_path, monkeypatch):
-        self._integrate(monkeypatch, lambda t: (True, 1000), [])
+    def test_a_design_over_the_area_budget_is_rejected_without_a_build(self, tmp_path, monkeypatch):
+        received = []
+        self._integrate(monkeypatch, lambda t: (True, 1000), received)
         db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
         result = run_codesign(
             ("/a",), make_spec(), search.GridSearch(SPACE.grid({"l2_size": (32768, 65536)})), db,
             simulations=2, batch=1, area_budget_um2=1.0,
             area_fn=lambda design, tiles: area.design_area(design, tiles, cacti=""),
         )
-        assert all(e.passed and not e.feasible for e in result.evaluations)
+        assert received == []
+        assert all(not e.simulated and not e.passed and not e.feasible for e in result.evaluations)
         assert result.status == "budget_exceeded"
         assert result.best is None
+        rows = db.query("SELECT simulated FROM evaluations WHERE run_id = ?", (result.run_id,))
+        assert [r["simulated"] for r in rows] == [0, 0]
+
+    def test_rejected_designs_do_not_use_up_simulations(self, tmp_path, monkeypatch):
+        received = []
+        self._integrate(monkeypatch, lambda t: (True, 1000), received)
+        db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
+        grid = SPACE.grid({"l2_size": (65536, 32768), "network": ("2dmesh_config", "xbar_config")})
+        area_of = lambda design, tiles: area.design_area(design, tiles, cacti="")  # noqa: E731
+        budget = area_of(Design.of({"l2": (32768, 4)}), 4).area_um2  # the 64 KB L2 designs are over it
+        result = run_codesign(("/a",), make_spec(), search.GridSearch(grid), db, simulations=2, batch=1,
+                              area_budget_um2=budget, area_fn=area_of)
+        assert sum(e.simulated for e in result.evaluations) == 2
+        assert sum(not e.simulated for e in result.evaluations) == 2
+        assert all(e.feasible for e in result.evaluations if e.simulated)
+        assert len(received) == 2
 
     def test_best_is_the_soonest_feasible_finish(self, tmp_path, monkeypatch):
         finish = {"4096": 900, "8192": 700, "16384": 800}
@@ -287,3 +305,26 @@ class TestRunCodesign:
         db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
         result = run_codesign(("/a",), make_spec(), search.RandomSearch(SPACE), db)
         assert (result.status, result.evaluations) == ("checksum_mismatch", ())
+
+
+class TestAreaNotes:
+    def test_one_line_per_cache_with_each_geometry_s_area(self):
+        notes = area.area_notes(SPACE, 4, cacti="")
+        lines = notes.splitlines()
+        assert len(lines) == 4
+        l1d = next(line for line in lines if line.startswith("- l1d:"))
+        assert l1d.count("=") == 3 * 2
+        expected = area.cache_area_um2("l1d", 4096, 2, 4, cacti="")
+        assert f"4096,2={expected:.0f}" in l1d
+        assert any(line.startswith("- l1i (fixed): 16384,4=") for line in lines)
+
+    def test_the_caches_add_up_to_the_design_s_area(self):
+        design = Design.of({"l1d": (4096, 2)})
+        total = sum(area.cache_area_um2(n, s, a, 4, cacti="") for n, (s, a) in design.caches)
+        assert total == pytest.approx(area.design_area(design, 4, cacti="").area_um2)
+
+    def test_the_proposer_s_prompt_carries_the_notes(self):
+        proposer = search.LLMProposer(FakeLLM(responses=[]), make_spec(), SPACE, 5000.0, area_notes="- l1d: 4096,2=10")
+        prompt = proposer.build_prompt([], 2)
+        assert "a design over budget is rejected without a simulation" in prompt
+        assert "- l1d: 4096,2=10" in prompt

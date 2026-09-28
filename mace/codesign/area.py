@@ -25,6 +25,7 @@ from functools import lru_cache
 from chia.chipyard.macrocompiler import SRAMSpec
 from chia.vlsi.sram_cacti.cacti_runner import analytical_area_estimate, run_cacti
 
+from chia_openpiton.state_def import DEFAULT_CACHES
 from mace.codesign.space import Design
 
 LINE_BYTES = {"l1i": 16, "l1d": 16, "l15": 16, "l2": 64}
@@ -91,3 +92,29 @@ def design_area(design: Design, tiles: int, cacti: str | None = None) -> Area:
             sources.add(source)
     source = sources.pop() if len(sources) == 1 else "mixed"
     return Area(area_um2=area * tiles, read_energy_nj=energy * tiles, source=source)
+
+
+def cache_area_um2(name: str, size: int, assoc: int, tiles: int, cacti: str | None = None) -> float:
+    """The area of one cache over *tiles* tiles; *cacti* as in :func:`design_area`."""
+    cacti = cacti_path() if cacti is None else (cacti or None)
+    return tiles * sum(_array_area(s.depth, s.width, s.name, cacti)[0] for s in cache_arrays(name, size, assoc))
+
+
+def area_notes(space, tiles: int, cacti: str | None = None) -> str:
+    """Each cache geometry's area in *space*, over *tiles* tiles, one line
+    per cache: the table the LLM proposer adds up to stay within budget."""
+    lines = []
+    for name in sorted(DEFAULT_CACHES):
+        if name in space.sizes:
+            options = [(size, assoc) for size in space.sizes[name] for assoc in space.assocs[name]]
+        else:
+            options = [DEFAULT_CACHES[name]]
+        cells = []
+        for size, assoc in options:
+            try:
+                cells.append(f"{size},{assoc}={cache_area_um2(name, size, assoc, tiles, cacti):.0f}")
+            except ValueError:
+                cells.append(f"{size},{assoc}=invalid")
+        fixed = "" if name in space.sizes else " (fixed)"
+        lines.append(f"- {name}{fixed}: " + " ".join(cells))
+    return "\n".join(lines)

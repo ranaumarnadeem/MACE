@@ -1,14 +1,16 @@
 """mace.codesign.run -- one co-design search, recorded like any other run.
 
-Each round asks the strategy for up to ``batch`` new designs, builds and
-checks them in parallel through the loop's own build-and-check path
-(mace.integrator.integrate_parallel, task prompts off), and scores each: a
-design that passes has a finish time, the summed ``sim_time`` of its gate
-workloads, and every design has a cache area (see
-:mod:`mace.codesign.area`). A design is feasible when it passes and its
-area fits the budget. The search stops after ``simulations`` designs, when
-the time budget runs out, or when the strategy proposes nothing new twice
-in a row.
+Each round asks the strategy for up to ``batch`` new designs. A design's
+cache area (see :mod:`mace.codesign.area`) is known before it is built, so
+a design over the area budget is recorded as infeasible without a build or
+a simulation, and does not use up the search's simulations; the strategy
+hears about it like any other outcome. The rest build and run in parallel
+through the loop's own build-and-check path
+(mace.integrator.integrate_parallel, task prompts off). A design that
+passes has a finish time, the summed ``sim_time`` of its gate workloads,
+and is feasible. The search stops after ``simulations`` simulated designs,
+after ten times that many proposals, when the time budget runs out, or
+when the strategy proposes nothing new twice in a row.
 
 The run lands in the loop's database: one iteration per round, one task
 per design, and one ``evaluations`` row per design. It ends ``passed`` when
@@ -52,6 +54,8 @@ class Evaluation:
     read_energy_nj: float
     area_source: str
     wall_s: float
+    # False for a design rejected on area before any build.
+    simulated: bool = True
 
 
 @dataclass(frozen=True)
@@ -103,17 +107,37 @@ def _search(run_id, piton_roots, spec, strategy, db, simulations, batch, area_bu
     round_no = 0
     idle_rounds = 0
     nodes = None
+
+    def simulated() -> int:
+        return sum(1 for e in history if e.simulated)
+
     try:
-        while len(history) < simulations and time.monotonic() < deadline:
+        while simulated() < simulations and len(history) < 10 * simulations and time.monotonic() < deadline:
             round_started = time.monotonic()
-            want = min(batch, simulations - len(history))
+            want = min(batch, simulations - simulated())
             seen = {e.design for e in history}
-            designs = [d for d in strategy.propose(history, want) if d not in seen][:want]
+            proposed = [d for d in strategy.propose(history, want) if d not in seen][:want]
+            areas = {d: area_fn(d, tiles) for d in proposed}
+            over = [d for d in proposed if area_budget_um2 is not None and areas[d].area_um2 > area_budget_um2]
+            designs = [d for d in proposed if d not in over]
+            rejected = []
+            for design in over:
+                evaluation = Evaluation(
+                    index=len(history), round=round_no, design=design, passed=False, feasible=False,
+                    sim_time=None, area_um2=areas[design].area_um2, read_energy_nj=areas[design].read_energy_nj,
+                    area_source=areas[design].source, wall_s=0.0, simulated=False,
+                )
+                record_evaluation(db, run_id, evaluation)
+                history.append(evaluation)
+                rejected.append(evaluation)
+            if rejected:
+                strategy.observe(rejected)
             if not designs:
                 record_llm_calls(db, run_id, round_no, calls.take())
-                idle_rounds += 1
-                if idle_rounds >= 2:
-                    break
+                if not rejected:
+                    idle_rounds += 1
+                    if idle_rounds >= 2:
+                        break
                 continue
             idle_rounds = 0
             if nodes is None:
@@ -131,7 +155,7 @@ def _search(run_id, piton_roots, spec, strategy, db, simulations, batch, area_bu
             record_llm_calls(db, run_id, round_no, round_calls)
             new = []
             for design, result in zip(designs, results):
-                area: Area = area_fn(design, tiles)
+                area: Area = areas[design]
                 sim_time = (
                     sum(run.sim_time or 0 for run in result.runs)
                     if result.passed and all(run.sim_time is not None for run in result.runs)

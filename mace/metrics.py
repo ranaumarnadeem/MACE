@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS evaluations (
     read_energy_nj REAL,
     area_source TEXT,
     wall_s REAL NOT NULL DEFAULT 0,
+    simulated INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (run_id, idx)
 );
 
@@ -136,6 +137,7 @@ CREATE TABLE IF NOT EXISTS resimulations (
 ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "runs": {"method": "TEXT", "task": "TEXT", "repeat": "INTEGER", "seed": "INTEGER", "meta": "TEXT"},
     "tasks": {"caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL", "programs": "TEXT"},
+    "evaluations": {"simulated": "INTEGER NOT NULL DEFAULT 1"},
 }
 
 
@@ -319,11 +321,12 @@ def record_evaluation(db: SQLiteNode, run_id: str, evaluation) -> None:
     e = evaluation
     db.execute(
         "INSERT OR REPLACE INTO evaluations "
-        "(run_id, idx, round, design, passed, feasible, sim_time, area_um2, read_energy_nj, area_source, wall_s) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "(run_id, idx, round, design, passed, feasible, sim_time, area_um2, read_energy_nj, area_source, wall_s, "
+        "simulated) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id, e.index, e.round, e.design.as_json(), int(e.passed), int(e.feasible), e.sim_time,
-            e.area_um2, e.read_energy_nj, e.area_source, e.wall_s,
+            e.area_um2, e.read_energy_nj, e.area_source, e.wall_s, int(e.simulated),
         ),
     )
 

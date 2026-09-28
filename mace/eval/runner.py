@@ -31,7 +31,7 @@ from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from mace.baselines.expert import run_expert
 from mace.baselines.one_shot import run_one_shot
 from mace.baselines.retry_agent import run_retry_agent
-from mace.codesign.area import design_area
+from mace.codesign.area import area_notes, design_area
 from mace.codesign.run import run_codesign
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
 from mace.eval.faults import FAULTS, first_plan_breaker
@@ -266,7 +266,8 @@ def _run_codesign_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
     budget = area_budget_um2(job.task)
     seed = job.repeat
     if job.method == "codesign_mace":
-        strategy, seed = LLMProposer(env.llm, spec, config.space, budget), None
+        tiles = job.task.mesh[0] * job.task.mesh[1]
+        strategy, seed = LLMProposer(env.llm, spec, config.space, budget, area_notes(config.space, tiles)), None
     elif job.method == "codesign_random":
         strategy = RandomSearch(config.space, seed=seed)
     elif job.method == "codesign_grid":

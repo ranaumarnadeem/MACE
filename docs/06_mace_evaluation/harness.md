@@ -88,11 +88,13 @@ Its `codesign` block sets the search space, the grid for the grid search, the nu
 
 A design sets each cache's size and associativity and the interconnect, `2dmesh_config` or `xbar_config`.
 The space lists the allowed sizes and associativities of the searched caches; the others keep their defaults.
-Each round, the strategy proposes up to `batch` designs it has not tried, and they build and run in parallel through the loop's own build-and-check path.
-A design passes when every gate workload passes, and its finish time is the sum of their simulated finish times (`sim_time`).
-It is feasible when it passes and its cache area fits the budget.
-A search stops after its simulations, when `max_wall_s` runs out, or when its strategy proposes nothing new twice in a row, and it ends `passed` when it found at least one feasible design.
-Each design gets an `evaluations` row with its geometry, verdict, finish time, and area.
+Each round, the strategy proposes up to `batch` designs it has not tried.
+A design's cache area is known before it is built, so a design over the budget is recorded as infeasible without a build and does not use up a simulation; the strategy hears the outcome like any other.
+The rest build and run in parallel through the loop's own build-and-check path.
+A design that passes has a finish time, the sum of its gate workloads' simulated finish times (`sim_time`), and is feasible.
+A search stops after its simulations, after ten times that many proposals, when `max_wall_s` runs out, or when its strategy proposes nothing new twice in a row, and it ends `passed` when it found at least one feasible design.
+Each proposal gets an `evaluations` row with its geometry, verdict, finish time, area, and whether it was simulated.
+The LLM proposer's prompt also carries each cache geometry's area over all tiles, so it can add up a design's area before proposing it.
 
 `mace.codesign.area` models each cache as a data array with one line per row and a tag array with one set per row and one tag per way, so the tag array widens with associativity.
 A tag holds the 40-bit physical address above the set index and line offset, plus two state bits.
