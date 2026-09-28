@@ -128,3 +128,35 @@ tasks:
     budget: {max_wall_s: 7200}
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  # Co-design: the design that finishes matmul.c soonest within the area of
+  # OpenPiton's default caches. The default caches pass (simulated finish
+  # 69,687,750 on a 2x2 mesh), and an L1D of 2 KB, direct-mapped, finishes
+  # 22% later, so cache geometry changes the result. Crossbar builds have
+  # not been tried under Verilator yet; a design that fails counts as a
+  # failed evaluation.
+  - id: ariane-2x2-matmul-codesign
+    core: ariane
+    mesh: [2, 2]
+    workloads: [matmul.c]
+    objective: >-
+      Find the cache geometry and interconnect that finish the matmul.c gate
+      workload soonest on a 2x2 mesh, within the cache area of OpenPiton's
+      default caches.
+    verified: true
+    rtl_timeout: 5000000
+    budget: {max_wall_s: 7200}
+    expert: {}
+    codesign:
+      simulations: 20
+      batch: 2
+      area_budget_ratio: 1.0
+      space:
+        l1d: {sizes: [2048, 4096, 8192, 16384], assocs: [1, 2, 4, 8]}
+        l15: {sizes: [4096, 8192, 16384], assocs: [2, 4]}
+        l2: {sizes: [32768, 65536, 131072], assocs: [4, 8]}
+        networks: [2dmesh_config, xbar_config]
+      grid:
+        l1d_size: [4096, 8192, 16384]
+        l2_size: [32768, 65536, 131072]
+        network: [2dmesh_config, xbar_config]

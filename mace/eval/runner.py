@@ -31,6 +31,9 @@ from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from mace.baselines.expert import run_expert
 from mace.baselines.one_shot import run_one_shot
 from mace.baselines.retry_agent import run_retry_agent
+from mace.codesign.area import design_area
+from mace.codesign.run import run_codesign
+from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
 from mace.eval.suite import SuiteTask
 from mace.loop import run_gate_programs
 from mace.metrics import RunLabels, record_resimulation
@@ -49,10 +52,21 @@ METHODS: dict[str, str] = {
     "one_checkout": "A2: the full loop on one checkout.",
     "build_check": "A3: a task passes on its build; accepted designs are simulated afterwards.",
     "no_reuse": "A5: every task rebuilds, even a configuration already built.",
+    "codesign_mace": "C0: MACE's LLM proposer picks each round's designs.",
+    "codesign_random": "C1: uniform random designs, seeded by the repeat.",
+    "codesign_grid": "C2: the task's fixed grid, in order.",
+    "codesign_bayes": "C3: Optuna's TPE sampler, seeded by the repeat.",
 }
 
+CODESIGN_METHODS = frozenset(m for m in METHODS if m.startswith("codesign_"))
+
 # Methods with no randomness run once per task unless asked otherwise.
-ONCE_METHODS = frozenset(("expert",))
+ONCE_METHODS = frozenset(("expert", "codesign_grid"))
+
+
+def applies(method: str, task: SuiteTask) -> bool:
+    """Co-design methods run on co-design tasks, the others on bring-up tasks."""
+    return (method in CODESIGN_METHODS) == (task.kind == "codesign")
 
 # A run in one of these states counts as done; a run left "running" by a
 # killed process, or ended "error" by an exception, runs again.
@@ -94,7 +108,7 @@ def plan_jobs(
     """Every (task, method, repeat), shuffled with *seed*.
 
     Methods in :data:`ONCE_METHODS` get *once_repeats* repeats, the others
-    *repeats*.
+    *repeats*. A method runs only on the tasks it :func:`applies` to.
     """
     unknown = [m for m in methods if m not in METHODS]
     if unknown:
@@ -103,6 +117,7 @@ def plan_jobs(
         Job(task, method, repeat)
         for task in tasks
         for method in methods
+        if applies(method, task)
         for repeat in range(once_repeats if method in ONCE_METHODS else repeats)
     ]
     random.Random(seed).shuffle(jobs)
@@ -174,7 +189,7 @@ def _probe(fn):
         return f"error: {e}"
 
 
-def run_job(job: Job, env: RunEnv) -> LoopResult:
+def run_job(job: Job, env: RunEnv):
     """Run *job* on an empty build cache, and record it."""
     roots = env.piton_roots[:1] if job.method in ("one_checkout", "retry_agent", "expert") else env.piton_roots
     labels = RunLabels(
@@ -187,6 +202,8 @@ def run_job(job: Job, env: RunEnv) -> LoopResult:
         for root in env.piton_roots:
             clear_build_cache(root)
     spec = job.task.spec()
+    if job.method in CODESIGN_METHODS:
+        return _run_codesign_job(job, env, roots, spec, labels)
     options = LoopOptions(task_prompts=env.task_prompts)
     method = job.method
     if method == "mace" or method == "one_checkout":
@@ -213,6 +230,36 @@ def run_job(job: Job, env: RunEnv) -> LoopResult:
         resimulate_accepted(env.db, result, spec)
         return result
     raise ValueError(f"unknown method {method!r}")
+
+
+def area_budget_um2(task: SuiteTask) -> float | None:
+    """The co-design task's area budget: its ratio times the default
+    caches' area on the task's mesh, from the same area model the search
+    scores designs with."""
+    ratio = task.codesign.area_budget_ratio
+    if ratio is None:
+        return None
+    tiles = task.mesh[0] * task.mesh[1]
+    return ratio * design_area(task.codesign.default_design(), tiles).area_um2
+
+
+def _run_codesign_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunLabels):
+    config = job.task.codesign
+    budget = area_budget_um2(job.task)
+    seed = job.repeat
+    if job.method == "codesign_mace":
+        strategy, seed = LLMProposer(env.llm, spec, config.space, budget), None
+    elif job.method == "codesign_random":
+        strategy = RandomSearch(config.space, seed=seed)
+    elif job.method == "codesign_grid":
+        strategy, seed = GridSearch(config.grid_designs()), None
+    else:
+        strategy = BayesianSearch(config.space, seed=seed)
+    labels = dataclasses.replace(labels, seed=seed, meta={**labels.meta, "area_budget_um2": budget})
+    return run_codesign(
+        roots, spec, strategy, env.db, simulations=config.simulations, batch=config.batch,
+        area_budget_um2=budget, labels=labels,
+    )
 
 
 def _run_program(root: str, config, program: str, spec: MaceSpec):

@@ -8,7 +8,9 @@ checkout. Every run lands in one database, labelled with its method, task,
 and repeat; examples/eval_report.py turns that database into tables.
 
 Methods (see mace/eval/runner.py): mace, one_shot, retry_agent, expert,
-no_triage, one_checkout, build_check, no_reuse.
+no_triage, one_checkout, build_check, and no_reuse run on bring-up tasks;
+codesign_mace, codesign_random, codesign_grid, and codesign_bayes run on
+co-design tasks. Each method runs only on the tasks it applies to.
 
 Run:
     export GOOGLE_CLOUD_PROJECT=<your-gcp-project> MAKEFLAGS=-j1
@@ -38,8 +40,11 @@ def main() -> int:
     ap.add_argument("--piton-root", required=True, help="First OpenPiton checkout")
     ap.add_argument("--piton-root-2", default=None, help="Second checkout, for the loop's parallel tasks")
     ap.add_argument("--suite", default=DEFAULT_SUITE)
-    ap.add_argument("--methods", default="mace,one_shot,retry_agent,expert",
-                    help=f"Comma-separated; any of {', '.join(METHODS)}")
+    ap.add_argument(
+        "--methods",
+        default="mace,one_shot,retry_agent,expert,codesign_mace,codesign_random,codesign_grid,codesign_bayes",
+        help=f"Comma-separated; any of {', '.join(METHODS)}",
+    )
     ap.add_argument("--tasks", default=None, help="Comma-separated task ids; default every verified task")
     ap.add_argument("--include-unverified", action="store_true", help="Also run candidate tasks")
     ap.add_argument("--repeats", type=int, default=3)

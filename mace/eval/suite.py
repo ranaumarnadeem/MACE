@@ -20,6 +20,21 @@ runner skips those unless asked. ::
         expert:
           config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
 
+A co-design task adds a ``codesign`` block: the design space, the grid the
+grid search sweeps, the number of simulations per search, the batch size,
+and the area budget as a ratio of the default caches' area. ::
+
+    codesign:
+      simulations: 20
+      batch: 2
+      area_budget_ratio: 1.0
+      space:
+        l1d: {sizes: [4096, 8192, 16384], assocs: [2, 4, 8]}
+        networks: [2dmesh_config, xbar_config]
+      grid:
+        l1d_size: [4096, 8192, 16384]
+        network: [2dmesh_config, xbar_config]
+
 Loading checks every field, and builds each expert configuration as a
 ``PitonConfig``, so a broken entry fails when the suite loads, before any
 job starts.
@@ -35,16 +50,38 @@ import yaml
 
 from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.baselines.expert import expert_task
+from mace.codesign.space import DEFAULT_NETWORK, Design, DesignSpace
 from mace.spec import Budget, MaceSpec, Task
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _TASK_KEYS = frozenset(
-    ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout")
+    ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout", "codesign")
 )
+_CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
 
 
 class SuiteError(ValueError):
     """The suite file is malformed; the message names the task and field."""
+
+
+@dataclass(frozen=True)
+class CodesignConfig:
+    """What a co-design task searches, and with how many simulations."""
+
+    space: DesignSpace
+    grid: dict[str, tuple]
+    simulations: int = 20
+    batch: int = 2
+    # The area budget as a multiple of the default caches' area; None sets
+    # no budget.
+    area_budget_ratio: float | None = 1.0
+
+    def grid_designs(self) -> list[Design]:
+        return self.space.grid(self.grid)
+
+    def default_design(self) -> Design:
+        """OpenPiton's default caches and mesh: the area budget's reference."""
+        return Design.of({}, DEFAULT_NETWORK)
 
 
 @dataclass(frozen=True)
@@ -61,6 +98,12 @@ class SuiteTask:
     rtl_timeout: int | None = None
     expert_caches: dict[str, tuple[int, int]] = field(default_factory=dict)
     expert_config_rtl: tuple[str, ...] = ()
+    codesign: CodesignConfig | None = None
+
+    @property
+    def kind(self) -> str:
+        """``codesign`` for a task with a ``codesign`` block, else ``bringup``."""
+        return "codesign" if self.codesign is not None else "bringup"
 
     def spec(self) -> MaceSpec:
         """The run specification every method gets for this task."""
@@ -102,6 +145,49 @@ def load_suite(path: str | Path) -> tuple[SuiteTask, ...]:
     if not tasks:
         raise SuiteError(f"{path}: no tasks")
     return tuple(tasks)
+
+
+def _codesign(raw: object, task_id: str) -> CodesignConfig | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) - _CODESIGN_KEYS:
+        raise SuiteError(f"task {task_id}: codesign takes only {sorted(_CODESIGN_KEYS)}")
+    space_raw = raw.get("space") or {}
+    sizes, assocs = {}, {}
+    for name, choice in space_raw.items():
+        if name == "networks":
+            continue
+        if not isinstance(choice, dict) or set(choice) != {"sizes", "assocs"}:
+            raise SuiteError(f"task {task_id}: codesign space {name!r} needs sizes and assocs")
+        sizes[name] = tuple(choice["sizes"])
+        assocs[name] = tuple(choice["assocs"])
+    try:
+        space = DesignSpace(
+            sizes=sizes, assocs=assocs, networks=tuple(space_raw.get("networks") or (DEFAULT_NETWORK,))
+        )
+        config = CodesignConfig(
+            space=space,
+            grid={knob: tuple(values) for knob, values in (raw.get("grid") or {}).items()},
+            simulations=raw.get("simulations", 20),
+            batch=raw.get("batch", 2),
+            area_budget_ratio=raw.get("area_budget_ratio", 1.0),
+        )
+        grid = config.grid_designs()
+    except ValueError as e:
+        raise SuiteError(f"task {task_id}: codesign: {e}") from e
+    for value, what in ((config.simulations, "simulations"), (config.batch, "batch")):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise SuiteError(f"task {task_id}: codesign {what} must be a positive int, got {value!r}")
+    ratio = config.area_budget_ratio
+    if ratio is not None and (not isinstance(ratio, (int, float)) or isinstance(ratio, bool) or ratio <= 0):
+        raise SuiteError(f"task {task_id}: codesign area_budget_ratio must be positive or null, got {ratio!r}")
+    if not config.grid:
+        raise SuiteError(f"task {task_id}: codesign needs a grid for the grid search")
+    if not all(space.contains(d) for d in grid):
+        raise SuiteError(f"task {task_id}: codesign grid holds designs outside its space")
+    if len(grid) > config.simulations:
+        raise SuiteError(f"task {task_id}: codesign grid has {len(grid)} designs, more than its {config.simulations} simulations")
+    return config
 
 
 def _budget(raw: dict, where: str, base: Budget | None = None) -> Budget:
@@ -154,6 +240,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             rtl_timeout=entry.get("rtl_timeout"),
             expert_caches=caches,
             expert_config_rtl=tuple(expert.get("config_rtl") or ()),
+            codesign=_codesign(entry.get("codesign"), task_id),
         )
         spec = task.spec()
         expert_cfg = task.expert_task()

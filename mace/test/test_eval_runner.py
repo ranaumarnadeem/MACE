@@ -227,3 +227,53 @@ class TestEnvironmentMeta:
         assert meta["checkouts"]["/ck"]["verilator"] == "Verilator 5.052 2026-09-05"
         assert meta["checkouts"]["/ck"]["fingerprint"].startswith("error: ")
         assert "mace_commit" in meta and "host" in meta
+
+
+def codesign_task(task_id="cd-task"):
+    from mace.codesign.space import DesignSpace
+    from mace.eval.suite import CodesignConfig
+
+    space = DesignSpace(sizes={"l1d": (4096, 8192)}, assocs={"l1d": (2, 4)}, networks=("2dmesh_config", "xbar_config"))
+    config = CodesignConfig(space=space, grid={"l1d_size": (4096, 8192)}, simulations=6, batch=2, area_budget_ratio=1.0)
+    return suite_task(task_id, workloads=("matmul.c",), codesign=config)
+
+
+class TestCodesignJobs:
+    def test_methods_run_only_on_the_tasks_they_apply_to(self):
+        jobs = runner.plan_jobs((suite_task(), codesign_task()), ("mace", "codesign_random", "codesign_grid"), repeats=2)
+        keys = {j.key for j in jobs}
+        assert keys == {
+            ("ariane-2x2-barrier", "mace", 0), ("ariane-2x2-barrier", "mace", 1),
+            ("cd-task", "codesign_random", 0), ("cd-task", "codesign_random", 1),
+            ("cd-task", "codesign_grid", 0),
+        }
+
+    @pytest.mark.parametrize(
+        "method,strategy,seed",
+        [
+            ("codesign_mace", "LLMProposer", None),
+            ("codesign_random", "RandomSearch", 1),
+            ("codesign_grid", "GridSearch", None),
+        ],
+    )
+    def test_each_method_searches_with_its_strategy(self, tmp_path, monkeypatch, method, strategy, seed):
+        calls = []
+        monkeypatch.setattr(
+            "mace.eval.runner.run_codesign",
+            lambda roots, spec, strat, db, **kwargs: calls.append((roots, strat, kwargs)) or "done",
+        )
+        assert runner.run_job(runner.Job(codesign_task(), method, 1), make_env(tmp_path)) == "done"
+        ((roots, strat, kwargs),) = calls
+        assert type(strat).__name__ == strategy
+        assert roots == ("/a", "/b")
+        assert (kwargs["simulations"], kwargs["batch"]) == (6, 2)
+        assert kwargs["area_budget_um2"] > 0
+        assert kwargs["labels"].seed == seed
+        assert kwargs["labels"].meta["area_budget_um2"] == kwargs["area_budget_um2"]
+
+    def test_the_area_budget_is_the_ratio_times_the_default_caches(self):
+        from mace.codesign.area import design_area
+
+        task = codesign_task()
+        expected = design_area(task.codesign.default_design(), 4).area_um2
+        assert runner.area_budget_um2(task) == pytest.approx(expected)
