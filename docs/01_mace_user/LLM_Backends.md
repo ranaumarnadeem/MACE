@@ -10,7 +10,7 @@ The planner, task execution, triage, and post-mortem see only an `LLMCallBase`, 
 
 | Backend | CHIA class | Credential | Default model | Cost reported |
 |---|---|---|---|---|
-| `vertex` | `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash` | No |
+| `vertex` | `mace.vertex.UsageVertexLLM`, a subclass of `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash` | No |
 | `opencode` | `chia.models.opencode.OpenCodeLLM` | `OPENCODE_API_KEY` | the class's own | Yes |
 | `claude` | `chia.models.claude.ClaudeCodeLLM` | `ANTHROPIC_API_KEY` | the class's own | No |
 | `antigravity` | `chia.models.antigravity.AntigravityLLM` | `ANTIGRAVITY_API_KEY` | the class's own | Yes |
@@ -47,7 +47,7 @@ export GOOGLE_CLOUD_PROJECT=<your-gcp-project>
 mace shell --piton-root ~/openpiton --backend vertex
 ```
 
-`VertexGeminiLLM` reads the project from `GOOGLE_CLOUD_PROJECT`.
+The Vertex backend reads the project from `GOOGLE_CLOUD_PROJECT`.
 `mace shell` exits when it is unset.
 The scripts also take `--project`, which overrides it, and stop when neither is given.
 To authenticate with a service account instead, put `GOOGLE_APPLICATION_CREDENTIALS=<path>` in an env file and pass it with `--api`.
@@ -67,11 +67,14 @@ The prerequisites of the `opencode`, `claude`, and `antigravity` classes are doc
 ## Cost reporting
 
 `extract_cost_usd()` reads `usage["cost_usd"]` from a call's result.
-OpenCode and Antigravity results carry it.
+OpenCode, Antigravity, and Vertex results carry it.
 Claude keeps its cost on the LLM instance, which a remote call does not return, so its calls count as 0.
-`VertexGeminiLLM` returns a plain `QueryResult` with no usage field, so every Vertex call also counts as 0.
 
-On every backend, the loop's tally counts per-task calls only and skips planner, triage, and post-mortem calls, so `compute_usd` is a lower bound.
-On Vertex the tally stays at 0, so `Budget.max_usd` cannot stop a run.
-Rely on `max_iterations` and `max_wall_s`.
-[Cost](../06_mace_evaluation/cost.md) gives estimated per-run costs.
+Each reply of `UsageVertexLLM` is a `mace.llm.VertexQueryResult`.
+Its `usage` holds the input, output, and thinking tokens of every model turn of the call, summed, and their cost at the prices in `mace.llm.VERTEX_USD_PER_M_TOKENS`.
+Gemini bills thinking tokens at the output price.
+A model missing from that table costs 0, and its tokens are still counted.
+A call that raises, for example on a reply cut off at the output limit, records no tokens.
+
+The loop records every planner, task, triage, and post-mortem call in the `llm_calls` table, and `Budget.max_usd` counts all of them but the post-mortem; see [Results and Metrics](Results_and_Metrics.md).
+[Cost](../06_mace_evaluation/cost.md) gives the per-run costs of the evaluation runs.

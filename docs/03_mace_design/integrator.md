@@ -46,7 +46,7 @@ The planner prompt lists every gate workload.
 | none of the above | `None` |
 
 A failure marker therefore wins over a `PASS` line.
-A transcript with no verdict from a run that hit the 3600 s wall-clock limit counts as `timeout`.
+A transcript with no verdict from a run that hit its wall-clock limit counts as `timeout`. The limit is 3600 s, or the time left in the run's budget when that is less.
 See [Parsers](../04_chia_openpiton/parsers.md).
 
 ## Pass Criteria

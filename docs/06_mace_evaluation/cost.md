@@ -26,4 +26,4 @@ Estimated cost of one MACE loop run on a 2x2 mesh:
 
 ## Measuring tokens
 
-The `compute_usd` counter in the run database reads zero for Vertex runs. CHIA's Vertex backend reports no price, and its token count skips thinking tokens, which were more than half of the billed output in these runs. The LLM costs above come from re-sending representative planner and task prompts and counting all output, thinking included.
+The run databases behind these numbers hold no per-call token counts, so their `compute_usd` reads zero. The LLM costs above come from re-sending representative planner and task prompts and counting all output, thinking included; thinking tokens were more than half of the billed output. MACE now records every call's tokens, thinking included, in the `llm_calls` table; see [Results and Metrics](../01_mace_user/Results_and_Metrics.md).

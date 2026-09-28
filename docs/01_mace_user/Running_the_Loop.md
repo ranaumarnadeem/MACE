@@ -52,13 +52,13 @@ OpenPiton's own default is 50,000 cycles.
 | Field | Default | Cap |
 |---|---|---|
 | `max_iterations` | `10` | Plan, execute, and triage cycles. |
-| `max_usd` | `20.0` | Summed cost of task LLM calls in USD. |
+| `max_usd` | `20.0` | Summed cost in USD of the run's planner, task, and triage calls. |
 | `max_wall_s` | `3600` | Elapsed seconds since the run started. |
 
 The caps are independent and must be positive.
 The loop checks them before each iteration, so a started iteration always finishes.
 A run that uses all its iterations without a pass ends with status `budget_exceeded`.
-`max_usd` cannot stop a Vertex run, because its USD tally stays at 0; see [LLM Backends](LLM_Backends.md).
+[LLM Backends](LLM_Backends.md) explains how each backend reports cost.
 
 ## Planner directives
 

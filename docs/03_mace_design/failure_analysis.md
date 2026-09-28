@@ -51,6 +51,7 @@ See [Tool Server](../04_chia_openpiton/tool_server.md).
 Task <id> (<instruction>) failed: diagnosis=<label>, suggested fix=<fix>
 ```
 
+With `LoopOptions(triage="raw")`, the line instead holds whether the build succeeded, the run verdict, and the failure's raw evidence, and with `triage="off"` the orchestrator adds no line (see [Architecture](architecture.md)).
 Every later `plan()` call receives the whole history.
 If the run then passes, `mark_all_recovered()` marks all of its failures recovered.
 A replanned DAG can use new task ids, so recovery is tracked per run.

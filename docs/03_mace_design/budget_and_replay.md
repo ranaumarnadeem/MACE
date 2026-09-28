@@ -17,8 +17,13 @@ Before each iteration, `run_mace_loop()` compares elapsed time and accumulated c
 An iteration already in flight runs to completion.
 A run whose `max_iterations` iterations all end without a pass also ends with `budget_exceeded`.
 
-The cost total sums `mace.llm.extract_cost_usd()` over each iteration's task-execution calls; planner, triage, and post-mortem calls do not count.
-The function reads the `usage` field of each `QueryResult`: OpenCode and Antigravity results carry it, while Claude and Vertex results do not and count as `0.0`.
+The cost total sums every planner, task, and triage call the run has made, which `mace.usage` records one by one (see [Results and Metrics](../01_mace_user/Results_and_Metrics.md)).
+Each call's cost comes from the `usage` field of its reply: OpenCode, Antigravity, and Vertex replies carry it, while Claude replies do not and count as `0.0`.
+The post-mortem runs after the last budget check, so its cost counts toward `compute_usd` but never ends a run.
+
+`max_wall_s` also bounds every build and simulation.
+Each gets the smaller of its default timeout, 7200 s for a build and 3600 s for a run, and the time left in the budget.
+A build or simulation that would start after the budget runs out does not start, and its task fails with failure reason `budget_exhausted`.
 
 ## Gate-Workload Checksums
 

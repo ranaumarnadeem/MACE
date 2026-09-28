@@ -68,10 +68,10 @@ run_id=<run_id> status=passed
   iterations: <n>
   failures_recovered: <n>
   execution_time_s: <seconds>
-  compute_usd: 0.0
+  compute_usd: <dollars>
 ```
 
-`compute_usd` reads 0.0 on Vertex because the backend reports no cost.
+`compute_usd` sums the cost of every LLM call the run made; see [Results and Metrics](Results_and_Metrics.md).
 `mace results` lists past runs, and `--trace` shows one run's plan, dispatch, and triage:
 
 ```bash
