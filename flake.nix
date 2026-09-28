@@ -156,7 +156,8 @@
           buildInputs = [
             # Python and pip. CHIA and MACE install into .venv from the
             # shellHook below: CHIA's v1.0.1 release from PyPI, the revision
-            # every result used, and MACE editable with its test extras.
+            # every result used, and MACE editable with its test and eval
+            # extras.
             pkgs.python310
             pkgs.python310Packages.pip
             pkgs.python310Packages.virtualenv
@@ -244,8 +245,8 @@
                 || echo "  CHIA did not install; fix the pip error above, then run nix develop again."
             fi
             if ! pip show --quiet mace >/dev/null 2>&1; then
-              echo "Installing MACE (editable, with test extras) into .venv..."
-              pip install --quiet -e '.[test]' \
+              echo "Installing MACE (editable, with test and eval extras) into .venv..."
+              pip install --quiet -e '.[test,eval]' \
                 || echo "  MACE did not install; fix the pip error above, then run nix develop again."
             fi
 

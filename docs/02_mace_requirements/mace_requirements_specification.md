@@ -111,10 +111,22 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 
 ### Deterministic Replay
 
-- **REQ-REPLAY-1:** MACE shall tag each remote prompt, build, and run call of a `config` or `workload` task with `<run ID>/iter<iteration>/<task id>/<phase>`, where the phase is `prompt`, `build`, or `run`.
+- **REQ-REPLAY-1:** MACE shall tag each remote prompt, build, and run call of a `config` or `workload` task with `<run ID>/iter<iteration>/<task id>/<phase>`, where the phase is `prompt`, `build`, `run` for the first gate workload, or `run:<workload>` for each later one.
 - **REQ-REPLAY-2:** MACE shall let a caller enable caching, after which the return value of every tagged call to a function marked for caching is stored.
 - **REQ-REPLAY-3:** MACE shall let a caller enable replay for named functions, after which their tagged calls marked for bypass are served from the cache without executing.
 - **REQ-REPLAY-4:** A bypassed call whose tag has no cache entry shall fail with a cache-miss error instead of executing.
+
+### Evaluation
+
+- **REQ-EVAL-1:** The evaluation harness shall load its tasks from a suite file and reject a malformed entry, including an expert configuration that `PitonConfig` rejects, before any job starts.
+- **REQ-EVAL-2:** The harness shall run each method on every suite task it applies to, for the requested number of repeats, in an order shuffled by a seed.
+- **REQ-EVAL-3:** The harness shall skip a job whose run already ended with a final status other than `error`, so a stopped batch resumes.
+- **REQ-EVAL-4:** Before each job, unless told to keep them, the harness shall remove every model directory whose name starts with `mace_` from each checkout.
+- **REQ-EVAL-5:** Every baseline and co-design method shall check its designs through the loop's own build-and-check path, with the same timeouts and pass check as the loop.
+- **REQ-EVAL-6:** Every LLM baseline and the co-design proposer shall state a task's inputs with the planner's own rendering of them.
+- **REQ-EVAL-7:** After a passed run with a build-only check, the harness shall simulate each design the run accepted and record each gate workload's verdict.
+- **REQ-EVAL-8:** A co-design search shall count a design feasible only when every gate workload passes on it and its cache area fits the task's budget, and shall record every design it evaluates.
+- **REQ-EVAL-9:** The harness shall record with each run its method, suite task, repeat, seed, and environment: MACE's commit, each checkout's source fingerprint and Verilator version, the model, and the host.
 
 ## Platform Requirements
 
@@ -149,4 +161,4 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-TOOL-6:** Every machine that patches, scaffolds, or builds an OpenPiton checkout shall provide `python3`, and workers that build Ariane shall also provide `dtc` for the boot ROM.
 - **REQ-TOOL-7:** Workers shall provide `objdump` on `PATH` for the `symbol_check` diagnostic tool.
 - **REQ-TOOL-8:** Each OpenPiton checkout shall be at commit `1c6bfd2`, with the `piton/design/chip/tile/ariane` submodule initialized.
-- **REQ-TOOL-9:** `nix develop` shall provide Python 3.10 with pip and virtualenv, Verilator 5.052, the RISC-V GCC, and the system packages OpenPiton's scripts use, among them gawk, GNU make, bison, flex, tcsh, dtc, Perl with `Bit::Vector`, and libelf. On first entry it shall install CHIA's v1.0.1 release and MACE, editable with its test extras, into its virtual environment, and on later entries install only a package that environment lacks.
+- **REQ-TOOL-9:** `nix develop` shall provide Python 3.10 with pip and virtualenv, Verilator 5.052, the RISC-V GCC, and the system packages OpenPiton's scripts use, among them gawk, GNU make, bison, flex, tcsh, dtc, Perl with `Bit::Vector`, and libelf. On first entry it shall install CHIA's v1.0.1 release and MACE, editable with its test and eval extras, into its virtual environment, and on later entries install only a package that environment lacks.

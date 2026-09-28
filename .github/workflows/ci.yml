@@ -24,7 +24,7 @@ jobs:
         run: pip install chialoops==1.0.1
 
       - name: Install mace and test deps
-        run: pip install -e ".[test]"
+        run: pip install -e ".[test,eval]"
 
       - name: chia_openpiton must not depend on mace
         run: |

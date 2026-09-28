@@ -9,6 +9,7 @@ Two baselines run the same core and gate workload as the loop:
 
 The full loop is approach (c).
 [Methodology](../06_mace_evaluation/methodology.md) describes the comparison, and [Results](../06_mace_evaluation/results.md) reports it.
+[Evaluation Harness](../06_mace_evaluation/harness.md) describes the larger set of baselines, ablations, and co-design searches the batch runner runs.
 
 ## Baseline (a): manual mesh scaling
 
