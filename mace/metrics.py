@@ -103,6 +103,16 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     ok INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (run_id, seq)
 );
+
+CREATE TABLE IF NOT EXISTS resimulations (
+    run_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    program TEXT NOT NULL,
+    verdict TEXT,
+    passed INTEGER NOT NULL,
+    wall_s REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, task_id, program)
+);
 """
 
 # Columns added after the first real runs/*.db files were written. CREATE
@@ -285,6 +295,17 @@ def record_llm_calls(
             )
             for c in calls
         ]
+    )
+
+
+def record_resimulation(db: SQLiteNode, run_id: str, task_id: str, run) -> None:
+    """One gate workload simulated after a build-only-check run accepted
+    *task_id*'s design: *run* is its ``PitonRunResult``. A design whose
+    resimulation fails is a false accept."""
+    db.execute(
+        "INSERT OR REPLACE INTO resimulations (run_id, task_id, program, verdict, passed, wall_s) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, task_id, run.test, run.verdict, int(run.success), run.wall_time_s),
     )
 
 
