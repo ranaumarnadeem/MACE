@@ -11,19 +11,23 @@ Each program is real, buildable RISC-V C using OpenPiton's own testbench
 conventions (argv[0][0]/argv[0][1] for hart id/count; see an OpenPiton
 checkout's piton/verif/diag/assembly/include/riscv/ariane/util.h), not
 pseudocode -- sims compiles them itself via -asm_diag_root pointed at this
-directory, and all three are proven passing on real Ariane hardware (1x1;
-multi-tile is untested pending GCP credits -- see the top-level README).
+directory. In Verilator simulation, barrier_atomic.c has passed on 2x2 and
+4x4 Ariane meshes, scatter_gather.c and matmul.c on 2x2, and
+producer_consumer.c on 1x1.
 
-Every shared value here is written with ATOMIC_OP and read back with
+In barrier_atomic.c, producer_consumer.c, and scatter_gather.c, every
+shared value is written with ATOMIC_OP and read back with
 ATOMIC_FETCH_OP, never a plain load or store of anything another hart (or,
 empirically, even the same hart through an array element) might have just
 written: measured on real hardware, plain volatile access to an array
 element was not reliably visible across a write and a same-hart read a few
 instructions later, though the same value through ATOMIC_FETCH_OP always
 was. A plain *scalar* (non-array) variable accessed the same way was fine,
-but rather than trust which cases happen to work, every workload here goes
-through the atomic path uniformly. Each also needs a larger-than-default
-``rtl_timeout`` -- see RECOMMENDED_RTL_TIMEOUT.
+but rather than trust which cases happen to work, those three go through
+the atomic path uniformly. matmul.c needs none of it: its matrices are
+compile-time constants, and each hart checks a result from the register
+that accumulated it, never reading back what it stored. Each program also
+needs a larger-than-default ``rtl_timeout`` -- see RECOMMENDED_RTL_TIMEOUT.
 """
 
 from __future__ import annotations

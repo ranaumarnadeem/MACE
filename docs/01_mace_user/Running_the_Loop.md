@@ -27,13 +27,14 @@ If the build succeeds, the task simulates each entry of `workloads` in order on 
 It passes when every one reports `pass`, and it stops at the first that does not.
 A `unit_test` task builds a standalone testbench for one RTL module and is gated on that build alone.
 
-`mace/workloads/` holds three RISC-V C gate programs:
+`mace/workloads/` holds four RISC-V C gate programs:
 
 | Workload | Check |
 |---|---|
 | `barrier_atomic.c` | Every hart adds to one shared atomic counter between two barriers, then every hart checks that the count equals the number of harts. |
 | `producer_consumer.c` | Hart 0 publishes values behind per-slot ready flags; the highest-numbered hart reads and checksums them. |
 | `scatter_gather.c` | Each hart writes its ID plus one to its own slot; after a barrier, every hart gathers and checksums the array. |
+| `matmul.c` | The harts share out the rows of a 32x32 matrix product, and every hart checks each of its results against a closed form. Its working set is larger than the default L1D, so the co-design searches use it. |
 
 A hart that finds a wrong value returns nonzero and ends at the bad trap, so a run passes only when every hart saw the right result; only hart 0 prints.
 

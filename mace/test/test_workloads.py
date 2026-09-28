@@ -95,4 +95,4 @@ class TestRealWorkloads:
 
     def test_expected_gate_workloads_are_present(self):
         names = set(workloads.compute_checksums())
-        assert names == {"barrier_atomic.c", "producer_consumer.c", "scatter_gather.c"}
+        assert names == {"barrier_atomic.c", "matmul.c", "producer_consumer.c", "scatter_gather.c"}
