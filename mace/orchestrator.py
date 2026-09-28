@@ -17,14 +17,10 @@ out to hide another.
 Budget: max_iterations, max_wall_s, and max_usd are all enforced, checked
 before each iteration starts (not mid-iteration -- there is no task-
 cancellation machinery to interrupt one already in flight). The usd tally
-is a lower bound, not a full accounting: it sums mace.llm.extract_cost_usd
-over each iteration's per-task execution calls only, via the QueryResult
-already carried on each StepResult, and does not include the Planner's or
-triage's own call cost (adding that means changing plan()/triage()'s
-return shape, which every existing caller and test already depends on --
-not worth the churn while per-task costs are the dominant term for any
-DAG with more than a couple of tasks). extract_cost_usd's own docstring
-covers which backends this can see at all.
+covers every LLM call the run makes, planner, task, and triage alike: each
+goes through mace.usage, and this loop records them in the llm_calls table,
+one row per call. mace.llm.extract_cost_usd's docstring covers which
+backends report a cost at all.
 """
 
 from __future__ import annotations
@@ -37,13 +33,16 @@ from chia.database.sqlite_node import SQLiteNode
 
 from chia_openpiton.state_def import PitonConfig
 from chia_openpiton.tools import PitonToolServer
+from mace import usage
 from mace.integrator import close_nodes, integrate_parallel, open_nodes
-from mace.llm import extract_cost_usd
 from mace.metrics import (
+    RunLabels,
+    add_iteration_usd,
     finish_run,
     mark_all_recovered,
     record_failure,
     record_iteration,
+    record_llm_calls,
     record_post_mortem,
     start_run,
 )
@@ -94,9 +93,14 @@ def run_mace_loop(
     tools=(),
     on_iteration=None,
     on_task_progress=None,
+    labels: RunLabels | None = None,
 ) -> LoopResult:
     """Plan, execute, and -- if a task fails its gate -- triage and replan,
     until something passes or the spec's budget runs out.
+
+    ``labels``, if given, are recorded with the run (see
+    :class:`~mace.metrics.RunLabels`); the batch runner uses them to say
+    which method, suite task, and repeat a run was.
 
     ``on_task_progress``, if given, is passed straight through to
     :func:`~mace.integrator.integrate_parallel` -- see its own docstring.
@@ -150,11 +154,13 @@ def run_mace_loop(
     stopped immediately with ``status="checksum_mismatch"``, before
     spending a single LLM call or touching any checkout.
     """
-    run_id = start_run(db, spec)
+    run_id = start_run(db, spec, labels=labels)
+    calls = usage.UsageLog()
     try:
-        return _run_started_loop(
-            run_id, piton_roots, spec, llm, db, tools, on_iteration, on_task_progress
-        )
+        with usage.recording(calls):
+            return _run_started_loop(
+                run_id, piton_roots, spec, llm, db, tools, on_iteration, on_task_progress, calls
+            )
     except BaseException:
         _record_error(db, run_id)
         raise
@@ -178,11 +184,13 @@ def _run_started_loop(
     tools,
     on_iteration,
     on_task_progress,
+    calls: usage.UsageLog,
 ) -> LoopResult:
     """run_mace_loop's body, from the checksum check to the final status
     write. Every exception it raises, including one from verify_checksums,
     the last tool_server.stop(), or the final status writes, reaches
-    run_mace_loop's handler, which records the run as ``"error"``."""
+    run_mace_loop's handler, which records the run as ``"error"``. Each LLM
+    call lands in *calls*, and each iteration records the calls it made."""
     try:
         verify_checksums()
     except ValueError:
@@ -194,7 +202,6 @@ def _run_started_loop(
     iterations: list[tuple] = []
     diagnoses: list[tuple[str, Triage] | None] = []
     had_a_failure = False
-    total_usd = 0.0
     status = "budget_exceeded"
 
     # Built on first use, inside the loop below (not here): a run that
@@ -226,7 +233,7 @@ def _run_started_loop(
                 if time.monotonic() - started > spec.budget.max_wall_s:
                     status = "budget_exceeded"
                     break
-                if total_usd > spec.budget.max_usd:
+                if calls.total_usd() > spec.budget.max_usd:
                     status = "budget_exceeded"
                     break
 
@@ -253,11 +260,13 @@ def _run_started_loop(
                     on_task_progress=on_task_progress, nodes=nodes,
                 )
                 iter_wall_s = time.monotonic() - iter_started
-                iter_usd = sum(extract_cost_usd(r.query) for r in results)
-                total_usd += iter_usd
+                iter_calls = calls.take()
                 iterations.append(results)
                 diagnoses.append(None)  # overwritten below if this level gets triaged
-                record_iteration(db, run_id, iteration, results, iter_wall_s, usd=iter_usd)
+                record_iteration(
+                    db, run_id, iteration, results, iter_wall_s, usd=sum(c.usd for c in iter_calls)
+                )
+                record_llm_calls(db, run_id, iteration, iter_calls)
                 if on_iteration is not None:
                     on_iteration(iteration, results)
 
@@ -287,6 +296,10 @@ def _run_started_loop(
                     diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
                 diagnoses[-1] = (failed.task.id, diagnosis)
                 record_failure(db, run_id, iteration, failed.task.id, diagnosis.diagnosis, diagnosis.fix)
+                triage_calls = calls.take()
+                if triage_calls:
+                    add_iteration_usd(db, run_id, iteration, sum(c.usd for c in triage_calls))
+                    record_llm_calls(db, run_id, iteration, triage_calls)
                 feedback_history.append(
                     f"Task {failed.task.id} ({failed.task.spec}) failed: "
                     f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
@@ -305,6 +318,7 @@ def _run_started_loop(
                 record_post_mortem(db, run_id, post_mortem)
             except ReportError:
                 pass  # fail-open, matching triage's own posture
+            record_llm_calls(db, run_id, None, calls.take())
     finally:
         if tool_server is not None:
             tool_server.stop()

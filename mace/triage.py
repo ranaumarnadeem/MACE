@@ -14,6 +14,7 @@ later task the Planner produces from this diagnosis.
 
 from __future__ import annotations
 
+from mace import usage
 from mace.agents import is_testbench_port_mismatch, parse_diagnosis, parse_fix
 from mace.spec import StepResult, Triage
 
@@ -99,7 +100,7 @@ def triage(result: StepResult, llm, tools=()) -> Triage:
             ),
         )
 
-    query = llm.prompt(build_prompt(result), tools=list(tools))
+    query = usage.prompt(llm, "triage", build_prompt(result), tools)
     diagnosis = parse_diagnosis(query.result)
     if diagnosis is None:
         raise TriageError(f"no DIAGNOSIS: line in the triage response: {query.result!r}")

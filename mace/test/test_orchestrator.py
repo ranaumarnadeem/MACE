@@ -664,3 +664,94 @@ class TestTriageToolServerSeesTheFailure:
 
         assert result.status == "passed"
         assert servers.served == {}
+
+
+def _costed(text, usd):
+    from mace.llm import VertexQueryResult
+
+    return VertexQueryResult(
+        result=text, returncode=0, stderr="", stream_result=text, success=True,
+        usage={"cost_usd": usd, "input_tokens": 100, "output_tokens": 10, "thinking_tokens": 50},
+    )
+
+
+class TestLlmCallsAreRecorded:
+    PLAN = "TASK: t1 | deps= | kind=workload | run the gate workload"
+    TRIAGE = "DIAGNOSIS: timeout\nFIX: raise the timeout"
+
+    def test_plan_and_triage_calls_land_in_their_own_iteration(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+        llm = FakeLLM(responses=[_costed(self.PLAN, 0.1), _costed(self.TRIAGE, 0.2), _costed(self.PLAN, 0.4)])
+        outcomes = iter([[step_result("t1", passed=False, verdict="timeout")], [step_result("t1")]])
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", lambda *a, **k: tuple(next(outcomes)))
+
+        result = run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=2)), llm, db)
+
+        assert result.status == "passed"
+        rows = db.query(
+            "SELECT iteration, phase, usd, thinking_tokens FROM llm_calls WHERE run_id = ? ORDER BY seq",
+            (result.run_id,),
+        )
+        assert [(r["iteration"], r["phase"]) for r in rows] == [(0, "plan"), (0, "triage"), (1, "plan")]
+        assert rows[0]["thinking_tokens"] == 50
+        usd = {
+            r["iteration"]: r["usd"]
+            for r in db.query("SELECT iteration, usd FROM iterations WHERE run_id = ?", (result.run_id,))
+        }
+        assert usd[0] == pytest.approx(0.3)
+        assert usd[1] == pytest.approx(0.4)
+        assert metrics.summary(db, result.run_id)["compute_usd"] == pytest.approx(0.7)
+
+    def test_planner_and_triage_cost_count_toward_max_usd(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+        llm = FakeLLM(responses=[_costed(self.PLAN, 3.0), _costed(self.TRIAGE, 2.0)])
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda *a, **k: (step_result("t1", passed=False, verdict="timeout"),),
+        )
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        result = run_mace_loop(
+            ("/fake",), make_spec(budget=Budget(max_iterations=3, max_usd=4.0)), llm, db
+        )
+
+        assert result.status == "budget_exceeded"
+        assert len(result.iterations) == 1
+
+    def test_the_post_mortem_call_belongs_to_the_whole_run(self, tmp_path, monkeypatch):
+        from mace import usage
+        from mace.spec import PostMortem
+
+        db = make_db(tmp_path)
+        llm = FakeLLM(responses=[_costed(self.PLAN, 0.1), _costed(self.TRIAGE, 0.1)])
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda *a, **k: (step_result("t1", passed=False, verdict="timeout"),),
+        )
+
+        def post_mortem(*args, **kwargs):
+            usage.note("post_mortem", _costed("ASSESSMENT: config", 0.05), 1.0)
+            return PostMortem(assessment="config")
+
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", post_mortem)
+        result = run_mace_loop(("/fake",), make_spec(), llm, db)
+
+        last = db.query_one(
+            "SELECT iteration, phase FROM llm_calls WHERE run_id = ? ORDER BY seq DESC LIMIT 1",
+            (result.run_id,),
+        )
+        assert (last["iteration"], last["phase"]) == (None, "post_mortem")
+
+    def test_labels_reach_the_runs_table(self, tmp_path, monkeypatch):
+        db = make_db(tmp_path)
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            lambda spec, llm, tools=(), feedback="": (Task(id="t1", deps=(), kind="workload", spec="w"),),
+        )
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", lambda *a, **k: (step_result("t1"),))
+        result = run_mace_loop(
+            ("/fake",), make_spec(), FakeLLM(responses=[]), db,
+            labels=metrics.RunLabels(method="one_shot", task="ariane-2x2", repeat=1),
+        )
+        row = db.query_one("SELECT method, task, repeat FROM runs WHERE run_id = ?", (result.run_id,))
+        assert (row["method"], row["task"], row["repeat"]) == ("one_shot", "ariane-2x2", 1)

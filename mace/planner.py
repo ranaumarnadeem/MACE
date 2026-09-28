@@ -10,6 +10,7 @@ mace.integrator.topological_levels already knows how to check.
 
 from __future__ import annotations
 
+from mace import usage
 from mace.agents import parse_tasks
 from mace.integrator import topological_levels
 from mace.spec import MaceSpec, Task
@@ -91,7 +92,7 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "") -> tuple[Task, ...]:
             failed plan means (retry with more context, give up) is the
             caller's job; this only refuses to hand back something broken.
     """
-    query = llm.prompt(build_prompt(spec, feedback), tools=list(tools))
+    query = usage.prompt(llm, "plan", build_prompt(spec, feedback), tools)
     tasks = parse_tasks(query.result)
     if not tasks:
         raise PlanningError(f"no TASK: lines in the planner's response: {query.result!r}")

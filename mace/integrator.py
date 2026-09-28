@@ -24,10 +24,12 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import threading
+import time
 
 from chia.base.ChiaFunction import get
 from chia.base.llm_call import QueryResult
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
+from mace import usage
 from mace.loop import _config_for_task, run_mace_step
 from mace.replay import tag_for
 from mace.spec import MaceSpec, StepResult, Task
@@ -341,11 +343,14 @@ def _run_batch(
 
     def _run_one(node, config: object, task: Task) -> StepResult:
         _progress((task.id,), "prompting")
+        started = time.monotonic()
         try:
             query = get(
                 llm.prompt.chia_remote(llm, task.spec, list(tools), _chia_tag=_tag(task.id, "prompt"))
             )
+            usage.note("task", query, time.monotonic() - started)
         except Exception as e:
+            usage.note_failure("task", time.monotonic() - started)
             # The reply changes nothing that is built or run: the config
             # comes from the plan's task. So a failed call, such as a reply
             # cut off at the model's output limit, is logged and the task

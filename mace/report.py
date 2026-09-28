@@ -26,6 +26,7 @@ would be. Nothing here writes to the checkout; that stays triage's rule too.
 
 from __future__ import annotations
 
+from mace import usage
 from mace.agents import parse_assessment, parse_explanation, parse_next_steps
 from mace.spec import MaceSpec, PostMortem, StepResult, Triage
 
@@ -121,7 +122,7 @@ def generate_post_mortem(
             fail-open posture :func:`mace.triage.triage` documents.
     """
     prompt = build_prompt(spec, iterations, diagnoses, stop_reason)
-    query = llm.prompt(prompt, tools=list(tools))
+    query = usage.prompt(llm, "post_mortem", prompt, tools)
     assessment = parse_assessment(query.result)
     if assessment is None:
         raise ReportError(f"no ASSESSMENT: line in the post-mortem response: {query.result!r}")

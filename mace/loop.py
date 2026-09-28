@@ -22,6 +22,7 @@ from chia.base.llm_call import QueryResult
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonBuildArtifact, PitonConfig
+from mace import usage
 from mace.spec import MaceSpec, StepResult, Task
 from mace.tools import TestbenchEditTool
 from mace.unit_test_scaffold import (
@@ -63,7 +64,7 @@ def run_mace_step(
     if task.kind == "unit_test":
         return _run_unit_test_step(piton_root, task, llm, tools)
 
-    query = llm.prompt(task.spec, tools=list(tools))
+    query = usage.prompt(llm, "task", task.spec, tools)
 
     config = _config_for_task(spec, task)
     build = OpenPitonWorkspaceNode.build(piton_root, config)
@@ -159,7 +160,7 @@ def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:
         )
     all_tools = (*tools, edit_tool) if edit_tool is not None else tools
     try:
-        query = llm.prompt(prompt, tools=list(all_tools))
+        query = usage.prompt(llm, "task", prompt, all_tools)
     finally:
         if edit_tool is not None:
             edit_tool.stop()

@@ -468,3 +468,39 @@ class TestRunBatchRemotePipelining:
         assert seen_ids == {"a", "b"}
         seen_stages = {stage for _, stage in events}
         assert seen_stages == {"prompting", "building", "running"}
+
+
+class TestTaskCallsAreRecorded:
+    def test_each_task_prompt_lands_in_the_active_usage_log(self, monkeypatch):
+        from mace import usage
+
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+        log = usage.UsageLog()
+        with usage.recording(log):
+            _run_batch(
+                [_FakeRemoteNode("/root_a"), _FakeRemoteNode("/root_b")], make_spec(),
+                [task("a", spec="spec_a"), task("b", spec="spec_b")], llm, (), str(WORKLOADS_DIR), None, 0,
+            )
+        assert [c.phase for c in log.calls()] == ["task", "task"]
+        assert all(c.ok for c in log.calls())
+
+    def test_a_failed_task_prompt_is_recorded_as_failed(self, monkeypatch):
+        from mace import usage
+
+        class _FailingPromptAttr:
+            def chia_remote(self, llm, spec, tools, _chia_tag=None):
+                return _FakeRef(None)
+
+        def get_or_raise(ref):
+            if ref.value is None:
+                raise RuntimeError("quota")
+            return ref.value
+
+        monkeypatch.setattr("mace.integrator.get", get_or_raise)
+        llm = type("FakeLLM", (), {"prompt": _FailingPromptAttr()})()
+        log = usage.UsageLog()
+        with usage.recording(log):
+            _run_batch([_FakeRemoteNode("/root_a")], make_spec(), [task("a")], llm, (), str(WORKLOADS_DIR), None, 0)
+        (call,) = log.calls()
+        assert (call.phase, call.ok) == ("task", False)
