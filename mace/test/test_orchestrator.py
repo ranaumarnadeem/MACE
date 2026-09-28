@@ -864,3 +864,28 @@ class TestFeedbackNamesThePlansChanges:
 
         assert "changes from the defaults: RTL defines added: PITON_FPGA_SYNTH; l2=32768,4 (default 65536,4)" in feedback_seen[1]
         assert "diagnosis=config_error, suggested fix=drop it" in feedback_seen[1]
+
+
+class TestPlanHook:
+    def test_each_iteration_runs_the_hooked_plan(self, tmp_path, monkeypatch):
+        received = []
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            lambda spec, llm, tools=(), feedback="": (Task(id="t1", deps=(), kind="workload", spec="w"),),
+        )
+
+        def integrate(piton_roots, spec, tasks, llm, **kwargs):
+            received.append(tasks)
+            return (step_result("t1", passed=len(received) == 2, verdict="pass" if len(received) == 2 else "fail"),)
+
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", integrate)
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("config_error", "fix"))
+
+        def hook(iteration, tasks):
+            return tuple(Task(id=f"{t.id}-i{iteration}", deps=(), kind=t.kind, spec=t.spec) for t in tasks)
+
+        result = run_mace_loop(
+            ("/fake",), make_spec(budget=Budget(max_iterations=2)), FakeLLM([]), make_db(tmp_path), plan_hook=hook
+        )
+        assert [tasks[0].id for tasks in received] == ["t1-i0", "t1-i1"]
+        assert result.status == "passed"

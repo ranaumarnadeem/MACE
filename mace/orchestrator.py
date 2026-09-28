@@ -95,6 +95,7 @@ def run_mace_loop(
     on_task_progress=None,
     labels: RunLabels | None = None,
     options: LoopOptions | None = None,
+    plan_hook=None,
 ) -> LoopResult:
     """Plan, execute, and -- if a task fails its gate -- triage and replan,
     until something passes or the spec's budget runs out.
@@ -111,6 +112,10 @@ def run_mace_loop(
     failure is still recorded, with the diagnosis ``raw_evidence`` or
     ``not_triaged``. Every build and run also gets a timeout no longer than
     the time left in ``spec.budget.max_wall_s``.
+
+    ``plan_hook(iteration, tasks)``, if given, returns the tasks each
+    iteration actually runs in place of the planner's; a seeded fault uses
+    it to break the first plan (see :mod:`mace.eval.faults`).
 
     ``on_task_progress``, if given, is passed straight through to
     :func:`~mace.integrator.integrate_parallel` -- see its own docstring.
@@ -170,7 +175,7 @@ def run_mace_loop(
         with usage.recording(calls):
             return _run_started_loop(
                 run_id, piton_roots, spec, llm, db, tools, on_iteration, on_task_progress, calls,
-                options or LoopOptions(),
+                options or LoopOptions(), plan_hook,
             )
     except BaseException:
         _record_error(db, run_id)
@@ -197,6 +202,7 @@ def _run_started_loop(
     on_task_progress,
     calls: usage.UsageLog,
     options: LoopOptions,
+    plan_hook=None,
 ) -> LoopResult:
     """run_mace_loop's body, from the checksum check to the final status
     write. Every exception it raises, including one from verify_checksums,
@@ -264,6 +270,8 @@ def _run_started_loop(
                     logger.warning("run %s: %s", run_id, e)
                     status = "planning_failed"
                     break
+                if plan_hook is not None:
+                    tasks = plan_hook(iteration, tasks)
 
                 if nodes is None:
                     nodes = open_nodes(piton_roots)
