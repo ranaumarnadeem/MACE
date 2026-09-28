@@ -219,3 +219,80 @@ def markdown_table(rows: list[dict], columns: list[str]) -> str:
     lines = ["| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
     lines += ["| " + " | ".join(cell(r.get(c)) for c in columns) + " |" for r in rows]
     return "\n".join(lines)
+
+
+def codesign_rows(db) -> list[dict]:
+    """One row per co-design search: its evaluations, in order, and the
+    best feasible finish time found."""
+    runs = db.query(
+        "SELECT run_id, task, method, repeat, seed, status FROM runs "
+        "WHERE task IS NOT NULL AND method LIKE 'codesign_%' ORDER BY started_at",
+        (),
+    )
+    rows = []
+    for run in runs:
+        evaluations = db.query(
+            "SELECT idx, feasible, sim_time, area_um2 FROM evaluations WHERE run_id = ? ORDER BY idx",
+            (run["run_id"],),
+        )
+        best_so_far, curve = None, []
+        for e in evaluations:
+            if e["feasible"] and e["sim_time"] is not None:
+                best_so_far = e["sim_time"] if best_so_far is None else min(best_so_far, e["sim_time"])
+            curve.append(best_so_far)
+        rows.append(
+            {
+                "run_id": run["run_id"],
+                "task": run["task"],
+                "method": run["method"],
+                "repeat": run["repeat"],
+                "seed": run["seed"],
+                "status": run["status"],
+                "evaluations": len(evaluations),
+                "feasible": sum(1 for e in evaluations if e["feasible"]),
+                "best_sim_time": best_so_far,
+                "curve": curve,
+            }
+        )
+    return rows
+
+
+def codesign_summary(rows: list[dict], within: float = 0.05) -> list[dict]:
+    """One row per (task, method) of co-design searches.
+
+    ``best_known`` is the soonest feasible finish any search of the task
+    found. ``sims_to_near_best`` is the median number of simulations a
+    search needed to come within *within* of it, over the searches that
+    got there; ``reached`` counts those searches.
+    """
+    best_known: dict[str, int] = {}
+    for r in rows:
+        if r["best_sim_time"] is not None:
+            best_known[r["task"]] = min(best_known.get(r["task"], r["best_sim_time"]), r["best_sim_time"])
+    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for r in rows:
+        groups[(r["task"], r["method"])].append(r)
+    out = []
+    for (task, method), group in sorted(groups.items()):
+        target = best_known.get(task)
+        needed = []
+        for r in group:
+            if target is None:
+                continue
+            hit = next((i + 1 for i, b in enumerate(r["curve"]) if b is not None and b <= target * (1 + within)), None)
+            if hit is not None:
+                needed.append(hit)
+        evaluations = sum(r["evaluations"] for r in group)
+        out.append(
+            {
+                "task": task,
+                "method": method,
+                "searches": len(group),
+                "best_sim_time": _median(r["best_sim_time"] for r in group),
+                "best_known": target,
+                "reached": len(needed),
+                "sims_to_near_best": _median(needed),
+                "feasible_share": (sum(r["feasible"] for r in group) / evaluations) if evaluations else None,
+            }
+        )
+    return out

@@ -132,3 +132,40 @@ class TestMarkdown:
     def test_table(self):
         text = report.markdown_table([{"a": 1.234, "b": None, "c": "x"}], ["a", "b", "c"])
         assert text.splitlines() == ["| a | b | c |", "|---|---|---|", "| 1.23 | - | x |"]
+
+
+class TestCodesignSummary:
+    def _search(self, db, method, repeat, finishes):
+        from mace.codesign.run import Evaluation
+        from mace.codesign.space import Design
+
+        spec = MaceSpec(workloads=("matmul.c",), objective="o")
+        run_id = metrics.start_run(db, spec, labels=metrics.RunLabels(method=method, task="cd", repeat=repeat))
+        for i, finish in enumerate(finishes):
+            metrics.record_evaluation(db, run_id, Evaluation(
+                index=i, round=i, design=Design.of({"l1d": (4096 * (i + 1), 2)}), passed=finish is not None,
+                feasible=finish is not None, sim_time=finish, area_um2=1.0, read_energy_nj=0.0,
+                area_source="analytical", wall_s=1.0,
+            ))
+        metrics.finish_run(db, run_id, "passed" if any(f is not None for f in finishes) else "budget_exceeded")
+
+    def test_best_found_and_simulations_to_near_best(self, tmp_path):
+        db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
+        self._search(db, "codesign_mace", 0, [900, 700, 800])
+        self._search(db, "codesign_random", 0, [None, 1000, 720])
+        self._search(db, "codesign_random", 1, [None, None, None])
+        rows = report.codesign_rows(db)
+        assert len(rows) == 3
+        mace_row = next(r for r in rows if r["method"] == "codesign_mace")
+        assert mace_row["curve"] == [900, 700, 700]
+        summary = {s["method"]: s for s in report.codesign_summary(rows)}
+        assert summary["codesign_mace"]["best_known"] == 700
+        assert (summary["codesign_mace"]["sims_to_near_best"], summary["codesign_mace"]["reached"]) == (2, 1)
+        assert (summary["codesign_random"]["reached"], summary["codesign_random"]["sims_to_near_best"]) == (1, 3)
+        assert summary["codesign_random"]["feasible_share"] == pytest.approx(2 / 6)
+        assert summary["codesign_random"]["best_sim_time"] == 720
+
+    def test_bring_up_rows_leave_out_nothing(self, tmp_path):
+        db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
+        self._search(db, "codesign_grid", 0, [500])
+        assert report.run_rows(db)[0]["method"] == "codesign_grid"
