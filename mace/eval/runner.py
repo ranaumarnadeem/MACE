@@ -34,6 +34,7 @@ from mace.baselines.retry_agent import run_retry_agent
 from mace.codesign.area import design_area
 from mace.codesign.run import run_codesign
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
+from mace.eval.faults import FAULTS, first_plan_breaker
 from mace.eval.suite import SuiteTask
 from mace.loop import run_gate_programs
 from mace.metrics import RunLabels, record_resimulation
@@ -60,12 +61,22 @@ METHODS: dict[str, str] = {
 
 CODESIGN_METHODS = frozenset(m for m in METHODS if m.startswith("codesign_"))
 
+# One method per seeded fault (see mace.eval.faults): the full loop with its
+# first plan broken. Only asked-for methods run, so an unverified fault runs
+# only when a batch names it.
+SEEDED_PREFIX = "seeded_"
+for _name, _fault in FAULTS.items():
+    METHODS[f"{SEEDED_PREFIX}{_name}"] = f"RQ3: the loop with its first plan broken. {_fault.description}"
+
 # Methods with no randomness run once per task unless asked otherwise.
 ONCE_METHODS = frozenset(("expert", "codesign_grid"))
 
 
 def applies(method: str, task: SuiteTask) -> bool:
-    """Co-design methods run on co-design tasks, the others on bring-up tasks."""
+    """Co-design methods run on co-design tasks, the others on bring-up
+    tasks; a seeded fault runs only on the cores it lists."""
+    if method.startswith(SEEDED_PREFIX):
+        return task.kind == "bringup" and task.core in FAULTS[method[len(SEEDED_PREFIX):]].cores
     return (method in CODESIGN_METHODS) == (task.kind == "codesign")
 
 # A run in one of these states counts as done; a run left "running" by a
@@ -204,6 +215,13 @@ def run_job(job: Job, env: RunEnv):
     spec = job.task.spec()
     if job.method in CODESIGN_METHODS:
         return _run_codesign_job(job, env, roots, spec, labels)
+    if job.method.startswith(SEEDED_PREFIX):
+        fault = FAULTS[job.method[len(SEEDED_PREFIX):]]
+        labels = dataclasses.replace(labels, meta={**labels.meta, "fault": fault.name})
+        return run_mace_loop(
+            roots, spec, env.llm, env.db, labels=labels, options=LoopOptions(task_prompts=env.task_prompts),
+            plan_hook=first_plan_breaker(fault),
+        )
     options = LoopOptions(task_prompts=env.task_prompts)
     method = job.method
     if method == "mace" or method == "one_checkout":

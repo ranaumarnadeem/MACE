@@ -277,3 +277,26 @@ class TestCodesignJobs:
         task = codesign_task()
         expected = design_area(task.codesign.default_design(), 4).area_um2
         assert runner.area_budget_um2(task) == pytest.approx(expected)
+
+
+class TestSeededJobs:
+    def test_a_fault_runs_only_on_its_cores(self):
+        pico = suite_task("pico-task", core="pico")
+        jobs = runner.plan_jobs((suite_task(), pico, codesign_task()), ("seeded_drop_bist", "seeded_fpga_synth"), repeats=1)
+        assert {j.key for j in jobs} == {
+            ("pico-task", "seeded_drop_bist", 0),
+            ("pico-task", "seeded_fpga_synth", 0),
+            ("ariane-2x2-barrier", "seeded_fpga_synth", 0),
+        }
+
+    def test_the_loop_runs_with_the_fault_s_first_plan_breaker(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "mace.eval.runner.run_mace_loop",
+            lambda roots, spec, llm, db, **kwargs: calls.append(kwargs) or "done",
+        )
+        runner.run_job(runner.Job(suite_task(), "seeded_fpga_synth", 0), make_env(tmp_path))
+        (kwargs,) = calls
+        assert kwargs["labels"].meta["fault"] == "fpga_synth"
+        hooked = kwargs["plan_hook"](0, (Task(id="t", deps=(), kind="config", spec="s"),))
+        assert hooked[0].config_rtl == ("PITON_FPGA_SYNTH",)

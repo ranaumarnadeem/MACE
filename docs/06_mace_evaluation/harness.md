@@ -35,6 +35,7 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `codesign_random` | C1 | A co-design search over uniform random designs, seeded by the repeat. |
 | `codesign_grid` | C2 | A co-design search over the task's fixed grid, in order. |
 | `codesign_bayes` | C3 | A co-design search with Optuna's TPE sampler, seeded by the repeat. |
+| `seeded_<fault>` | RQ3 | The loop with its first plan broken by one seeded fault; see below. |
 
 The co-design methods run only on tasks with a `codesign` block, and the others only on tasks without one.
 `expert` and `codesign_grid` have no randomness, so they run once per task unless `--expert-repeats` asks for more.
@@ -63,6 +64,22 @@ python examples/eval_batch.py --piton-root ~/openpiton --methods no_triage,one_c
 ```
 
 The dry run lists each job as `done` or `todo` and starts no Ray instance.
+
+## Seeded faults and reverted fixes
+
+`mace/eval/faults.py` names the seeded faults.
+Each changes the first plan's `config` and `workload` tasks before they run and leaves later plans alone, through `run_mace_loop`'s `plan_hook`.
+`fpga_synth` adds `PITON_FPGA_SYNTH`, and the Verilator build fails; `drop_bist` removes `CONFIG_DISABLE_BIST_CLEAR`, and a PicoRV32 simulation times out.
+Both broke every hackathon run they were seeded into and are marked verified.
+`l1d_three_way` and `l15_below_l1d` are unverified candidates until a pilot shows they break a build or a simulation.
+A `seeded_<fault>` method runs on bring-up tasks whose core the fault lists, and only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
+
+A reverted-fix run needs a checkout that lacks one fix of `scripts/patch_openpiton.sh`: patch a fresh checkout with `PATCH_SKIP` naming that fix (see [Environment Patches](../04_chia_openpiton/environment_patches.md)), and pass `--label reverted_fix=<N>` so each run records it.
+
+```bash
+PATCH_SKIP="11" bash scripts/patch_openpiton.sh ~/openpiton-no11
+python examples/eval_batch.py --piton-root ~/openpiton-no11 --methods mace --tasks ariane-2x2-barrier     --label reverted_fix=11 --db-path runs/reverted_fix.db
+```
 
 ## Co-design searches
 

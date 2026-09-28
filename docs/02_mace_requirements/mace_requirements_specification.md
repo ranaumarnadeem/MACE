@@ -127,6 +127,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EVAL-7:** After a passed run with a build-only check, the harness shall simulate each design the run accepted and record each gate workload's verdict.
 - **REQ-EVAL-8:** A co-design search shall count a design feasible only when every gate workload passes on it and its cache area fits the task's budget, and shall record every design it evaluates.
 - **REQ-EVAL-9:** The harness shall record with each run its method, suite task, repeat, seed, and environment: MACE's commit, each checkout's source fingerprint and Verilator version, the model, and the host.
+- **REQ-EVAL-10:** A seeded-fault run shall change only its first plan's `config` and `workload` tasks, and shall record the fault's name with the run.
 
 ## Platform Requirements
 

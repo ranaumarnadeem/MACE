@@ -53,6 +53,9 @@ def main() -> int:
     ap.add_argument("--no-task-prompts", action="store_true",
                     help="Skip each task's own LLM call, whose reply changes nothing that is built")
     ap.add_argument("--keep-cache", action="store_true", help="Do not empty the build cache before each job")
+    ap.add_argument("--label", action="append", default=[], metavar="KEY=VALUE",
+                    help="Recorded in every run's meta, e.g. --label reverted_fix=11 for a checkout "
+                         "patched with PATCH_SKIP=11; repeatable")
     ap.add_argument("--backend", default="vertex")
     ap.add_argument("--model", default=None)
     ap.add_argument("--project", default=None, help="GCP project; defaults to GOOGLE_CLOUD_PROJECT")
@@ -70,6 +73,12 @@ def main() -> int:
     elif not args.include_unverified:
         tasks = tuple(t for t in tasks if t.verified)
     methods = tuple(m.strip() for m in args.methods.split(",") if m.strip())
+    labels = {}
+    for item in args.label:
+        key, sep, value = item.partition("=")
+        if not sep or not key:
+            ap.error(f"--label needs KEY=VALUE, got {item!r}")
+        labels[key] = value
     jobs = plan_jobs(tasks, methods, args.repeats, once_repeats=args.expert_repeats, seed=args.shuffle_seed)
 
     if args.dry_run:
@@ -109,7 +118,7 @@ def main() -> int:
         piton_roots=piton_roots,
         llm=llm,
         db=db,
-        meta=environment_meta(piton_roots, args.backend, model),
+        meta={**environment_meta(piton_roots, args.backend, model), **labels},
         task_prompts=not args.no_task_prompts,
         clear_cache=not args.keep_cache,
     )
