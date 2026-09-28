@@ -49,7 +49,7 @@ from mace.metrics import (
 from mace.planner import PlanningError, plan
 from mace.report import ReportError, generate_post_mortem
 from mace.spec import LoopOptions, LoopResult, MaceSpec, StepResult, Triage
-from mace.triage import TriageError, failure_evidence, triage
+from mace.triage import TriageError, changes_from_defaults, failure_evidence, triage
 from mace.workloads import verify_checksums
 
 logger = logging.getLogger(__name__)
@@ -309,7 +309,8 @@ def _run_started_loop(
                     except TriageError:
                         diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
                     feedback = (
-                        f"Task {failed.task.id} ({failed.task.spec}) failed: "
+                        f"Task {failed.task.id} ({failed.task.spec}; changes from the defaults: "
+                        f"{changes_from_defaults(failed.build.config)}) failed: "
                         f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
                     )
                 elif options.triage == "raw":

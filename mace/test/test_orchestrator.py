@@ -839,3 +839,28 @@ class TestLoopOptions:
         )
         assert result.status == "budget_exceeded"
         assert result.post_mortem is None
+
+
+class TestFeedbackNamesThePlansChanges:
+    def test_the_next_plan_hears_what_the_failed_task_changed(self, tmp_path, monkeypatch):
+        from chia_openpiton.state_def import DEFAULT_CACHES
+
+        feedback_seen = []
+
+        def recording_plan(spec, llm, tools=(), feedback=""):
+            feedback_seen.append(feedback)
+            return (Task(id="t1", deps=(), kind="workload", spec="w"),)
+
+        failed = step_result("t1", passed=False, verdict="timeout")
+        failed.build.config = PitonConfig(
+            config_rtl=("MINIMAL_MONITORING", "PITON_FPGA_SYNTH"), caches={**DEFAULT_CACHES, "l2": (32768, 4)}
+        )
+        monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", lambda *a, **k: (failed,))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(): Triage("config_error", "drop it"))
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=2)), FakeLLM([]), make_db(tmp_path))
+
+        assert "changes from the defaults: RTL defines added: PITON_FPGA_SYNTH; l2=32768,4 (default 65536,4)" in feedback_seen[1]
+        assert "diagnosis=config_error, suggested fix=drop it" in feedback_seen[1]

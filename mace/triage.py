@@ -14,6 +14,7 @@ later task the Planner produces from this diagnosis.
 
 from __future__ import annotations
 
+from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace import usage
 from mace.agents import is_testbench_port_mismatch, parse_diagnosis, parse_fix
 from mace.spec import StepResult, Triage
@@ -38,6 +39,24 @@ class TriageError(Exception):
     """The triage response produced no diagnosis."""
 
 
+def changes_from_defaults(config: PitonConfig) -> str:
+    """What *config* changes from the mesh's defaults, in words: the RTL
+    defines it adds, the cache geometries that differ, and a non-default
+    interconnect; ``"none"`` when it changes nothing."""
+    parts = []
+    added = sorted(set(config.config_rtl) - set(PitonConfig().config_rtl))
+    if added:
+        parts.append("RTL defines added: " + " ".join(added))
+    for name in sorted(config.caches):
+        if config.caches[name] != DEFAULT_CACHES.get(name):
+            size, assoc = config.caches[name]
+            default_size, default_assoc = DEFAULT_CACHES[name]
+            parts.append(f"{name}={size},{assoc} (default {default_size},{default_assoc})")
+    if config.network_config != PitonConfig().network_config:
+        parts.append(f"network {config.network_config}")
+    return "; ".join(parts) if parts else "none"
+
+
 def failure_evidence(result: StepResult) -> str:
     """What a failed task's build and simulation reported, capped in length.
 
@@ -47,9 +66,13 @@ def failure_evidence(result: StepResult) -> str:
     """
     build = result.build
     run = result.run
-    # The flags show which RTL defines and cache sizes were built, so a
-    # failure can be traced to the plan's own choices.
-    context_parts = [f"Build flags: {' '.join(build.config.sims_flags())}"]
+    # The flags show which RTL defines and cache sizes were built, and the
+    # changes line picks out the plan's own choices among them, so a failure
+    # can be traced to what the plan changed.
+    context_parts = [
+        f"Build flags: {' '.join(build.config.sims_flags())}",
+        f"Changes from the defaults: {changes_from_defaults(build.config)}",
+    ]
     if not build.success:
         context_parts.append(f"Build failure reason: {build.failure_reason}")
         if build.errors:

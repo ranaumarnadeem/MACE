@@ -142,3 +142,32 @@ class TestTestbenchMismatchShortCircuit:
         diagnosed = triage(result, llm)
         assert diagnosed.diagnosis == "rtl_suspect"
         assert len(llm.calls) == 1
+
+
+class TestChangesFromDefaults:
+    def test_a_default_config_changes_nothing(self):
+        from chia_openpiton.state_def import PitonConfig
+        from mace.triage import changes_from_defaults
+
+        assert changes_from_defaults(PitonConfig()) == "none"
+
+    def test_names_added_defines_changed_caches_and_the_crossbar(self):
+        from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
+        from mace.triage import changes_from_defaults
+
+        config = PitonConfig(
+            config_rtl=("MINIMAL_MONITORING", "PITON_FPGA_SYNTH"),
+            caches={**DEFAULT_CACHES, "l1d": (4096, 2)},
+            network_config="xbar_config",
+        )
+        assert changes_from_defaults(config) == (
+            "RTL defines added: PITON_FPGA_SYNTH; l1d=4096,2 (default 8192,4); network xbar_config"
+        )
+
+    def test_the_prompt_carries_the_changes_line(self):
+        from chia_openpiton.state_def import PitonConfig
+        from mace.triage import build_prompt
+
+        result = make_failed_result(build_success=False)
+        result.build.config = PitonConfig(config_rtl=("MINIMAL_MONITORING", "PITON_FPGA_SYNTH"))
+        assert "Changes from the defaults: RTL defines added: PITON_FPGA_SYNTH" in build_prompt(result)

@@ -9,6 +9,7 @@ Other failed tasks in that level get a row in the `tasks` table and no triage.
 
 `triage(result, llm, tools=())` makes one LLM call.
 The prompt gives the task's id, kind, and instruction, the build outcome, the run verdict, and the build's `sims` flags, which name its RTL defines and cache sizes.
+A line of changes from the defaults picks out the plan's own choices among them: the RTL defines it adds, each cache whose geometry differs, and a crossbar interconnect (`changes_from_defaults()`).
 A failed build adds the failure reason, its error lines (see [PitonBuildArtifact](../04_chia_openpiton/workspace_node.md)), and the last 1500 characters of its stderr, or of its stdout when stderr is empty, as `sims` leaves it.
 A failed run adds the last 1500 characters of the simulation log and up to 8000 characters of the status log.
 The prompt asks for two directive lines:
@@ -48,7 +49,7 @@ See [Tool Server](../04_chia_openpiton/tool_server.md).
 `record_failure()` writes the diagnosis to the `failures` table, and the orchestrator adds a line to the run's feedback history:
 
 ```text
-Task <id> (<instruction>) failed: diagnosis=<label>, suggested fix=<fix>
+Task <id> (<instruction>; changes from the defaults: <changes>) failed: diagnosis=<label>, suggested fix=<fix>
 ```
 
 With `LoopOptions(triage="raw")`, the line instead holds whether the build succeeded, the run verdict, and the failure's raw evidence, and with `triage="off"` the orchestrator adds no line (see [Architecture](architecture.md)).
