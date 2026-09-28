@@ -20,11 +20,13 @@ import json
 import sqlite3
 import time
 import uuid
+from dataclasses import dataclass, field
 
 from chia.database.sqlite_node import SQLiteNode
 
 from mace.spec import MaceSpec, PostMortem, StepResult
 from mace.unit_test_scaffold import module_name_from_path
+from mace.usage import LLMCall
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -35,7 +37,12 @@ CREATE TABLE IF NOT EXISTS runs (
     y_tiles INTEGER NOT NULL,
     started_at REAL NOT NULL,
     finished_at REAL,
-    status TEXT NOT NULL DEFAULT 'running'
+    status TEXT NOT NULL DEFAULT 'running',
+    method TEXT,
+    task TEXT,
+    repeat INTEGER,
+    seed INTEGER,
+    meta TEXT
 );
 
 CREATE TABLE IF NOT EXISTS iterations (
@@ -60,6 +67,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     wall_s REAL NOT NULL DEFAULT 0,
     caches TEXT,
     module TEXT,
+    build_s REAL,
+    run_s REAL,
     PRIMARY KEY (run_id, iteration, task_id)
 );
 
@@ -79,7 +88,29 @@ CREATE TABLE IF NOT EXISTS post_mortems (
     explanation TEXT,
     next_steps TEXT
 );
+
+CREATE TABLE IF NOT EXISTS llm_calls (
+    run_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    iteration INTEGER,
+    phase TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    thinking_tokens INTEGER NOT NULL DEFAULT 0,
+    usd REAL NOT NULL DEFAULT 0,
+    wall_s REAL NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (run_id, seq)
+);
 """
+
+# Columns added after the first real runs/*.db files were written. CREATE
+# TABLE IF NOT EXISTS leaves an existing table alone, so open_db and
+# DBReader add whichever of these an older database lacks.
+ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "runs": {"method": "TEXT", "task": "TEXT", "repeat": "INTEGER", "seed": "INTEGER", "meta": "TEXT"},
+    "tasks": {"caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL"},
+}
 
 
 def new_run_id() -> str:
@@ -100,23 +131,13 @@ def open_db(db_path: str, *, ray_placement: bool = True) -> SQLiteNode:
     else:
         node = SQLiteNode(db_path, require_colocated=False)
     node.init_schema(SCHEMA)
-    # CREATE TABLE IF NOT EXISTS does not add columns to a tasks table that
-    # already exists from before `caches` was added -- this project's own
-    # real runs/*.db files predate it. Add the column the first time an
-    # older db is reopened; a fresh db already has it from SCHEMA above, so
-    # this is expected to no-op there.
-    try:
-        node.execute("ALTER TABLE tasks ADD COLUMN caches TEXT")
-    except Exception as e:
-        if "duplicate column" not in str(e).lower():
-            raise
-    # Same retrofit as caches above, for module (added when unit_test tasks
-    # started recording which module they target -- see _task_op).
-    try:
-        node.execute("ALTER TABLE tasks ADD COLUMN module TEXT")
-    except Exception as e:
-        if "duplicate column" not in str(e).lower():
-            raise
+    for table, columns in ADDED_COLUMNS.items():
+        for column, sql_type in columns.items():
+            try:
+                node.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+            except Exception as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
     return node
 
 
@@ -128,17 +149,19 @@ class DBReader:
     :func:`trace_run` make, so a read-only report needs no CHIA. The first
     call on a SQLiteNode starts Ray, because CHIA's profiler looks up its
     collector actor, and ``mace results`` should not pay that for a query.
-    Like :func:`open_db`, it adds the ``caches`` and ``module`` columns an
+    Like :func:`open_db`, it adds the tables and :data:`ADDED_COLUMNS` an
     older database lacks; after that, the connection refuses writes.
     """
 
     def __init__(self, db_path: str):
         self._conn = sqlite3.connect(db_path)
         self._conn.row_factory = sqlite3.Row
-        existing = {row["name"] for row in self._conn.execute("PRAGMA table_info(tasks)")}
-        for column in ("caches", "module"):
-            if existing and column not in existing:
-                self._conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+        self._conn.executescript(SCHEMA)
+        for table, columns in ADDED_COLUMNS.items():
+            existing = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            for column, sql_type in columns.items():
+                if column not in existing:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
         self._conn.commit()
         self._conn.execute("PRAGMA query_only = ON")
 
@@ -157,13 +180,29 @@ class DBReader:
         self._conn.close()
 
 
-def start_run(db: SQLiteNode, spec: MaceSpec, run_id: str | None = None) -> str:
+@dataclass(frozen=True)
+class RunLabels:
+    """What an evaluation run was: which method ran which suite task, and
+    on what. ``meta`` holds the environment (MACE commit, checkout
+    fingerprint, Verilator version, model ID, VM), stored as JSON."""
+
+    method: str = "mace"
+    task: str | None = None
+    repeat: int | None = None
+    seed: int | None = None
+    meta: dict = field(default_factory=dict)
+
+
+def start_run(
+    db: SQLiteNode, spec: MaceSpec, run_id: str | None = None, labels: RunLabels | None = None
+) -> str:
     """Record a new run's identity; returns the run_id (generated if omitted)."""
     run_id = run_id or new_run_id()
+    labels = labels or RunLabels()
     db.execute(
         "INSERT OR REPLACE INTO runs "
-        "(run_id, objective, core, x_tiles, y_tiles, started_at, status) "
-        "VALUES (?, ?, ?, ?, ?, ?, 'running')",
+        "(run_id, objective, core, x_tiles, y_tiles, started_at, status, method, task, repeat, seed, meta) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)",
         (
             run_id,
             spec.objective,
@@ -171,6 +210,11 @@ def start_run(db: SQLiteNode, spec: MaceSpec, run_id: str | None = None) -> str:
             spec.target_mesh[0],
             spec.target_mesh[1],
             time.time(),
+            labels.method,
+            labels.task,
+            labels.repeat,
+            labels.seed,
+            json.dumps(labels.meta, sort_keys=True),
         ),
     )
     return run_id
@@ -209,6 +253,40 @@ def record_iteration(
     db.transaction(ops)
 
 
+def add_iteration_usd(db: SQLiteNode, run_id: str, iteration: int, usd: float) -> None:
+    """Add *usd* to an iteration already recorded, for a call made after
+    :func:`record_iteration` wrote it, such as that iteration's triage."""
+    db.execute(
+        "UPDATE iterations SET usd = usd + ? WHERE run_id = ? AND iteration = ?",
+        (usd, run_id, iteration),
+    )
+
+
+def record_llm_calls(
+    db: SQLiteNode, run_id: str, iteration: int | None, calls: tuple[LLMCall, ...]
+) -> None:
+    """One ``llm_calls`` row per call, numbered after the run's existing
+    rows. *iteration* is ``None`` for a call that belongs to the whole run,
+    such as the post-mortem."""
+    if not calls:
+        return
+    db.transaction(
+        [
+            (
+                "INSERT INTO llm_calls "
+                "(run_id, seq, iteration, phase, input_tokens, output_tokens, thinking_tokens, usd, wall_s, ok) "
+                "VALUES (?, (SELECT COALESCE(MAX(seq), -1) + 1 FROM llm_calls WHERE run_id = ?), "
+                "?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id, run_id, iteration, c.phase, c.input_tokens, c.output_tokens,
+                    c.thinking_tokens, c.usd, c.wall_s, int(c.ok),
+                ),
+            )
+            for c in calls
+        ]
+    )
+
+
 def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tuple]:
     """Build one task row's (sql, params) for record_iteration's transaction.
 
@@ -219,12 +297,14 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
     to make visible), and only the build's own resolved PitonConfig is
     ground truth for what really got tested.
     """
-    wall_s = result.build.wall_time_s + (result.run.wall_time_s if result.run else 0.0)
+    build_s = result.build.wall_time_s
+    run_s = result.run.wall_time_s if result.run else 0.0
     module = module_name_from_path(result.task.spec) if result.task.kind == "unit_test" else None
     return (
         "INSERT OR REPLACE INTO tasks "
-        "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module, "
+        "build_s, run_s) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             iteration,
@@ -234,9 +314,11 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
             int(result.passed),
             int(result.build.success),
             result.run.verdict if result.run else None,
-            wall_s,
+            build_s + run_s,
             json.dumps(result.build.config.caches, sort_keys=True),
             module,
+            build_s,
+            run_s,
         ),
     )
 
@@ -392,7 +474,8 @@ def all_runs(db: SQLiteNode) -> list[dict]:
     for the identical reason -- see its docstring).
     """
     runs = db.query(
-        "SELECT run_id, objective, core, x_tiles, y_tiles, started_at, finished_at, status "
+        "SELECT run_id, objective, core, x_tiles, y_tiles, started_at, finished_at, status, "
+        "method, task, repeat, seed "
         "FROM runs ORDER BY started_at DESC, rowid DESC",
         (),
     )
@@ -478,9 +561,13 @@ def summary(db: SQLiteNode, run_id: str) -> dict:
             (run_id,),
             default=0.0,
         ),
+        # Every LLM call when the run recorded them one by one, which
+        # includes the post-mortem; otherwise the per-iteration tally an
+        # older run kept.
         "compute_usd": db.query_value(
-            "SELECT COALESCE(SUM(usd), 0) FROM iterations WHERE run_id = ?",
-            (run_id,),
+            "SELECT COALESCE((SELECT SUM(usd) FROM llm_calls WHERE run_id = ?), "
+            "(SELECT SUM(usd) FROM iterations WHERE run_id = ?), 0)",
+            (run_id, run_id),
             default=0.0,
         ),
     }

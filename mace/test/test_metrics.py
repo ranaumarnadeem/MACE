@@ -551,3 +551,121 @@ class TestModuleStatus:
         )
 
         assert metrics.module_status(db, run_b) == []
+
+
+class TestRunLabels:
+    def test_start_run_records_the_labels(self, tmp_path):
+        db = open_test_db(tmp_path)
+        labels = metrics.RunLabels(
+            method="retry_agent", task="ariane-2x2-barrier", repeat=2, seed=7,
+            meta={"verilator": "5.052", "model": "gemini-2.5-flash"},
+        )
+        run_id = metrics.start_run(db, make_spec(), labels=labels)
+        row = db.query_one("SELECT method, task, repeat, seed, meta FROM runs WHERE run_id = ?", (run_id,))
+        assert (row["method"], row["task"], row["repeat"], row["seed"]) == ("retry_agent", "ariane-2x2-barrier", 2, 7)
+        assert json.loads(row["meta"]) == {"model": "gemini-2.5-flash", "verilator": "5.052"}
+
+    def test_a_run_without_labels_is_recorded_as_mace(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        row = db.query_one("SELECT method, task, repeat FROM runs WHERE run_id = ?", (run_id,))
+        assert (row["method"], row["task"], row["repeat"]) == ("mace", None, None)
+
+    def test_all_runs_lists_the_labels(self, tmp_path):
+        db = open_test_db(tmp_path)
+        metrics.start_run(db, make_spec(), labels=metrics.RunLabels(method="one_shot", task="t", repeat=0))
+        (run,) = metrics.all_runs(db)
+        assert (run["method"], run["task"], run["repeat"]) == ("one_shot", "t", 0)
+
+
+class TestLlmCalls:
+    def test_calls_are_numbered_across_writes(self, tmp_path):
+        from mace.usage import LLMCall
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_llm_calls(db, run_id, 0, (LLMCall("plan", input_tokens=10), LLMCall("task")))
+        metrics.record_llm_calls(db, run_id, None, (LLMCall("post_mortem", thinking_tokens=3, ok=False),))
+        rows = db.query(
+            "SELECT seq, iteration, phase, input_tokens, thinking_tokens, ok FROM llm_calls "
+            "WHERE run_id = ? ORDER BY seq",
+            (run_id,),
+        )
+        assert [(r["seq"], r["iteration"], r["phase"]) for r in rows] == [
+            (0, 0, "plan"), (1, 0, "task"), (2, None, "post_mortem"),
+        ]
+        assert rows[0]["input_tokens"] == 10
+        assert (rows[2]["thinking_tokens"], rows[2]["ok"]) == (3, 0)
+
+    def test_no_calls_writes_nothing(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_llm_calls(db, run_id, 0, ())
+        assert db.query_value("SELECT COUNT(*) FROM llm_calls", (), default=0) == 0
+
+    def test_summary_cost_counts_every_recorded_call(self, tmp_path):
+        from mace.usage import LLMCall
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_iteration(db, run_id, 0, (make_result("a", False),), wall_s=1.0, usd=0.25)
+        metrics.record_llm_calls(db, run_id, 0, (LLMCall("plan", usd=0.25),))
+        metrics.record_llm_calls(db, run_id, None, (LLMCall("post_mortem", usd=0.5),))
+        assert metrics.summary(db, run_id)["compute_usd"] == pytest.approx(0.75)
+
+    def test_summary_cost_falls_back_to_iterations_for_an_older_run(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_iteration(db, run_id, 0, (make_result("a", True),), wall_s=1.0, usd=0.4)
+        assert metrics.summary(db, run_id)["compute_usd"] == pytest.approx(0.4)
+
+    def test_add_iteration_usd_adds_to_the_recorded_iteration(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_iteration(db, run_id, 0, (make_result("a", False),), wall_s=1.0, usd=0.1)
+        metrics.add_iteration_usd(db, run_id, 0, 0.2)
+        usd = db.query_value("SELECT usd FROM iterations WHERE run_id = ? AND iteration = 0", (run_id,))
+        assert usd == pytest.approx(0.3)
+
+
+class TestTaskTimes:
+    def test_build_and_run_time_are_recorded_separately(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        result = make_result("a", True, wall_s=30.0)
+        result.run.wall_time_s = 12.0
+        metrics.record_iteration(db, run_id, 0, (result,), wall_s=50.0)
+        row = db.query_one("SELECT build_s, run_s, wall_s FROM tasks WHERE run_id = ?", (run_id,))
+        assert (row["build_s"], row["run_s"], row["wall_s"]) == (30.0, 12.0, 42.0)
+
+
+class TestOlderDatabases:
+    def _old_db(self, tmp_path):
+        db_path = tmp_path / "old.db"
+        con = sqlite3.connect(str(db_path))
+        con.execute(
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, objective TEXT NOT NULL, core TEXT NOT NULL, "
+            "x_tiles INTEGER NOT NULL, y_tiles INTEGER NOT NULL, started_at REAL NOT NULL, "
+            "finished_at REAL, status TEXT NOT NULL DEFAULT 'running')"
+        )
+        con.execute(
+            "INSERT INTO runs VALUES ('r1', 'bring up', 'ariane', 2, 2, 1.0, 2.0, 'passed')"
+        )
+        con.commit()
+        con.close()
+        return db_path
+
+    def test_open_db_adds_the_run_label_columns(self, tmp_path):
+        db = metrics.open_db(str(self._old_db(tmp_path)), ray_placement=False)
+        run_id = metrics.start_run(db, make_spec(), labels=metrics.RunLabels(method="expert"))
+        assert db.query_value("SELECT method FROM runs WHERE run_id = ?", (run_id,)) == "expert"
+
+    def test_the_reader_opens_an_older_database(self, tmp_path):
+        reader = metrics.DBReader(str(self._old_db(tmp_path)))
+        try:
+            (run,) = metrics.all_runs(reader)
+            assert run["run_id"] == "r1"
+            assert run["method"] is None
+            assert metrics.summary(reader, "r1")["compute_usd"] == 0
+        finally:
+            reader.close()
