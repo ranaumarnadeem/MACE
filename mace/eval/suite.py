@@ -50,6 +50,7 @@ import yaml
 
 from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.baselines.expert import expert_task
+from mace.codesign.area import cache_arrays
 from mace.codesign.space import DEFAULT_NETWORK, Design, DesignSpace
 from mace.spec import Budget, MaceSpec, Task
 
@@ -173,6 +174,12 @@ def _codesign(raw: object, task_id: str) -> CodesignConfig | None:
             area_budget_ratio=raw.get("area_budget_ratio", 1.0),
         )
         grid = config.grid_designs()
+        # The area model needs a whole number of sets; check every geometry
+        # now, so a search never meets one it cannot price.
+        for name in space.sizes:
+            for size in space.sizes[name]:
+                for assoc in space.assocs[name]:
+                    cache_arrays(name, size, assoc)
     except ValueError as e:
         raise SuiteError(f"task {task_id}: codesign: {e}") from e
     for value, what in ((config.simulations, "simulations"), (config.batch, "batch")):

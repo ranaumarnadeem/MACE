@@ -146,3 +146,10 @@ class TestCodesignBlock:
         text = CODESIGN.split("      grid:")[0]
         with pytest.raises(SuiteError, match="needs a grid"):
             load_suite(write(tmp_path, text))
+
+
+class TestCodesignGeometries:
+    def test_a_geometry_the_area_model_cannot_price_fails_to_load(self, tmp_path):
+        text = CODESIGN.replace("l1d: {sizes: [4096, 8192], assocs: [2, 4]}", "l1d: {sizes: [4096, 8192], assocs: [2, 3]}")
+        with pytest.raises(SuiteError, match="whole number"):
+            load_suite(write(tmp_path, text))
