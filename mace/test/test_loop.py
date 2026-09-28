@@ -407,3 +407,59 @@ class TestUnitTestTask:
         run_mace_step(str(stub_piton_root), make_spec(), task, llm)
 
         assert env_dir.is_dir()  # still there, no error from a second scaffold attempt
+
+
+class TestEveryGateProgram:
+    def test_each_program_runs_on_the_one_build(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        spec = make_spec(workloads=("hello_world.c", "barrier_atomic.c"))
+
+        result = run_mace_step(str(stub_piton_root), spec, TASK, FakeLLM(responses=["edit"]))
+
+        assert result.passed is True
+        assert [r.test for r in result.runs] == ["hello_world.c", "barrier_atomic.c"]
+        assert result.run is result.runs[-1]
+        lines = sims_argv.lines()
+        assert len(lines) == 3  # one build, two runs
+        assert "hello_world.c" in lines[1] and "barrier_atomic.c" in lines[2]
+
+    def test_a_failing_program_stops_the_rest(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "fail")
+        spec = make_spec(workloads=("hello_world.c", "barrier_atomic.c"))
+
+        result = run_mace_step(str(stub_piton_root), spec, TASK, FakeLLM(responses=["edit"]))
+
+        assert result.passed is False
+        assert [r.test for r in result.runs] == ["hello_world.c"]
+        assert len(sims_argv.lines()) == 2
+
+    def test_the_spec_s_rtl_timeout_reaches_the_run(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        run_mace_step(str(stub_piton_root), make_spec(rtl_timeout=4_000_000), TASK, FakeLLM(responses=["edit"]))
+        assert "-rtl_timeout=4000000" in sims_argv.lines()[1]
+
+
+class TestRunGatePrograms:
+    def _result(self, test, success):
+        from chia_openpiton.state_def import PitonRunResult
+
+        return PitonRunResult(success=success, returncode=0, test=test, sim_type="vlt", run_dir="/x")
+
+    def test_all_passing(self):
+        from mace.loop import run_gate_programs
+
+        runs, passed = run_gate_programs(lambda p: self._result(p, True), ("a", "b"))
+        assert passed is True
+        assert [r.test for r in runs] == ["a", "b"]
+
+    def test_stops_at_the_first_failure(self):
+        from mace.loop import run_gate_programs
+
+        runs, passed = run_gate_programs(lambda p: self._result(p, p != "a"), ("a", "b"))
+        assert passed is False
+        assert [r.test for r in runs] == ["a"]
+
+    def test_no_programs_does_not_pass(self):
+        from mace.loop import run_gate_programs
+
+        assert run_gate_programs(lambda p: self._result(p, True), ()) == ((), False)

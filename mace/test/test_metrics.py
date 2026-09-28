@@ -669,3 +669,20 @@ class TestOlderDatabases:
             assert metrics.summary(reader, "r1")["compute_usd"] == 0
         finally:
             reader.close()
+
+
+class TestProgramsColumn:
+    def test_each_program_s_verdict_and_the_summed_run_time(self, tmp_path):
+        from chia_openpiton.state_def import PitonRunResult
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        result = make_result("a", True, wall_s=10.0)
+        first = PitonRunResult(success=True, returncode=0, test="a.c", sim_type="vlt", run_dir="/x", verdict="pass", wall_time_s=3.0)
+        second = PitonRunResult(success=True, returncode=0, test="b.c", sim_type="vlt", run_dir="/x", verdict="pass", wall_time_s=4.0)
+        result.runs = (first, second)
+        result.run = second
+        metrics.record_iteration(db, run_id, 0, (result,), wall_s=20.0)
+        row = db.query_one("SELECT programs, run_s, wall_s FROM tasks WHERE run_id = ?", (run_id,))
+        assert json.loads(row["programs"]) == [["a.c", "pass"], ["b.c", "pass"]]
+        assert (row["run_s"], row["wall_s"]) == (7.0, 17.0)

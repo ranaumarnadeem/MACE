@@ -600,3 +600,52 @@ class TestLoopOptionsInTheBatch:
         )
         assert result.passed is True
         assert result.query.result == ""
+
+
+class TestEveryGateProgramRemote:
+    def test_each_program_runs_and_a_failure_stops_the_rest(self, monkeypatch):
+        from chia_openpiton.state_def import PitonRunResult
+
+        class _FirstFails(_FakeRunAttr):
+            def chia_remote(self, config, workload, asm_diag_root=None, rtl_timeout=None, _chia_tag=None, **kwargs):
+                self.calls.append({"workload": workload, "tag": _chia_tag, **kwargs})
+                run = PitonRunResult(
+                    success=workload != "first.c", returncode=0, test=workload, sim_type="vlt",
+                    run_dir="/x", verdict="pass" if workload != "first.c" else "fail",
+                )
+                return _FakeRef(run, 0.0)
+
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+
+        passing = _FakeRemoteNode("/root_a")
+        [ok] = _run_batch(
+            [passing], make_spec(workloads=("a.c", "b.c")), [task("a")], llm, (), str(WORKLOADS_DIR), "run1", 0,
+        )
+        assert ok.passed is True
+        assert [r.test for r in ok.runs] == ["a.c", "b.c"]
+
+        failing = _FakeRemoteNode("/root_b")
+        failing.run = _FirstFails()
+        [bad] = _run_batch(
+            [failing], make_spec(workloads=("first.c", "second.c")), [task("a")], llm, (), str(WORKLOADS_DIR), "run1", 0,
+        )
+        assert bad.passed is False
+        assert [c["workload"] for c in failing.run.calls] == ["first.c"]
+        assert failing.run.calls[0]["tag"] == "run1/iter0/a/run"
+        assert bad.run.verdict == "fail"
+
+    def test_later_programs_get_their_own_replay_tag(self, monkeypatch):
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+        node = _FakeRemoteNode("/root_a")
+
+        class _TagRecorder(_FakeRunAttr):
+            def chia_remote(self, config, workload, asm_diag_root=None, rtl_timeout=None, _chia_tag=None, **kwargs):
+                self.calls.append(_chia_tag)
+                return super().chia_remote(config, workload, asm_diag_root, rtl_timeout, _chia_tag, **kwargs)
+
+        node.run = _TagRecorder()
+        _run_batch([node], make_spec(workloads=("a.c", "b.c")), [task("t")], llm, (), str(WORKLOADS_DIR), "r", 2)
+        assert node.run.calls[0] == "r/iter2/t/run"
+        assert node.run.calls[2] == "r/iter2/t/run:b.c"

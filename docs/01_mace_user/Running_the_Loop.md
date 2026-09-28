@@ -15,6 +15,7 @@ A frozen `MaceSpec` from `mace/spec.py` describes a loop run.
 | `target_mesh` | `(1, 1)` | `(x_tiles, y_tiles)`, each from 1 to 256. |
 | `budget` | `Budget()` | Stop conditions; see below. |
 | `coverage` | `False` | Adds Verilator line coverage to every `config` and `workload` build; see [Code Coverage](Code_Coverage.md). |
+| `rtl_timeout` | `None` | Simulated-cycle limit for every gate workload; `None` uses `RECOMMENDED_RTL_TIMEOUT` (1,000,000). Larger meshes need more. |
 
 `target_mesh` sets `x_tiles` and `y_tiles` for every `config` and `workload` build.
 The planner sees the mesh in its prompt but cannot change it.
@@ -22,8 +23,8 @@ The planner sees the mesh in its prompt but cannot change it.
 ## Gate workloads
 
 A `config` or `workload` task runs one LLM turn and one build.
-If the build succeeds, the task simulates `workloads[0]` and passes on the verdict `pass`.
-The loop ignores later entries in `workloads`.
+If the build succeeds, the task simulates each entry of `workloads` in order on that build.
+It passes when every one reports `pass`, and it stops at the first that does not.
 A `unit_test` task builds a standalone testbench for one RTL module and is gated on that build alone.
 
 `mace/workloads/` holds three RISC-V C gate programs:

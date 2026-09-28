@@ -57,7 +57,7 @@ The orchestrator then logs the error, which quotes a reply with no `TASK:` lines
 
 | Kind | Instruction | Execution |
 |---|---|---|
-| `config` | A configuration or RTL change | Build the task's configuration, run the first gate workload |
+| `config` | A configuration or RTL change | Build the task's configuration, run each gate workload |
 | `workload` | Running or fixing a gate workload | Same as `config` |
 | `unit_test` | One module's RTL path relative to the checkout root, such as `piton/design/chip/tile/pico/rtl/picorv32.v` | Scaffold a unit-test environment, adapt its testbench, build it |
 

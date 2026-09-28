@@ -26,7 +26,7 @@ Within a batch, each `config` or `workload` task runs on its own thread as three
 
 - `llm.prompt.chia_remote()` with the task's instruction and the caller's tools;
 - `node.build.chia_remote()` with the task's configuration;
-- `node.run.chia_remote()` with the first gate workload, if the build succeeded.
+- `node.run.chia_remote()` for each gate workload in turn, if the build succeeded, stopping at the first that does not pass.
 
 Each call carries a replay tag (see [Budgets and Replay](budget_and_replay.md)).
 The prompt's reply changes nothing that is built or run, so when that call fails, for example with a reply cut off at the model's output limit, the task logs a warning and still builds and runs.

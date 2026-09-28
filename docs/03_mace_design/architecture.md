@@ -35,7 +35,7 @@ Each stage maps to the modules below.
 | Task Decomposition | `mace/agents.py`, `mace/integrator.py` | `parse_tasks()` reads the directives; `topological_levels()` orders the tasks |
 | Parallel Execution | `mace/integrator.py` | `integrate_parallel()` runs each level across the checkouts |
 | RTL/System Integration | `mace/loop.py`, `chia_openpiton/openpiton_workspace.py` | `_config_for_task()` sets each task's `PitonConfig`; `build()` compiles it |
-| Verification | `chia_openpiton/openpiton_workspace.py`, `chia_openpiton/parse.py` | `run()` simulates the first gate workload; `sim_verdict()` reads the verdict |
+| Verification | `chia_openpiton/openpiton_workspace.py`, `chia_openpiton/parse.py` | `run()` simulates each gate workload; `sim_verdict()` reads the verdict |
 | Failure Analysis | `mace/triage.py`, `chia_openpiton/tools.py` | `triage()` diagnoses the first failed task |
 | Iteration | `mace/orchestrator.py` | `run_mace_loop()` feeds each diagnosis into the next plan |
 

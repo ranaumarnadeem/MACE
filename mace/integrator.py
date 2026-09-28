@@ -31,7 +31,7 @@ from chia.base.llm_call import QueryResult
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import usage
-from mace.loop import _config_for_task, run_mace_step
+from mace.loop import _config_for_task, run_gate_programs, run_mace_step
 from mace.replay import tag_for
 from mace.spec import LoopOptions, MaceSpec, StepResult, Task
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
@@ -424,25 +424,30 @@ def _run_batch(
         if options.check == "build":
             return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
 
-        run = None
-        if build.success:
+        if not build.success:
+            return StepResult(task=task, query=query, build=build, run=None, passed=False)
+
+        def run_program(program: str) -> PitonRunResult:
             run_timeout = timeout_before(deadline, RUN_TIMEOUT_S)
             if run_timeout == 0:
-                run = _not_run(spec.workloads[0])
-            else:
-                _progress((task.id,), "running")
-                run = get(
-                    node.run.chia_remote(
-                        config,
-                        spec.workloads[0],
-                        asm_diag_root=asm_diag_root,
-                        rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
-                        timeout_seconds=run_timeout,
-                        _chia_tag=_tag(task.id, "run"),
-                    )
+                return _not_run(program)
+            _progress((task.id,), "running")
+            # The first program keeps the tag it always had, so a replay of
+            # an older run still finds its runs.
+            phase = "run" if program == spec.workloads[0] else f"run:{program}"
+            return get(
+                node.run.chia_remote(
+                    config,
+                    program,
+                    asm_diag_root=asm_diag_root,
+                    rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
+                    timeout_seconds=run_timeout,
+                    _chia_tag=_tag(task.id, phase),
                 )
-        passed = run.success if run is not None else False
-        return StepResult(task=task, query=query, build=build, run=run, passed=passed)
+            )
+
+        runs, passed = run_gate_programs(run_program, spec.workloads)
+        return StepResult(task=task, query=query, build=build, run=runs[-1], passed=passed, runs=runs)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(remote_batch)) as pool:
         futures = [

@@ -255,3 +255,13 @@ class TestLoopOptions:
 
         with pytest.raises(ValueError, match=field):
             LoopOptions(**{field: value})
+
+
+class TestRtlTimeout:
+    def test_defaults_to_none(self):
+        assert MaceSpec(workloads=("w.c",), objective="o").rtl_timeout is None
+
+    @pytest.mark.parametrize("bad", [0, -5, 1.5, True])
+    def test_must_be_a_positive_int(self, bad):
+        with pytest.raises(ValueError, match="rtl_timeout"):
+            MaceSpec(workloads=("w.c",), objective="o", rtl_timeout=bad)

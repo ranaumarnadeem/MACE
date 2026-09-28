@@ -21,7 +21,7 @@ import ray
 from chia.base.llm_call import QueryResult
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
-from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonBuildArtifact, PitonConfig
+from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import usage
 from mace.spec import MaceSpec, StepResult, Task
 from mace.tools import TestbenchEditTool
@@ -35,11 +35,29 @@ from mace.unit_test_scaffold import (
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 
+def run_gate_programs(run_program, programs) -> tuple[tuple[PitonRunResult, ...], bool]:
+    """Run each of *programs* through ``run_program(program)``, in order,
+    stopping at the first that does not pass.
+
+    Returns every run made and whether all of *programs* passed. Both task
+    paths, :func:`run_mace_step` and mace.integrator's remote pipeline,
+    gate a task this way, so a task passes only when every gate program
+    passes on its build.
+    """
+    runs: list[PitonRunResult] = []
+    for program in programs:
+        run = run_program(program)
+        runs.append(run)
+        if not run.success:
+            return tuple(runs), False
+    return tuple(runs), bool(runs)
+
+
 def run_mace_step(
     piton_root: str, spec: MaceSpec, task: Task, llm, tools=(), asm_diag_root: str | None = None
 ) -> StepResult:
-    """Run one task: an LLM turn, a build, then a run of the spec's first
-    gate workload, gated on that run's transcript verdict.
+    """Run one task: an LLM turn, a build, then a run of each gate
+    workload (see :func:`run_gate_programs`), gated on the runs' verdicts.
 
     Against a real LLM backend and real tools, the edit ``task.spec``
     describes happens as a side effect inside ``llm.prompt()`` -- the
@@ -47,10 +65,6 @@ def run_mace_step(
     tests, ``prompt()`` just returns its next scripted response and no edit
     occurs, which is fine here: this function's job is to prove
     build -> run -> gate wiring, not that an LLM can write RTL.
-
-    Only the spec's first workload is checked -- gating on every workload is
-    fan-out (mace.spec.MaceSpec.workloads plural exists for that), which
-    belongs to a later, multi-task version of this loop.
 
     ``asm_diag_root`` defaults to mace's own ``workloads/`` directory, since
     a spec's workloads are normally one of the frozen gate programs there --
@@ -71,14 +85,18 @@ def run_mace_step(
     if not build.success:
         return StepResult(task=task, query=query, build=build, run=None, passed=False)
 
-    run = OpenPitonWorkspaceNode.run(
-        piton_root,
-        config,
-        spec.workloads[0],
-        asm_diag_root=str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root,
-        rtl_timeout=RECOMMENDED_RTL_TIMEOUT,
+    diag_root = str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root
+    runs, passed = run_gate_programs(
+        lambda program: OpenPitonWorkspaceNode.run(
+            piton_root,
+            config,
+            program,
+            asm_diag_root=diag_root,
+            rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
+        ),
+        spec.workloads,
     )
-    return StepResult(task=task, query=query, build=build, run=run, passed=run.success)
+    return StepResult(task=task, query=query, build=build, run=runs[-1], passed=passed, runs=runs)
 
 
 def _run_unit_test_step(piton_root: str, task: Task, llm, tools) -> StepResult:

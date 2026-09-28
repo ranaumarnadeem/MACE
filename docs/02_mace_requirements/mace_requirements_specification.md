@@ -64,11 +64,11 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 
 ### Integration and Verification
 
-- **REQ-VER-1:** For each `config` and `workload` task, MACE shall build the task's configuration with Verilator and, when the build succeeds, simulate the first gate workload of the run specification on it.
+- **REQ-VER-1:** For each `config` and `workload` task, MACE shall build the task's configuration with Verilator and, when the build succeeds, simulate each gate workload of the run specification on it in order, stopping at the first whose verdict is not `pass`.
 - **REQ-VER-2:** MACE shall take a simulation's verdict from the testbench transcript and ignore the simulator's exit code.
 - **REQ-VER-3:** MACE shall classify each simulation from its transcript as `pass`, `fail`, `timeout`, or `maxcycles`, shall classify a simulation that exceeds its wall-clock limit without a transcript verdict as `timeout`, and shall otherwise leave it unclassified.
 - **REQ-VER-4:** MACE shall not classify a transcript that contains a failure or max-cycles marker as `pass`, even when it also contains a PASS line.
-- **REQ-VER-5:** MACE shall mark a `config` or `workload` task passed only when its build succeeds, its verdict is `pass`, and its simulation process neither timed out nor failed to launch.
+- **REQ-VER-5:** MACE shall mark a `config` or `workload` task passed only when its build succeeds and every gate workload's verdict is `pass`, with no simulation process timing out or failing to launch.
 - **REQ-VER-6:** MACE shall mark a `unit_test` task passed when its unit-test environment builds.
 - **REQ-VER-7:** MACE shall require every tile of the mesh to reach the good trap for a simulation to pass.
 - **REQ-VER-8:** MACE shall simulate gate workloads with an RTL timeout of 1,000,000 cycles.

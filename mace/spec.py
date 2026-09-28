@@ -70,8 +70,15 @@ class MaceSpec:
     target_mesh: tuple[int, int] = (1, 1)
     budget: Budget = field(default_factory=Budget)
     coverage: bool = False
+    # Simulated-cycle limit for every gate program; None uses
+    # mace.workloads.RECOMMENDED_RTL_TIMEOUT. Larger meshes need more.
+    rtl_timeout: int | None = None
 
     def __post_init__(self) -> None:
+        if self.rtl_timeout is not None and (
+            not isinstance(self.rtl_timeout, int) or isinstance(self.rtl_timeout, bool) or self.rtl_timeout <= 0
+        ):
+            raise ValueError(f"rtl_timeout must be a positive int or None, got {self.rtl_timeout!r}")
         if self.core not in ("ariane", "sparc", "pico"):
             raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
         if not isinstance(self.coverage, bool):
@@ -210,6 +217,10 @@ class StepResult:
     Not frozen -- unlike MaceSpec/Task (validated inputs to a run), this is a
     result record, the same convention chia_openpiton.state_def's own result
     types (PitonBuildArtifact, PitonRunResult, ...) use.
+
+    ``runs`` holds one run per gate program, in the spec's order, stopping
+    at the first that failed. ``run`` is the last of them: the failing run,
+    or the final passing one.
     """
 
     task: Task
@@ -217,6 +228,7 @@ class StepResult:
     build: PitonBuildArtifact
     run: PitonRunResult | None
     passed: bool
+    runs: tuple[PitonRunResult, ...] = ()
 
 
 @dataclass(frozen=True)

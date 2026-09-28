@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     module TEXT,
     build_s REAL,
     run_s REAL,
+    programs TEXT,
     PRIMARY KEY (run_id, iteration, task_id)
 );
 
@@ -109,7 +110,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 # DBReader add whichever of these an older database lacks.
 ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "runs": {"method": "TEXT", "task": "TEXT", "repeat": "INTEGER", "seed": "INTEGER", "meta": "TEXT"},
-    "tasks": {"caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL"},
+    "tasks": {"caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL", "programs": "TEXT"},
 }
 
 
@@ -297,14 +298,15 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
     to make visible), and only the build's own resolved PitonConfig is
     ground truth for what really got tested.
     """
+    runs = result.runs or ((result.run,) if result.run else ())
     build_s = result.build.wall_time_s
-    run_s = result.run.wall_time_s if result.run else 0.0
+    run_s = sum(run.wall_time_s for run in runs)
     module = module_name_from_path(result.task.spec) if result.task.kind == "unit_test" else None
     return (
         "INSERT OR REPLACE INTO tasks "
         "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module, "
-        "build_s, run_s) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "build_s, run_s, programs) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             iteration,
@@ -319,6 +321,7 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
             module,
             build_s,
             run_s,
+            json.dumps([[run.test, run.verdict] for run in runs]),
         ),
     )
 
