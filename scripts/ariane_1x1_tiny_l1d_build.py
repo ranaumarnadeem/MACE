@@ -10,11 +10,11 @@ This is the stress-tested extreme: default l1d is (8192, 4) and the previously
 probed reduction was (4096, 4) -- this config drops l1d to a single 128-byte
 direct-mapped set while keeping every other cache at its default geometry.
 
-`configure(caches=...)` REPLACES the cache dict, it does not merge, so every
-cache is spelled out here -- changing only l1d would silently drop l1i/l15/l2
-from the sims flags. The config key hashes the cache geometry, so this build
-lands in its own model directory (distinct build_id) and cannot collide with
-either the default-geometry or the (4096,4) 1x1 Ariane models.
+Every cache is spelled out here, though naming only l1d gives the same config:
+PitonConfig fills the caches a map leaves out from DEFAULT_CACHES. The config
+key hashes the cache geometry, so this build lands in its own model directory
+(distinct build_id) and cannot collide with either the default-geometry or the
+(4096,4) 1x1 Ariane models.
 
 Run with PITON_ROOT set to a patched OpenPiton checkout:
     PITON_ROOT=~/openpiton python scripts/ariane_1x1_tiny_l1d_build.py

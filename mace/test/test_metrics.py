@@ -15,7 +15,7 @@ import sqlite3
 
 import pytest
 from chia.base.llm_call import QueryResult
-from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
+from chia_openpiton.state_def import DEFAULT_CACHES, PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import metrics
 from mace.spec import MaceSpec, PostMortem, StepResult, Task
 
@@ -148,7 +148,7 @@ class TestRecordIteration:
         metrics.record_iteration(db, run_id, 0, (result,), wall_s=1.0)
 
         row = db.query_one("SELECT caches FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
-        assert json.loads(row["caches"]) == {"l1d": [128, 1]}
+        assert json.loads(row["caches"]) == {**{k: list(v) for k, v in DEFAULT_CACHES.items()}, "l1d": [128, 1]}
 
     def test_records_iteration_and_task_rows(self, tmp_path):
         db = open_test_db(tmp_path)

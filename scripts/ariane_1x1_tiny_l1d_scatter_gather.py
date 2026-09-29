@@ -15,10 +15,11 @@ correct (no two harts write the same slot), so any failure verdict here is a
 real visibility/coherence consequence of the tiny geometry, not a race in the
 program itself.
 
-`configure(caches=...)` REPLACES the cache dict, it does not merge, so every
-cache is spelled out here. The config key hashes the cache geometry, so this
-lands in its own model directory (distinct build_id) and cannot collide with
-the default-, the (4096,2)-, or the (4096,4)-geometry 1x1 Ariane models.
+Every cache is spelled out here, though naming only l1d gives the same config:
+PitonConfig fills the caches a map leaves out from DEFAULT_CACHES. The config
+key hashes the cache geometry, so this lands in its own model directory
+(distinct build_id) and cannot collide with the default-, the (4096,2)-, or
+the (4096,4)-geometry 1x1 Ariane models.
 
 Pass rule: the run is a pass only when the transcript verdict reads "pass"
 (PitonRunResult.decide). On any failure the verdict, the run directory (which
