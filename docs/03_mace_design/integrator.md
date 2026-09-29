@@ -56,4 +56,4 @@ A return code of -1 marks a timeout or a failed launch; any other exit code is i
 A `config` or `workload` task passes when its run succeeds, and fails with `run=None` when its build fails.
 A `unit_test` task passes when its build succeeds.
 An iteration passes when it produced results and all of them passed.
-`record_iteration()` stores each task row with its build's `PitonConfig.caches`: the four defaults, or only the overridden caches for a task with a `CACHES:` line.
+`record_iteration()` stores each task row with its build's `PitonConfig.caches`: all four caches, with a task's `CACHES:` overrides in place of the defaults.

@@ -109,7 +109,7 @@ A given `address_map` replaces `piton/verif/env/manycore/devices_ariane.xml`, th
 | `git diff -- piton/verif/env/manycore` | `diff` |
 | `verilator --version`, inside OpenPiton's environment | `verilator_version` |
 
-It returns the resulting `PitonConfig`, whose construction raises `ValueError` on an invalid mesh, core, network, or cache. A `caches` value of `None` or an empty mapping selects `DEFAULT_CACHES`.
+It returns the resulting `PitonConfig`, whose construction raises `ValueError` on an invalid mesh, core, network, or cache. A `caches` value of `None` or an empty mapping selects `DEFAULT_CACHES`, and a partial mapping keeps the defaults for the caches it leaves out.
 
 ### build
 

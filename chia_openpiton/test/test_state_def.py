@@ -65,6 +65,24 @@ class TestCacheKey:
         b = PitonConfig(caches={"l2": (65536, 4), "l1i": (16384, 4)})
         assert a.key == b.key
 
+    def test_a_partial_map_is_filled_from_the_defaults(self):
+        assert PitonConfig(caches={"l1d": [4096, 2]}).caches == {**DEFAULT_CACHES, "l1d": (4096, 2)}
+
+    def test_a_partial_map_shares_the_key_of_the_same_map_written_out(self):
+        """sims builds the same model either way, so both must find it."""
+        partial = PitonConfig(caches={"l2": (32768, 4)})
+        full = PitonConfig(caches={**DEFAULT_CACHES, "l2": (32768, 4)})
+        assert partial == full
+        assert partial.build_id == full.build_id
+
+    def test_naming_a_default_geometry_keeps_the_default_key(self):
+        assert PitonConfig(caches={"l2": (65536, 4)}).key == PitonConfig().key
+
+    def test_the_default_build_id_is_unchanged(self):
+        """Filling in partial maps leaves a complete map's key as it was, so
+        models already built with complete maps stay where they are."""
+        assert PitonConfig().build_id == "mace_ced9398212fd"
+
     @pytest.mark.parametrize(
         "change",
         [
@@ -125,6 +143,12 @@ class TestSimsFlags:
         flags = PitonConfig().sims_flags()
         assert "-config_l2_size=65536" in flags
         assert "-config_l2_associativity=4" in flags
+
+    def test_a_partial_map_emits_every_cache(self):
+        flags = PitonConfig(caches={"l1d": (4096, 2)}).sims_flags()
+        assert "-config_l1d_size=4096" in flags and "-config_l1d_associativity=2" in flags
+        assert "-config_l1i_size=16384" in flags and "-config_l15_size=8192" in flags
+        assert "-config_l2_size=65536" in flags
 
     def test_flag_order_is_deterministic(self):
         assert PitonConfig().sims_flags() == PitonConfig().sims_flags()

@@ -11,10 +11,10 @@ per t3 diagnosis -- capacity reduced, associativity kept at default:
 (The original probe used l1d=(4096, 2), reducing both capacity and
 associativity; the corrected geometry reduces only one dimension.)
 
-`configure(caches=...)` REPLACES the cache dict, it does not merge, so every
-cache is spelled out here. The config key hashes the cache geometry, so this
-lands in its own model directory (build_id mace_e83f1ec39a11 for this
-checkout/revisions).
+Every cache is spelled out here, though naming only l1d gives the same config:
+PitonConfig fills the caches a map leaves out from DEFAULT_CACHES. The config
+key hashes the cache geometry, so this lands in its own model directory
+(build_id mace_e83f1ec39a11 for this checkout/revisions).
 
 Pass rule: the run is a pass only when the transcript verdict reads "pass"
 (PitonRunResult.decide). On any failure the verdict, the sim-log tail, the

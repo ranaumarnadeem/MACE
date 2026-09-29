@@ -78,6 +78,8 @@ class PitonConfig:
     edits ``configure`` wrote into the checkout. Two configs with the same key
     produce the same model, so a build may be served from cache; any difference
     yields a different ``build_id`` and therefore a separate model directory.
+    ``caches`` always holds all four caches: a partial map is filled in from
+    :data:`DEFAULT_CACHES`, so it shares a key with the same map written out.
     A directly constructed config leaves the checkout fields empty, so its key
     misses file edits; ``OpenPitonWorkspaceNode.build`` also checks the
     checkout's source fingerprint before it serves a cached model.
@@ -129,6 +131,12 @@ class PitonConfig:
             size, assoc = geom
             if size <= 0 or assoc <= 0:
                 raise ValueError(f"cache {name} size/associativity must be positive, got {geom}")
+        # A cache the map leaves out keeps its default, so fill it in: two
+        # configs that build the same model then share a key, and
+        # sims_flags() names every cache, as it does for a default config.
+        object.__setattr__(
+            self, "caches", {**DEFAULT_CACHES, **{name: tuple(geom) for name, geom in self.caches.items()}}
+        )
 
     @property
     def num_tiles(self) -> int:
