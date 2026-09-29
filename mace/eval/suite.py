@@ -153,7 +153,7 @@ def load_suite(path: str | Path) -> tuple[SuiteTask, ...]:
     return tuple(tasks)
 
 
-def _codesign(raw: object, task_id: str, mesh: tuple[int, int]) -> CodesignConfig | None:
+def _codesign(raw: object, task_id: str, core: str, mesh: tuple[int, int]) -> CodesignConfig | None:
     if raw is None:
         return None
     if not isinstance(raw, dict) or set(raw) - _CODESIGN_KEYS:
@@ -202,6 +202,10 @@ def _codesign(raw: object, task_id: str, mesh: tuple[int, int]) -> CodesignConfi
         raise SuiteError(f"task {task_id}: codesign needs a grid for the grid search")
     if not all(space.contains(d) for d in grid):
         raise SuiteError(f"task {task_id}: codesign grid holds designs outside its space")
+    for design in grid:
+        broken = design.way_violations(core)
+        if broken:
+            raise SuiteError(f"task {task_id}: codesign grid holds {design.describe()}, whose {broken[0]}")
     if len(grid) > config.simulations:
         raise SuiteError(f"task {task_id}: codesign grid has {len(grid)} designs, more than its {config.simulations} simulations")
     return config
@@ -257,7 +261,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             rtl_timeout=entry.get("rtl_timeout"),
             expert_caches=caches,
             expert_config_rtl=tuple(expert.get("config_rtl") or ()),
-            codesign=_codesign(entry.get("codesign"), task_id, (mesh[0], mesh[1])),
+            codesign=_codesign(entry.get("codesign"), task_id, entry.get("core", "ariane"), (mesh[0], mesh[1])),
         )
         spec = task.spec()
         expert_cfg = task.expert_task()

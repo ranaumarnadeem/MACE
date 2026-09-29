@@ -147,6 +147,14 @@ class TestCodesignBlock:
         with pytest.raises(SuiteError, match="needs a grid"):
             load_suite(write(tmp_path, text))
 
+    def test_a_grid_design_against_the_way_rule_fails_to_load_on_ariane(self, tmp_path):
+        text = CODESIGN.replace("assocs: [2, 4]}", "assocs: [2, 4, 8]}").replace(
+            "        l1d_size: [4096, 8192]\n", "        l1d_size: [4096, 8192]\n        l1d_assoc: [8]\n"
+        )
+        load_suite(write(tmp_path, text))  # the rule is Ariane's, so a PicoRV32 task keeps this grid
+        with pytest.raises(SuiteError, match="more than the L1.5"):
+            load_suite(write(tmp_path, text.replace("core: pico", "core: ariane")))
+
     def test_the_crossbar_needs_a_mesh_with_one_row(self, tmp_path):
         text = CODESIGN.replace("mesh: [4, 1]", "mesh: [2, 2]")
         with pytest.raises(SuiteError, match="xbar_config needs a mesh with one row"):
