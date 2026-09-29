@@ -12,7 +12,7 @@
 | `core` | `PitonCore` | `"ariane"` | `"ariane"`, `"sparc"`, or `"pico"` |
 | `x_tiles` | `int` | `1` | Mesh width |
 | `y_tiles` | `int` | `1` | Mesh height |
-| `network_config` | `NetworkConfig` | `"2dmesh_config"` | `"2dmesh_config"` or `"xbar_config"` |
+| `network_config` | `NetworkConfig` | `"2dmesh_config"` | `"2dmesh_config"` or `"xbar_config"`; OpenPiton builds the crossbar only with `y_tiles=1` |
 | `config_rtl` | `tuple[str, ...]` | `("MINIMAL_MONITORING",)` | RTL define names |
 | `caches` | `dict[str, tuple[int, int]]` | A copy of `DEFAULT_CACHES` | Cache name to `(size_bytes, associativity)` |
 | `extra_flags` | `tuple[str, ...]` | `()` | Further `sims` flags, appended verbatim |

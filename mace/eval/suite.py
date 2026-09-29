@@ -30,10 +30,15 @@ and the area budget as a ratio of the default caches' area. ::
       area_budget_ratio: 1.0
       space:
         l1d: {sizes: [4096, 8192, 16384], assocs: [2, 4, 8]}
-        networks: [2dmesh_config, xbar_config]
+        l15: {sizes: [8192, 16384], assocs: [4]}
       grid:
         l1d_size: [4096, 8192, 16384]
-        network: [2dmesh_config, xbar_config]
+        l15_size: [8192, 16384]
+
+``networks`` in the space lists the interconnects a search may choose, the
+mesh alone by default. ``xbar_config`` needs a mesh with one row of tiles:
+OpenPiton's crossbar has one port per column, so a second row would connect
+two tiles to the same port.
 
 Loading checks every field, and builds each expert configuration as a
 ``PitonConfig``, so a broken entry fails when the suite loads, before any
@@ -148,7 +153,7 @@ def load_suite(path: str | Path) -> tuple[SuiteTask, ...]:
     return tuple(tasks)
 
 
-def _codesign(raw: object, task_id: str) -> CodesignConfig | None:
+def _codesign(raw: object, task_id: str, mesh: tuple[int, int]) -> CodesignConfig | None:
     if raw is None:
         return None
     if not isinstance(raw, dict) or set(raw) - _CODESIGN_KEYS:
@@ -182,6 +187,11 @@ def _codesign(raw: object, task_id: str) -> CodesignConfig | None:
                     cache_arrays(name, size, assoc)
     except ValueError as e:
         raise SuiteError(f"task {task_id}: codesign: {e}") from e
+    if "xbar_config" in space.networks and mesh[1] != 1:
+        raise SuiteError(
+            f"task {task_id}: codesign network xbar_config needs a mesh with one row of tiles, "
+            f"since OpenPiton's crossbar has one port per column; this mesh has {mesh[1]} rows"
+        )
     for value, what in ((config.simulations, "simulations"), (config.batch, "batch")):
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise SuiteError(f"task {task_id}: codesign {what} must be a positive int, got {value!r}")
@@ -247,7 +257,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             rtl_timeout=entry.get("rtl_timeout"),
             expert_caches=caches,
             expert_config_rtl=tuple(expert.get("config_rtl") or ()),
-            codesign=_codesign(entry.get("codesign"), task_id),
+            codesign=_codesign(entry.get("codesign"), task_id, (mesh[0], mesh[1])),
         )
         spec = task.spec()
         expert_cfg = task.expert_task()

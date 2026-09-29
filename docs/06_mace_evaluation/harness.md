@@ -87,6 +87,7 @@ A co-design task asks for the design that finishes its gate workloads soonest wi
 Its `codesign` block sets the search space, the grid for the grid search, the number of simulations per search, the batch size, and the area budget as a multiple of the area of OpenPiton's default caches.
 
 A design sets each cache's size and associativity and the interconnect, `2dmesh_config` or `xbar_config`.
+OpenPiton's crossbar has one port per column, so the suite loader accepts `xbar_config` only for a mesh with one row of tiles.
 The space lists the allowed sizes and associativities of the searched caches; the others keep their defaults.
 Each round, the strategy proposes up to `batch` designs it has not tried.
 A design's cache area is known before it is built, so a design over the budget is recorded as infeasible without a build and does not use up a simulation; the strategy hears the outcome like any other.

@@ -99,7 +99,7 @@ class TestLoading:
             load_suite(write(tmp_path, text))
 
 
-CODESIGN = MINIMAL.replace("id: pico-2x2-addi", "id: cd-task") + """\
+CODESIGN = MINIMAL.replace("id: pico-2x2-addi", "id: cd-task").replace("mesh: [2, 2]", "mesh: [4, 1]") + """\
     codesign:
       simulations: 20
       batch: 2
@@ -145,6 +145,11 @@ class TestCodesignBlock:
     def test_a_missing_grid_fails(self, tmp_path):
         text = CODESIGN.split("      grid:")[0]
         with pytest.raises(SuiteError, match="needs a grid"):
+            load_suite(write(tmp_path, text))
+
+    def test_the_crossbar_needs_a_mesh_with_one_row(self, tmp_path):
+        text = CODESIGN.replace("mesh: [4, 1]", "mesh: [2, 2]")
+        with pytest.raises(SuiteError, match="xbar_config needs a mesh with one row"):
             load_suite(write(tmp_path, text))
 
 
