@@ -5,7 +5,8 @@ before any of them runs; later plans are left alone, so a run measures
 whether the loop recovers from a failure it did not cause. The batch
 runner's ``seeded_<name>`` methods apply one each (see
 :mod:`mace.eval.runner`), and ``examples/recovery_seeded.py`` runs them
-one task at a time.
+one task at a time. A fault applies to tasks on the cores it lists, on a
+mesh with at least ``min_rows`` rows of tiles.
 
 ``verified`` marks a fault seen to break every run it was seeded into, on
 the cores it lists. A candidate stays unverified until a pilot shows it
@@ -31,6 +32,12 @@ class Fault:
     cores: frozenset[str]
     verified: bool
     change: Callable[[Task], Task]
+    # The fewest rows of tiles a mesh needs for the fault to break it.
+    min_rows: int = 1
+
+    def applies_to(self, core: str, mesh: tuple[int, int]) -> bool:
+        """Whether seeding this fault into a task on *core* and *mesh* breaks it."""
+        return core in self.cores and mesh[1] >= self.min_rows
 
     def break_task(self, task: Task) -> Task:
         """*task* with the fault applied; ``unit_test`` tasks are left alone."""
@@ -68,18 +75,21 @@ FAULTS: dict[str, Fault] = {
             lambda task: _with_defines(task, drop={BIST_DEFINE}),
         ),
         Fault(
+            "crossbar",
+            "Selects OpenPiton's crossbar, which has one port per column of tiles; on a mesh with two or more "
+            "rows the Verilator build fails with duplicate pin connections.",
+            frozenset(("ariane", "pico")),
+            True,
+            lambda task: dataclasses.replace(task, network="xbar_config"),
+            min_rows=2,
+        ),
+        Fault(
             "l1d_three_way",
-            "Sets a three-way L1D, an associativity that is not a power of two.",
+            "Sets a three-way L1D; Ariane draws its replacement way from two random bits, so it can pick a "
+            "fourth way that does not exist.",
             frozenset(("ariane",)),
             False,
             lambda task: _with_cache(task, "l1d", (6144, 3)),
-        ),
-        Fault(
-            "l15_below_l1d",
-            "Makes the L1.5 smaller than the L1D it backs.",
-            frozenset(("ariane",)),
-            False,
-            lambda task: _with_cache(task, "l15", (2048, 4)),
         ),
     )
 }

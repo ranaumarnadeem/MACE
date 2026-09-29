@@ -49,7 +49,7 @@ def printing_breaker(fault):
         if iteration == 0:
             for before, after in zip(tasks, broken):
                 print(f"  seeded {after.id} ({after.kind}): config_rtl {before.config_rtl} -> {after.config_rtl}, "
-                      f"caches {before.caches} -> {after.caches}")
+                      f"caches {before.caches} -> {after.caches}, network {before.network} -> {after.network}")
         return broken
 
     return breaker
@@ -81,8 +81,11 @@ def main() -> int:
     ap.add_argument("--db-path", default=os.path.abspath("runs/recovery_seeded.db"))
     args = ap.parse_args()
     fault = FAULTS[FAULT_ALIASES.get(args.fault, args.fault)]
-    if args.core not in fault.cores:
-        ap.error(f"--fault {args.fault} applies to {sorted(fault.cores)}, not {args.core}")
+    if not fault.applies_to(args.core, args.mesh):
+        ap.error(
+            f"--fault {args.fault} breaks {sorted(fault.cores)} meshes with at least {fault.min_rows} rows, "
+            f"not {args.core} on {args.mesh[0]}x{args.mesh[1]}"
+        )
     if args.project:
         os.environ["GOOGLE_CLOUD_PROJECT"] = args.project
     if args.backend == "vertex" and not os.environ.get("GOOGLE_CLOUD_PROJECT"):

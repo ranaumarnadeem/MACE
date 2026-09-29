@@ -28,8 +28,22 @@ class TestFaults:
         assert FAULTS["drop_bist"].break_task(task(config_rtl=(BIST_DEFINE,))).config_rtl is None
 
     def test_a_cache_fault_overrides_one_cache(self):
-        broken = FAULTS["l15_below_l1d"].break_task(task(caches=(("l2", (32768, 4)),)))
-        assert broken.caches_dict == {"l15": (2048, 4), "l2": (32768, 4)}
+        broken = FAULTS["l1d_three_way"].break_task(task(caches=(("l2", (32768, 4)),)))
+        assert broken.caches_dict == {"l1d": (6144, 3), "l2": (32768, 4)}
+
+    def test_the_crossbar_fault_selects_the_crossbar(self):
+        assert FAULTS["crossbar"].break_task(task()).network == "xbar_config"
+        assert FAULTS["crossbar"].verified
+        assert FAULTS["crossbar"].cores == frozenset(("ariane", "pico"))
+
+    def test_the_crossbar_fault_breaks_only_a_mesh_with_two_or_more_rows(self):
+        crossbar = FAULTS["crossbar"]
+        assert crossbar.applies_to("ariane", (2, 2))
+        assert not crossbar.applies_to("ariane", (4, 1))
+
+    def test_a_fault_applies_only_to_its_cores(self):
+        assert FAULTS["drop_bist"].applies_to("pico", (2, 2))
+        assert not FAULTS["drop_bist"].applies_to("ariane", (2, 2))
 
     def test_unit_test_tasks_are_left_alone(self):
         unit = task(kind="unit_test")
