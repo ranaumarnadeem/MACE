@@ -9,8 +9,8 @@ several (one per VM), and writes:
 - each method compared with MACE task by task (Wilcoxon signed-rank test
   on time to pass);
 - for co-design searches, one row per task and method: the best feasible
-  finish time found, and the simulations needed to come within 5% of the
-  best any search found;
+  finish time found, the simulations needed to come within 5% of the best
+  any search found, and the proposals rejected before a build;
 - with --csv, every run's numbers, for plots.
 
 Reads never start Ray.
@@ -44,6 +44,7 @@ METHOD_COLUMNS = ["method", "tasks", "runs", "passed", "time_to_pass_s", "machin
 TEST_COLUMNS = ["method", "reference", "tasks", "median_difference", "w_plus", "p"]
 CODESIGN_COLUMNS = [
     "task", "method", "searches", "best_sim_time", "best_known", "reached", "sims_to_near_best", "feasible_share",
+    "rejected",
 ]
 
 

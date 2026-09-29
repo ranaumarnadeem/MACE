@@ -250,7 +250,7 @@ def codesign_rows(db) -> list[dict]:
                 "seed": run["seed"],
                 "status": run["status"],
                 "evaluations": len(evaluations),
-                "over_budget": len(proposals) - len(evaluations),
+                "rejected": len(proposals) - len(evaluations),
                 "feasible": sum(1 for e in evaluations if e["feasible"]),
                 "best_sim_time": best_so_far,
                 "curve": curve,
@@ -295,7 +295,7 @@ def codesign_summary(rows: list[dict], within: float = 0.05) -> list[dict]:
                 "reached": len(needed),
                 "sims_to_near_best": _median(needed),
                 "feasible_share": (sum(r["feasible"] for r in group) / evaluations) if evaluations else None,
-                "over_budget": sum(r["over_budget"] for r in group),
+                "rejected": sum(r["rejected"] for r in group),
             }
         )
     return out
