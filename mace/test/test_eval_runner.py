@@ -303,6 +303,32 @@ class TestSeededJobs:
             ("ariane-2x2-barrier", "seeded_fpga_synth", 0),
         }
 
+    def test_the_crossbar_fault_skips_a_mesh_with_one_row(self):
+        row = suite_task("ariane-4x1-row", mesh=(4, 1))
+        jobs = runner.plan_jobs((suite_task(), row), ("seeded_crossbar", "faultcheck_crossbar"), repeats=2)
+        assert {j.key for j in jobs} == {
+            ("ariane-2x2-barrier", "seeded_crossbar", 0), ("ariane-2x2-barrier", "seeded_crossbar", 1),
+            ("ariane-2x2-barrier", "faultcheck_crossbar", 0),
+        }
+
+    def test_a_fault_check_builds_the_expert_configuration_with_the_fault(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "mace.eval.runner.run_expert",
+            lambda roots, spec, task, db, **kwargs: calls.append((roots, task, kwargs)) or "done",
+        )
+        env = runner.RunEnv(piton_roots=("/a", "/b"), llm=None, db=make_db(tmp_path), clear_cache=False)
+        assert runner.run_job(runner.Job(suite_task(), "faultcheck_crossbar", 0), env) == "done"
+        ((roots, task, kwargs),) = calls
+        assert roots == ("/a",)
+        assert (task.id, task.network) == ("expert", "xbar_config")
+        assert kwargs["labels"].meta["fault"] == "crossbar"
+
+    def test_fault_checks_run_once_and_call_no_llm(self):
+        for name in ("fpga_synth", "drop_bist", "crossbar", "l1d_three_way"):
+            assert f"faultcheck_{name}" in runner.ONCE_METHODS
+            assert f"faultcheck_{name}" in runner.NO_LLM_METHODS
+
     def test_the_loop_runs_with_the_fault_s_first_plan_breaker(self, tmp_path, monkeypatch):
         calls = []
         monkeypatch.setattr(

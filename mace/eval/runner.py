@@ -68,18 +68,35 @@ SEEDED_PREFIX = "seeded_"
 for _name, _fault in FAULTS.items():
     METHODS[f"{SEEDED_PREFIX}{_name}"] = f"RQ3: the loop with its first plan broken. {_fault.description}"
 
+# One more per fault, with no LLM: the expert configuration with the fault
+# applied. The fault is verified on a task when this run fails.
+FAULTCHECK_PREFIX = "faultcheck_"
+FAULTCHECK_METHODS = frozenset(f"{FAULTCHECK_PREFIX}{name}" for name in FAULTS)
+for _name in FAULTS:
+    METHODS[f"{FAULTCHECK_PREFIX}{_name}"] = f"The expert configuration with {_name} applied; it should fail."
+
 # Methods with no randomness run once per task unless asked otherwise.
-ONCE_METHODS = frozenset(("expert", "codesign_grid"))
+ONCE_METHODS = frozenset(("expert", "codesign_grid")) | FAULTCHECK_METHODS
 
 # Methods that never call an LLM: a batch of only these needs no backend.
-NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codesign_bayes"))
+NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codesign_bayes")) | FAULTCHECK_METHODS
+
+
+def _fault_of(method: str):
+    """The fault a ``seeded_`` or ``faultcheck_`` method applies, or ``None``."""
+    for prefix in (SEEDED_PREFIX, FAULTCHECK_PREFIX):
+        if method.startswith(prefix):
+            return FAULTS[method[len(prefix):]]
+    return None
 
 
 def applies(method: str, task: SuiteTask) -> bool:
     """Co-design methods run on co-design tasks, the others on bring-up
-    tasks; a seeded fault runs only on the cores it lists."""
-    if method.startswith(SEEDED_PREFIX):
-        return task.kind == "bringup" and task.core in FAULTS[method[len(SEEDED_PREFIX):]].cores
+    tasks; a fault's methods run only on tasks it breaks (see
+    :meth:`mace.eval.faults.Fault.applies_to`)."""
+    fault = _fault_of(method)
+    if fault is not None:
+        return task.kind == "bringup" and fault.applies_to(task.core, task.mesh)
     return (method in CODESIGN_METHODS) == (task.kind == "codesign")
 
 # A run in one of these states counts as done; a run left "running" by a
@@ -205,7 +222,8 @@ def _probe(fn):
 
 def run_job(job: Job, env: RunEnv):
     """Run *job* on an empty build cache, and record it."""
-    roots = env.piton_roots[:1] if job.method in ("one_checkout", "retry_agent", "expert") else env.piton_roots
+    one_root = job.method in ("one_checkout", "retry_agent", "expert") or job.method in FAULTCHECK_METHODS
+    roots = env.piton_roots[:1] if one_root else env.piton_roots
     labels = RunLabels(
         method=job.method,
         task=job.task.id,
@@ -218,9 +236,11 @@ def run_job(job: Job, env: RunEnv):
     spec = job.task.spec()
     if job.method in CODESIGN_METHODS:
         return _run_codesign_job(job, env, roots, spec, labels)
-    if job.method.startswith(SEEDED_PREFIX):
-        fault = FAULTS[job.method[len(SEEDED_PREFIX):]]
+    fault = _fault_of(job.method)
+    if fault is not None:
         labels = dataclasses.replace(labels, meta={**labels.meta, "fault": fault.name})
+        if job.method in FAULTCHECK_METHODS:
+            return run_expert(roots, spec, fault.break_task(job.task.expert_task()), env.db, labels=labels)
         return run_mace_loop(
             roots, spec, env.llm, env.db, labels=labels, options=LoopOptions(task_prompts=env.task_prompts),
             plan_hook=first_plan_breaker(fault),

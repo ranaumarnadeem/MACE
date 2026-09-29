@@ -10,7 +10,8 @@ mesh with at least ``min_rows`` rows of tiles.
 
 ``verified`` marks a fault seen to break every run it was seeded into, on
 the cores it lists. A candidate stays unverified until a pilot shows it
-breaks the build or the simulation.
+breaks the build or the simulation; the runner's ``faultcheck_<name>``
+methods are that pilot, the expert configuration with the fault applied.
 """
 
 from __future__ import annotations

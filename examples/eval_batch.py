@@ -8,15 +8,19 @@ checkout. Every run lands in one database, labelled with its method, task,
 and repeat; examples/eval_report.py turns that database into tables.
 
 Methods (see mace/eval/runner.py): mace, one_shot, retry_agent, expert,
-no_triage, one_checkout, build_check, and no_reuse run on bring-up tasks;
+no_triage, one_checkout, build_check, and no_reuse run on bring-up tasks, as
+do seeded_<fault> and faultcheck_<fault> for each seeded fault;
 codesign_mace, codesign_random, codesign_grid, and codesign_bayes run on
 co-design tasks. Each method runs only on the tasks it applies to. A batch
-of only expert, codesign_random, codesign_grid, and codesign_bayes calls no
-LLM, so it builds no backend and needs no GCP project.
+of only expert, faultcheck_<fault>, codesign_random, codesign_grid, and
+codesign_bayes calls no LLM, so it builds no backend and needs no GCP
+project.
 
 Run:
     MAKEFLAGS=-j1 python examples/eval_batch.py --piton-root ~/openpiton \\
         --methods expert,codesign_random,codesign_grid,codesign_bayes
+    MAKEFLAGS=-j1 python examples/eval_batch.py --piton-root ~/openpiton \\
+        --methods faultcheck_crossbar,faultcheck_l1d_three_way --tasks ariane-2x2-barrier
     export GOOGLE_CLOUD_PROJECT=<your-gcp-project> MAKEFLAGS=-j1
     python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-b \\
         --methods mace,one_shot,retry_agent,expert --repeats 3
