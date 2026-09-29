@@ -132,11 +132,13 @@ tasks:
   # Co-design: the cache geometry that finishes matmul.c soonest within the
   # area of OpenPiton's default caches. Simulated finish times on a 2x2
   # mesh: 127,013,250 for the default caches; 105,567,250 with a 16 KB L1.5
-  # and a 32 KB L2; 101,135,750 with an 8-way 16 KB L1D added, the soonest
-  # design tried. A 16 KB L1D beside the default 8 KB L1.5 finishes at
-  # 114,192,750, and a 32 KB L2 finishes 16,000 after the default 64 KB.
-  # OpenPiton's crossbar needs a mesh with one row of tiles, so this task
-  # searches the caches only.
+  # and a 32 KB L2; 101,258,750 with a 16 KB L1D added, the soonest design
+  # tried. A 16 KB L1D beside the default 8 KB L1.5 finishes at 114,192,750,
+  # and a 32 KB L2 finishes 16,000 after the default 64 KB. Ariane allows
+  # neither L1 more ways than the L1.5, and the L1I stays four-way, so the
+  # L1.5 is four-way and the L1D at most four-way. OpenPiton's crossbar
+  # needs a mesh with one row of tiles, so this task searches the caches
+  # only.
   - id: ariane-2x2-matmul-codesign
     core: ariane
     mesh: [2, 2]
@@ -156,8 +158,8 @@ tasks:
       batch: 2
       area_budget_ratio: 1.0
       space:
-        l1d: {sizes: [2048, 4096, 8192, 16384], assocs: [1, 2, 4, 8]}
-        l15: {sizes: [4096, 8192, 16384], assocs: [2, 4]}
+        l1d: {sizes: [2048, 4096, 8192, 16384], assocs: [1, 2, 4]}
+        l15: {sizes: [4096, 8192, 16384], assocs: [4]}
         l2: {sizes: [32768, 65536, 131072], assocs: [4, 8]}
       grid:
         l1d_size: [4096, 8192, 16384]
