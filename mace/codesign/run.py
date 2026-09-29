@@ -1,10 +1,12 @@
 """mace.codesign.run -- one co-design search, recorded like any other run.
 
 Each round asks the strategy for up to ``batch`` new designs. A design's
-cache area (see :mod:`mace.codesign.area`) is known before it is built, so
-a design over the area budget is recorded as infeasible without a build or
-a simulation, and does not use up the search's simulations; the strategy
-hears about it like any other outcome. The rest build and run in parallel
+cache area (see :mod:`mace.codesign.area`) is known before it is built, and
+so is whether it keeps :data:`~mace.codesign.space.ARIANE_WAY_RULE`, so a
+design over the area budget or against the rule is recorded as infeasible,
+with the reason, without a build or a simulation, and does not use up the
+search's simulations; the strategy hears about it like any other outcome.
+The rest build and run in parallel
 through the loop's own build-and-check path
 (mace.integrator.integrate_parallel, task prompts off). A design that
 passes has a finish time, the summed ``sim_time`` of its gate workloads,
@@ -54,8 +56,11 @@ class Evaluation:
     read_energy_nj: float
     area_source: str
     wall_s: float
-    # False for a design rejected on area before any build.
+    # False for a design rejected before any build.
     simulated: bool = True
+    # Why a design was rejected before any build: over the area budget, or
+    # against the way rule; "" for a design that was built.
+    rejected: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,14 +123,20 @@ def _search(run_id, piton_roots, spec, strategy, db, simulations, batch, area_bu
             seen = {e.design for e in history}
             proposed = [d for d in strategy.propose(history, want) if d not in seen][:want]
             areas = {d: area_fn(d, tiles) for d in proposed}
-            over = [d for d in proposed if area_budget_um2 is not None and areas[d].area_um2 > area_budget_um2]
-            designs = [d for d in proposed if d not in over]
+            reasons = {}
+            for d in proposed:
+                broken = d.way_violations(spec.core)
+                if broken:
+                    reasons[d] = "; ".join(broken)
+                elif area_budget_um2 is not None and areas[d].area_um2 > area_budget_um2:
+                    reasons[d] = "over the area budget"
+            designs = [d for d in proposed if d not in reasons]
             rejected = []
-            for design in over:
+            for design in (d for d in proposed if d in reasons):
                 evaluation = Evaluation(
                     index=len(history), round=round_no, design=design, passed=False, feasible=False,
                     sim_time=None, area_um2=areas[design].area_um2, read_energy_nj=areas[design].read_energy_nj,
-                    area_source=areas[design].source, wall_s=0.0, simulated=False,
+                    area_source=areas[design].source, wall_s=0.0, simulated=False, rejected=reasons[design],
                 )
                 record_evaluation(db, run_id, evaluation)
                 history.append(evaluation)

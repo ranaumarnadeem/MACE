@@ -18,7 +18,7 @@ from chia_openpiton.state_def import DEFAULT_CACHES, PitonBuildArtifact, PitonCo
 from mace import metrics, planner
 from mace.codesign import area, search
 from mace.codesign.run import Evaluation, run_codesign
-from mace.codesign.space import Design, DesignSpace, parse_design
+from mace.codesign.space import ARIANE_WAY_RULE, Design, DesignSpace, parse_design
 from mace.spec import Budget, LoopOptions, MaceSpec, StepResult
 from mace.test.conftest import FakeLLM
 
@@ -58,6 +58,15 @@ class TestDesign:
         task = Design.of({"l1d": (4096, 2)}, "xbar_config").task("d0")
         assert (task.id, task.kind, task.network) == ("d0", "config", "xbar_config")
         assert task.caches_dict["l1d"] == (4096, 2)
+
+    def test_an_l1_with_more_ways_than_the_l15_breaks_the_way_rule_on_ariane(self):
+        assert Design.of({"l1d": (16384, 8)}).way_violations("ariane") == ("l1d has 8 ways, more than the L1.5's 4",)
+        assert Design.of({"l15": (8192, 2)}).way_violations("ariane") == (
+            "l1d has 4 ways, more than the L1.5's 2",
+            "l1i has 4 ways, more than the L1.5's 2",
+        )
+        assert Design.of({}).way_violations("ariane") == ()
+        assert Design.of({"l1d": (16384, 8)}).way_violations("pico") == ()
 
 
 class TestDesignSpace:
@@ -181,6 +190,19 @@ class TestLLMProposer:
         proposer = self._proposer([reply])
         assert proposer.propose([evaluation(tried)], 2) == [good]
 
+    def test_the_prompt_states_the_way_rule_on_ariane_and_why_a_design_was_rejected(self):
+        bad = Design.of({"l1d": (8192, 8)})
+        rejected = Evaluation(
+            index=0, round=0, design=bad, passed=False, feasible=False, sim_time=None, area_um2=4000.0,
+            read_energy_nj=0.0, area_source="analytical", wall_s=0.0, simulated=False,
+            rejected="l1d has 8 ways, more than the L1.5's 4",
+        )
+        prompt = self._proposer([]).build_prompt([rejected], 2)
+        assert ARIANE_WAY_RULE in prompt
+        assert f"- {bad.describe()}: rejected before building (l1d has 8 ways, more than the L1.5's 4), area 4000" in prompt
+        pico = search.LLMProposer(FakeLLM(responses=[]), make_spec(core="pico"), SPACE, area_budget_um2=5000.0)
+        assert ARIANE_WAY_RULE not in pico.build_prompt([], 2)
+
     def test_each_round_is_recorded_as_a_propose_call(self):
         from mace import usage
 
@@ -259,10 +281,27 @@ class TestRunCodesign:
         )
         assert received == []
         assert all(not e.simulated and not e.passed and not e.feasible for e in result.evaluations)
+        assert all(e.rejected == "over the area budget" for e in result.evaluations)
         assert result.status == "budget_exceeded"
         assert result.best is None
         rows = db.query("SELECT simulated FROM evaluations WHERE run_id = ?", (result.run_id,))
         assert [r["simulated"] for r in rows] == [0, 0]
+
+    def test_a_design_against_the_way_rule_is_rejected_without_a_build(self, tmp_path, monkeypatch):
+        received = []
+        self._integrate(monkeypatch, lambda t: (True, 1000), received)
+        db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
+        bad, good = Design.of({"l1d": (8192, 8)}), Design.of({"l1d": (8192, 2)})
+        result = run_codesign(
+            ("/a",), make_spec(), search.GridSearch([bad, good]), db, simulations=1, batch=2,
+            area_fn=lambda design, tiles: area.design_area(design, tiles, cacti=""),
+        )
+        assert [task.spec for tasks, _ in received for task in tasks] == [good.describe()]
+        first = result.evaluations[0]
+        assert (first.design, first.simulated, first.feasible) == (bad, False, False)
+        assert first.rejected == "l1d has 8 ways, more than the L1.5's 4"
+        row = db.query_one("SELECT simulated, rejected FROM evaluations WHERE run_id = ? AND idx = 0", (result.run_id,))
+        assert (row["simulated"], row["rejected"]) == (0, "l1d has 8 ways, more than the L1.5's 4")
 
     def test_rejected_designs_do_not_use_up_simulations(self, tmp_path, monkeypatch):
         received = []

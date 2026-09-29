@@ -21,7 +21,7 @@ import random
 import re
 
 from mace import usage
-from mace.codesign.space import Design, DesignSpace, parse_design
+from mace.codesign.space import ARIANE_WAY_RULE, Design, DesignSpace, parse_design
 from mace.planner import render_inputs
 from mace.spec import MaceSpec
 
@@ -131,7 +131,7 @@ Design space:
 {space}
 
 Total cache area budget: {budget} square microns over all tiles.
-{area_notes}
+{area_notes}{way_rule}
 Propose {n} new designs, one per line, in exactly this format (a footer, not
 prose), using only values from the space above:
 
@@ -175,11 +175,19 @@ class LLMProposer:
                     f"{self.area_notes}\n"
                     if self.area_notes else ""
                 ),
+                way_rule=(
+                    f"{ARIANE_WAY_RULE} A design that breaks this is rejected without a simulation.\n"
+                    if self.spec.core == "ariane" else ""
+                ),
             )
         )
         if history:
             rows = []
             for e in history:
+                if e.rejected:
+                    rows.append(f"- {e.design.describe()}: rejected before building ({e.rejected}), "
+                                f"area {e.area_um2:.0f}")
+                    continue
                 outcome = "passed" if e.passed else "failed the check"
                 fits = "fits" if (self.area_budget_um2 is None or e.area_um2 <= self.area_budget_um2) else "over budget"
                 finish = e.sim_time if e.sim_time is not None else "-"
