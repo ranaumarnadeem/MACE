@@ -71,6 +71,9 @@ for _name, _fault in FAULTS.items():
 # Methods with no randomness run once per task unless asked otherwise.
 ONCE_METHODS = frozenset(("expert", "codesign_grid"))
 
+# Methods that never call an LLM: a batch of only these needs no backend.
+NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codesign_bayes"))
+
 
 def applies(method: str, task: SuiteTask) -> bool:
     """Co-design methods run on co-design tasks, the others on bring-up
@@ -161,7 +164,7 @@ def clear_build_cache(piton_root: str) -> int:
     return removed
 
 
-def environment_meta(piton_roots: tuple[str, ...], backend: str, model: str | None) -> dict:
+def environment_meta(piton_roots: tuple[str, ...], backend: str | None, model: str | None) -> dict:
     """The environment every run of a batch records.
 
     A probe that fails records its error in place of a value, so a batch

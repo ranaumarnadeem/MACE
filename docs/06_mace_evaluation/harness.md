@@ -54,9 +54,11 @@ On a checkout whose cached models you want to keep, pass `--keep-cache`.
 
 Each run records its method, task, and repeat in the `runs` table, and the environment in `runs.meta`: MACE's commit and whether the tree had uncommitted changes, each checkout's source fingerprint and Verilator version, the backend, the model, the host, and `MAKEFLAGS`.
 `--no-task-prompts` turns off each task's own LLM call in `mace`, `one_shot`, and the ablations, and the choice is recorded in `runs.meta`.
+A batch whose methods are all among `expert`, `codesign_random`, `codesign_grid`, and `codesign_bayes` calls no LLM, so it builds no backend, needs no GCP project, and records the backend and model as null.
 
 ```bash
 python examples/eval_batch.py --piton-root ~/openpiton --dry-run
+MAKEFLAGS=-j1 python examples/eval_batch.py --piton-root ~/openpiton --methods expert,codesign_random,codesign_grid,codesign_bayes
 export GOOGLE_CLOUD_PROJECT=<your-gcp-project> MAKEFLAGS=-j1
 python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-b --repeats 3
 python examples/eval_batch.py --piton-root ~/openpiton --methods no_triage,one_checkout,build_check,no_reuse \

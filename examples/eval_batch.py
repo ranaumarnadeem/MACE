@@ -10,9 +10,13 @@ and repeat; examples/eval_report.py turns that database into tables.
 Methods (see mace/eval/runner.py): mace, one_shot, retry_agent, expert,
 no_triage, one_checkout, build_check, and no_reuse run on bring-up tasks;
 codesign_mace, codesign_random, codesign_grid, and codesign_bayes run on
-co-design tasks. Each method runs only on the tasks it applies to.
+co-design tasks. Each method runs only on the tasks it applies to. A batch
+of only expert, codesign_random, codesign_grid, and codesign_bayes calls no
+LLM, so it builds no backend and needs no GCP project.
 
 Run:
+    MAKEFLAGS=-j1 python examples/eval_batch.py --piton-root ~/openpiton \\
+        --methods expert,codesign_random,codesign_grid,codesign_bayes
     export GOOGLE_CLOUD_PROJECT=<your-gcp-project> MAKEFLAGS=-j1
     python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-b \\
         --methods mace,one_shot,retry_agent,expert --repeats 3
@@ -27,7 +31,7 @@ import os
 
 import ray
 
-from mace.eval.runner import METHODS, RunEnv, environment_meta, finished_keys, plan_jobs, run_batch
+from mace.eval.runner import METHODS, NO_LLM_METHODS, RunEnv, environment_meta, finished_keys, plan_jobs, run_batch
 from mace.eval.suite import load_suite
 from mace.llm import default_model_for_backend, make_llm
 from mace.metrics import DBReader, open_db
@@ -96,29 +100,32 @@ def main() -> int:
         print(f"{sum(j.key not in done for j in jobs)} of {len(jobs)} jobs to run")
         return 0
 
-    model = default_model_for_backend(args.model, args.backend)
-    if args.project:
-        os.environ["GOOGLE_CLOUD_PROJECT"] = args.project
-    if args.backend == "vertex" and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
-        ap.error("--backend vertex needs --project or GOOGLE_CLOUD_PROJECT")
+    needs_llm = any(job.method not in NO_LLM_METHODS for job in jobs)
+    backend = args.backend if needs_llm else None
+    model = default_model_for_backend(args.model, args.backend) if needs_llm else None
+    if needs_llm:
+        if args.project:
+            os.environ["GOOGLE_CLOUD_PROJECT"] = args.project
+        if args.backend == "vertex" and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+            ap.error("--backend vertex needs --project or GOOGLE_CLOUD_PROJECT")
     piton_roots = tuple(os.path.abspath(os.path.expanduser(p)) for p in (args.piton_root, args.piton_root_2) if p)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     # Same Ray setup as examples/mace_end_to_end.py: a fresh local instance,
-    # one openpiton slot and one credential slot per checkout.
-    ray.init(
-        address="local",
-        resources={"openpiton": len(piton_roots), f"{args.backend}_creds": len(piton_roots)},
-        include_dashboard=False,
-    )
+    # one openpiton slot per checkout, and one credential slot per checkout
+    # when a method calls an LLM.
+    resources = {"openpiton": len(piton_roots)}
+    if needs_llm:
+        resources[f"{backend}_creds"] = len(piton_roots)
+    ray.init(address="local", resources=resources, include_dashboard=False)
     os.makedirs(os.path.dirname(args.db_path), exist_ok=True)
     db = open_db(args.db_path, ray_placement=False)
-    llm = make_llm(args.backend, **({"model": model} if model else {}))
+    llm = make_llm(backend, **({"model": model} if model else {})) if needs_llm else None
     env = RunEnv(
         piton_roots=piton_roots,
         llm=llm,
         db=db,
-        meta={**environment_meta(piton_roots, args.backend, model), **labels},
+        meta={**environment_meta(piton_roots, backend, model), **labels},
         task_prompts=not args.no_task_prompts,
         clear_cache=not args.keep_cache,
     )

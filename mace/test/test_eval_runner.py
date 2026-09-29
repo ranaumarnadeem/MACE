@@ -279,6 +279,20 @@ class TestCodesignJobs:
         assert runner.area_budget_um2(task) == pytest.approx(expected)
 
 
+class TestNoLLMMethods:
+    def test_each_runs_with_no_llm(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("mace.eval.runner.run_codesign", lambda roots, spec, strat, db, **kwargs: "done")
+        monkeypatch.setattr("mace.eval.runner.run_expert", lambda roots, spec, task, db, **kwargs: "done")
+        env = runner.RunEnv(piton_roots=("/a",), llm=None, db=make_db(tmp_path), clear_cache=False)
+        for method in sorted(runner.NO_LLM_METHODS):
+            task = codesign_task() if method in runner.CODESIGN_METHODS else suite_task()
+            assert runner.run_job(runner.Job(task, method, 0), env) == "done"
+
+    def test_the_llm_proposer_is_not_among_them(self):
+        assert runner.NO_LLM_METHODS < set(runner.METHODS)
+        assert "codesign_mace" not in runner.NO_LLM_METHODS
+
+
 class TestSeededJobs:
     def test_a_fault_runs_only_on_its_cores(self):
         pico = suite_task("pico-task", core="pico")
