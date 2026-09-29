@@ -36,9 +36,10 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `codesign_grid` | C2 | A co-design search over the task's fixed grid, in order. |
 | `codesign_bayes` | C3 | A co-design search with Optuna's TPE sampler, seeded by the repeat. |
 | `seeded_<fault>` | RQ3 | The loop with its first plan broken by one seeded fault; see below. |
+| `faultcheck_<fault>` | Fault check | The expert configuration with one seeded fault applied, with no LLM; it should fail. See below. |
 
 The co-design methods run only on tasks with a `codesign` block, and the others only on tasks without one.
-`expert` and `codesign_grid` have no randomness, so they run once per task unless `--expert-repeats` asks for more.
+`expert`, `codesign_grid`, and the fault checks have no randomness, so they run once per task unless `--expert-repeats` asks for more.
 
 The LLM methods state a task's inputs with the planner's own `render_inputs()` and ask for cache and define overrides with its `OVERRIDE_RULES`, so a comparison differs in what each method does, not in what it is told.
 `mace/baselines/` holds `expert`, `one_shot`, and `retry_agent`.
@@ -54,7 +55,7 @@ On a checkout whose cached models you want to keep, pass `--keep-cache`.
 
 Each run records its method, task, and repeat in the `runs` table, and the environment in `runs.meta`: MACE's commit and whether the tree had uncommitted changes, each checkout's source fingerprint and Verilator version, the backend, the model, the host, and `MAKEFLAGS`.
 `--no-task-prompts` turns off each task's own LLM call in `mace`, `one_shot`, and the ablations, and the choice is recorded in `runs.meta`.
-A batch whose methods are all among `expert`, `codesign_random`, `codesign_grid`, and `codesign_bayes` calls no LLM, so it builds no backend, needs no GCP project, and records the backend and model as null.
+A batch whose methods are all among `expert`, the `faultcheck_<fault>` methods, `codesign_random`, `codesign_grid`, and `codesign_bayes` calls no LLM, so it builds no backend, needs no GCP project, and records the backend and model as null.
 
 ```bash
 python examples/eval_batch.py --piton-root ~/openpiton --dry-run
@@ -71,10 +72,18 @@ The dry run lists each job as `done` or `todo` and starts no Ray instance.
 
 `mace/eval/faults.py` names the seeded faults.
 Each changes the first plan's `config` and `workload` tasks before they run and leaves later plans alone, through `run_mace_loop`'s `plan_hook`.
-`fpga_synth` adds `PITON_FPGA_SYNTH`, and the Verilator build fails; `drop_bist` removes `CONFIG_DISABLE_BIST_CLEAR`, and a PicoRV32 simulation times out.
-Both broke every hackathon run they were seeded into and are marked verified.
-`l1d_three_way` and `l15_below_l1d` are unverified candidates until a pilot shows they break a build or a simulation.
-A `seeded_<fault>` method runs on bring-up tasks whose core the fault lists, and only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
+
+| Fault | Change | Failure | Verified on |
+|---|---|---|---|
+| `fpga_synth` | Adds `PITON_FPGA_SYNTH` | The Verilator build fails with `%Error-PINNOTFOUND` | Ariane, PicoRV32 |
+| `drop_bist` | Removes `CONFIG_DISABLE_BIST_CLEAR` | The PicoRV32 simulation times out | PicoRV32 |
+| `crossbar` | Selects `xbar_config` | On a mesh with two or more rows, the Verilator build fails with duplicate pin connections | Ariane, PicoRV32 |
+| `l1d_three_way` | Sets a 6 KB three-way L1D | Unverified: Ariane draws its replacement way from two random bits, so it can pick a way that does not exist | Not yet |
+
+A fault applies to bring-up tasks on the cores it lists, and `crossbar` only to meshes with two or more rows, since OpenPiton's crossbar has one port per column.
+A `seeded_<fault>` method runs the loop with that fault seeded, only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
+A `faultcheck_<fault>` method builds and checks the task's expert configuration with the fault applied, with no LLM, once per task; the fault breaks that task when the run fails.
+A candidate becomes verified when its fault checks fail on every task it applies to.
 
 A reverted-fix run needs a checkout that lacks one fix of `scripts/patch_openpiton.sh`: patch a fresh checkout with `PATCH_SKIP` naming that fix (see [Environment Patches](../04_chia_openpiton/environment_patches.md)), and pass `--label reverted_fix=<N>` so each run records it.
 
