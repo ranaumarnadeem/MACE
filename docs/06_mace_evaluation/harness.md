@@ -101,12 +101,15 @@ A design sets each cache's size and associativity and the interconnect, `2dmesh_
 OpenPiton's crossbar has one port per column, so the suite loader accepts `xbar_config` only for a mesh with one row of tiles.
 The space lists the allowed sizes and associativities of the searched caches; the others keep their defaults.
 Each round, the strategy proposes up to `batch` designs it has not tried.
-A design's cache area is known before it is built, so a design over the budget is recorded as infeasible without a build and does not use up a simulation; the strategy hears the outcome like any other.
+A design's cache area is known before it is built, and so is whether it keeps Ariane's way rule: neither the L1D nor the L1I may have more ways than the L1.5.
+Ariane's L1.5 adapter asserts that rule, but inside `` `ifndef VERILATOR ``, so a Verilator build of a design that breaks it still builds and runs.
+A design over the budget or against the rule is recorded as infeasible, with the reason, without a build, and does not use up a simulation; the strategy hears the outcome like any other.
 The rest build and run in parallel through the loop's own build-and-check path.
 A design that passes has a finish time, the sum of its gate workloads' simulated finish times (`sim_time`), and is feasible.
 A search stops after its simulations, after ten times that many proposals, when `max_wall_s` runs out, or when its strategy proposes nothing new twice in a row, and it ends `passed` when it found at least one feasible design.
-Each proposal gets an `evaluations` row with its geometry, verdict, finish time, area, and whether it was simulated.
-The LLM proposer's prompt also carries each cache geometry's area over all tiles, so it can add up a design's area before proposing it.
+Each proposal gets an `evaluations` row with its geometry, verdict, finish time, area, whether it was simulated, and why it was rejected before a build, if it was.
+The LLM proposer's prompt also carries each cache geometry's area over all tiles, so it can add up a design's area before proposing it, and states the way rule on Ariane.
+The suite loader rejects a grid that holds a design against the rule.
 
 `mace.codesign.area` models each cache as a data array with one line per row and a tag array with one set per row and one tag per way, so the tag array widens with associativity.
 A tag holds the 40-bit physical address above the set index and line offset, plus two state bits.
@@ -130,5 +133,5 @@ Time to pass is the wall time of passed runs, and machine time sums build and si
 A second table sums each method across tasks.
 A third compares each method with `mace` task by task, over the tasks where both passed at least once, with an exact two-sided Wilcoxon signed-rank test on time to pass.
 
-For co-design searches it writes one row per task and method: the median best feasible finish, the best finish any search of the task found, how many searches came within 5% of it and the median simulations they needed, and the share of feasible designs.
+For co-design searches it writes one row per task and method: the median best feasible finish, the best finish any search of the task found, how many searches came within 5% of it and the median simulations they needed, the share of feasible designs, and how many proposals were rejected before a build.
 `--csv` writes every run's numbers for plots.
