@@ -169,3 +169,31 @@ class TestCodesignSummary:
         db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
         self._search(db, "codesign_grid", 0, [500])
         assert report.run_rows(db)[0]["method"] == "codesign_grid"
+
+    def test_a_replaced_search_is_left_out(self, tmp_path):
+        db = metrics.open_db(str(tmp_path / "cd.db"), ray_placement=False)
+        self._search(db, "codesign_grid", 0, [400])
+        db.execute("UPDATE runs SET status = 'running', finished_at = NULL, started_at = started_at - 10")
+        self._search(db, "codesign_grid", 0, [500])
+        rows = report.codesign_rows(db)
+        assert [r["replaced"] for r in rows] == [True, False]
+        (summary,) = report.codesign_summary(rows)
+        assert (summary["searches"], summary["best_known"]) == (1, 500)
+
+
+class TestReplacedRuns:
+    def test_a_later_run_of_the_same_job_replaces_an_unfinished_one(self, db):
+        stale = add_run(db, "t1", "mace", 0, "running", 10.0)
+        db.execute("UPDATE runs SET started_at = 50.0, finished_at = NULL WHERE run_id = ?", (stale,))
+        rows = report.run_rows(db)
+        assert [r["run_id"] for r in rows if r["replaced"]] == [stale]
+        t1_mace = next(r for r in report.summarize(rows) if (r["task"], r["method"]) == ("t1", "mace"))
+        assert (t1_mace["runs"], t1_mace["passed"]) == (2, 2)
+        assert {r["method"]: r["runs"] for r in report.method_totals(rows)}["mace"] == 3
+
+    def test_an_unfinished_run_with_no_later_run_stays(self, db):
+        stale = add_run(db, "t3", "mace", 0, "running", 10.0)
+        rows = report.run_rows(db)
+        assert not next(r for r in rows if r["run_id"] == stale)["replaced"]
+        t3 = next(r for r in report.summarize(rows) if r["task"] == "t3")
+        assert (t3["runs"], t3["passed"]) == (1, 0)

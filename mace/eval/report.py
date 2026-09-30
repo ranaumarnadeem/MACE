@@ -8,7 +8,9 @@ by method across tasks. :func:`paired_test` compares two methods task by
 task with a Wilcoxon signed-rank test.
 
 Reads use :class:`mace.metrics.DBReader`, so a report starts no Ray. Rows
-from several databases, one per VM, merge by simple concatenation.
+from several databases, one per VM, merge by simple concatenation. A run
+that a later run of the same job replaced keeps its row, marked
+``replaced``, and the summaries leave it out.
 """
 
 from __future__ import annotations
@@ -25,6 +27,15 @@ NUMBERS = (
 )
 
 
+def _replaced(runs: list[dict]) -> set[str]:
+    """The ids of the runs that a later run of the same task, method, and
+    repeat replaced; *runs* come in start order. The batch runner runs a job
+    again when its run did not finish, such as one a stopped batch left
+    ``running``, and the earlier run stays in the database."""
+    latest = {(run["task"], run["method"], run["repeat"]): run["run_id"] for run in runs}
+    return {run["run_id"] for run in runs if latest[(run["task"], run["method"], run["repeat"])] != run["run_id"]}
+
+
 def run_rows(db) -> list[dict]:
     """One row per run that carries evaluation labels (task and repeat)."""
     runs = db.query(
@@ -32,6 +43,7 @@ def run_rows(db) -> list[dict]:
         "WHERE task IS NOT NULL AND repeat IS NOT NULL ORDER BY started_at",
         (),
     )
+    replaced = _replaced(runs)
     rows = []
     for run in runs:
         run_id = run["run_id"]
@@ -52,6 +64,7 @@ def run_rows(db) -> list[dict]:
                 "method": run["method"],
                 "repeat": run["repeat"],
                 "status": run["status"],
+                "replaced": run_id in replaced,
                 "passed": run["status"] == "passed",
                 "wall_s": (run["finished_at"] - run["started_at"]) if run["finished_at"] else None,
                 "machine_s": sum((t["wall_s"] or 0.0) for t in tasks),
@@ -83,6 +96,11 @@ def rows_from(paths: list[str]) -> list[dict]:
     return rows
 
 
+def _current(rows: list[dict]) -> list[dict]:
+    """*rows* without the runs a later run of the same job replaced."""
+    return [r for r in rows if not r.get("replaced")]
+
+
 def _median(values):
     values = [v for v in values if v is not None]
     return statistics.median(values) if values else None
@@ -100,7 +118,7 @@ def summarize(rows: list[dict]) -> list[dict]:
     """One row per (task, method): pass count and the medians of
     :data:`NUMBERS`. Time to pass is the median wall time of passed runs."""
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    for row in rows:
+    for row in _current(rows):
         groups[(row["task"], row["method"])].append(row)
     out = []
     for (task, method), group in sorted(groups.items()):
@@ -124,7 +142,7 @@ def summarize(rows: list[dict]) -> list[dict]:
 def method_totals(rows: list[dict]) -> list[dict]:
     """One row per method across all tasks: pass count and medians."""
     groups: dict[str, list[dict]] = defaultdict(list)
-    for row in rows:
+    for row in _current(rows):
         groups[row["method"]].append(row)
     out = []
     for method, group in sorted(groups.items()):
@@ -229,6 +247,7 @@ def codesign_rows(db) -> list[dict]:
         "WHERE task IS NOT NULL AND method LIKE 'codesign_%' ORDER BY started_at",
         (),
     )
+    replaced = _replaced(runs)
     rows = []
     for run in runs:
         proposals = db.query(
@@ -249,6 +268,7 @@ def codesign_rows(db) -> list[dict]:
                 "repeat": run["repeat"],
                 "seed": run["seed"],
                 "status": run["status"],
+                "replaced": run["run_id"] in replaced,
                 "evaluations": len(evaluations),
                 "rejected": len(proposals) - len(evaluations),
                 "feasible": sum(1 for e in evaluations if e["feasible"]),
@@ -267,6 +287,7 @@ def codesign_summary(rows: list[dict], within: float = 0.05) -> list[dict]:
     search needed to come within *within* of it, over the searches that
     got there; ``reached`` counts those searches.
     """
+    rows = _current(rows)
     best_known: dict[str, int] = {}
     for r in rows:
         if r["best_sim_time"] is not None:

@@ -13,6 +13,10 @@ several (one per VM), and writes:
   any search found, and the proposals rejected before a build;
 - with --csv, every run's numbers, for plots.
 
+A run that a later run of the same task, method, and repeat replaced, such
+as one a stopped batch left running, stays in the CSV, marked replaced, and
+the tables leave it out.
+
 Reads never start Ray.
 
 Run:
@@ -83,6 +87,9 @@ def main() -> int:
     searches = codesign_rows_from(args.databases)
     if searches:
         sections.append("## Co-design searches\n\n" + markdown_table(codesign_summary(searches), CODESIGN_COLUMNS))
+    replaced = sum(1 for r in all_rows if r["replaced"])
+    if replaced:
+        sections.append(f"Runs left out because a later run of the same task, method, and repeat replaced them: {replaced}.")
     text = "\n\n".join(sections)
     print(text)
     if args.out:
