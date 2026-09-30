@@ -20,8 +20,9 @@ from __future__ import annotations
 import random
 import re
 
+from chia_openpiton.state_def import ARIANE_WAY_RULE
 from mace import usage
-from mace.codesign.space import ARIANE_WAY_RULE, Design, DesignSpace, parse_design
+from mace.codesign.space import Design, DesignSpace, parse_design
 from mace.planner import render_inputs
 from mace.spec import MaceSpec
 

@@ -14,17 +14,10 @@ import json
 import random
 from dataclasses import dataclass, field
 
-from chia_openpiton.state_def import DEFAULT_CACHES
+from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.spec import NETWORKS, Task
 
 DEFAULT_NETWORK = "2dmesh_config"
-
-# Ariane's L1.5 adapter (core/cache_subsystem/wt_l15_adapter.sv in the
-# Ariane submodule) asserts that neither L1 has more ways than the L1.5. The
-# assertion sits inside `ifndef VERILATOR, so a Verilator build of a design
-# that breaks it still builds and runs; a search rejects such a design
-# before building it (see Design.way_violations).
-ARIANE_WAY_RULE = "On Ariane, neither the L1D nor the L1I may have more ways than the L1.5."
 
 
 @dataclass(frozen=True)
@@ -54,17 +47,10 @@ class Design:
         return json.dumps({"caches": {k: list(v) for k, v in self.caches}, "network": self.network}, sort_keys=True)
 
     def way_violations(self, core: str) -> tuple[str, ...]:
-        """How this design breaks :data:`ARIANE_WAY_RULE`; empty when it
-        keeps the rule, and always empty for a core other than Ariane."""
-        if core != "ariane":
-            return ()
-        caches = self.caches_dict()
-        l15_ways = caches["l15"][1]
-        return tuple(
-            f"{name} has {caches[name][1]} ways, more than the L1.5's {l15_ways}"
-            for name in ("l1d", "l1i")
-            if caches[name][1] > l15_ways
-        )
+        """How this design breaks Ariane's way rule on *core*, from
+        ``PitonConfig.way_violations``; a search rejects such a design before
+        building it, as the adapter's build would refuse it."""
+        return PitonConfig(core=core, caches=self.caches_dict()).way_violations()
 
     def task(self, task_id: str) -> Task:
         """This design as a ``config`` task for the build-and-check path."""

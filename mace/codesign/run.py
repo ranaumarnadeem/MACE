@@ -2,7 +2,7 @@
 
 Each round asks the strategy for up to ``batch`` new designs. A design's
 cache area (see :mod:`mace.codesign.area`) is known before it is built, and
-so is whether it keeps :data:`~mace.codesign.space.ARIANE_WAY_RULE`, so a
+so is whether it keeps :data:`~chia_openpiton.state_def.ARIANE_WAY_RULE`, so a
 design over the area budget or against the rule is recorded as infeasible,
 with the reason, without a build or a simulation, and does not use up the
 search's simulations; the strategy hears about it like any other outcome.

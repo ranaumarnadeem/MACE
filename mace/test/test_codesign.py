@@ -14,11 +14,11 @@ import random
 import pytest
 
 from chia.base.llm_call import QueryResult
-from chia_openpiton.state_def import DEFAULT_CACHES, PitonBuildArtifact, PitonConfig, PitonRunResult
+from chia_openpiton.state_def import ARIANE_WAY_RULE, DEFAULT_CACHES, PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import metrics, planner
 from mace.codesign import area, search
 from mace.codesign.run import Evaluation, run_codesign
-from mace.codesign.space import ARIANE_WAY_RULE, Design, DesignSpace, parse_design
+from mace.codesign.space import Design, DesignSpace, parse_design
 from mace.spec import Budget, LoopOptions, MaceSpec, StepResult
 from mace.test.conftest import FakeLLM
 
