@@ -686,3 +686,33 @@ class TestProgramsColumn:
         row = db.query_one("SELECT programs, run_s, wall_s FROM tasks WHERE run_id = ?", (run_id,))
         assert json.loads(row["programs"]) == [["a.c", "pass"], ["b.c", "pass"]]
         assert (row["run_s"], row["wall_s"]) == (7.0, 17.0)
+
+
+class TestEvidenceColumn:
+    def _evidence(self, tmp_path, result):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_iteration(db, run_id, 0, (result,), wall_s=1.0)
+        return db.query_value("SELECT evidence FROM tasks WHERE run_id = ?", (run_id,))
+
+    def test_a_failed_simulation_keeps_its_transcript_tail(self, tmp_path):
+        result = make_result("a", False, verdict="timeout")
+        result.run.sim_log_tail = "Info: spc(1) thread(0) -> timeout happen"
+        evidence = self._evidence(tmp_path, result)
+        assert "Build flags:" in evidence
+        assert "spc(1) thread(0) -> timeout happen" in evidence
+
+    def test_a_failed_build_keeps_its_errors(self, tmp_path):
+        result = make_result("a", False)
+        result.build = PitonBuildArtifact(
+            success=False, returncode=2, config=PitonConfig(), sim_type="vlt", model_dir="/x",
+            binary_path="", wall_time_s=5.0, failure_reason="verilator_error",
+            errors=("%Error-PINNOTFOUND: chip.v:10: Pin not found: 'x'",),
+        )
+        result.run = None
+        evidence = self._evidence(tmp_path, result)
+        assert "Build failure reason: verilator_error" in evidence
+        assert "%Error-PINNOTFOUND" in evidence
+
+    def test_a_passed_task_keeps_none(self, tmp_path):
+        assert self._evidence(tmp_path, make_result("a", True)) is None

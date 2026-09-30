@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from chia.database.sqlite_node import SQLiteNode
 
 from mace.spec import MaceSpec, PostMortem, StepResult
+from mace.triage import failure_evidence
 from mace.unit_test_scaffold import module_name_from_path
 from mace.usage import LLMCall
 
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     build_s REAL,
     run_s REAL,
     programs TEXT,
+    evidence TEXT,
     PRIMARY KEY (run_id, iteration, task_id)
 );
 
@@ -137,7 +139,9 @@ CREATE TABLE IF NOT EXISTS resimulations (
 # DBReader add whichever of these an older database lacks.
 ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "runs": {"method": "TEXT", "task": "TEXT", "repeat": "INTEGER", "seed": "INTEGER", "meta": "TEXT"},
-    "tasks": {"caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL", "programs": "TEXT"},
+    "tasks": {
+        "caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL", "programs": "TEXT", "evidence": "TEXT",
+    },
     "evaluations": {"simulated": "INTEGER NOT NULL DEFAULT 1", "rejected": "TEXT NOT NULL DEFAULT ''"},
 }
 
@@ -360,8 +364,8 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
     return (
         "INSERT OR REPLACE INTO tasks "
         "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module, "
-        "build_s, run_s, programs) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "build_s, run_s, programs, evidence) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             iteration,
@@ -377,6 +381,10 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
             build_s,
             run_s,
             json.dumps([[run.test, run.verdict] for run in runs]),
+            # The logs live in the model directory, which the next
+            # evaluation job's cache clear removes, and a run without triage
+            # keeps no other account of why a task failed.
+            None if result.passed else failure_evidence(result),
         ),
     )
 
