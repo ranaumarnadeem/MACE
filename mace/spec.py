@@ -70,12 +70,15 @@ class MaceSpec:
     target_mesh: tuple[int, int] = (1, 1)
     budget: Budget = field(default_factory=Budget)
     coverage: bool = False
-    # How many cycles a hart may go without retiring an instruction before
-    # a gate program's run fails with TIMEOUT; None uses
+    # OpenPiton's TIMEOUT limit. The testbench fails a thread slot that goes
+    # this many cycles without retiring an instruction, and three of each
+    # Ariane or PicoRV32 tile's four slots never retire, so a gate program's
+    # run fails with TIMEOUT once it lasts this many cycles. None uses
     # mace.workloads.RECOMMENDED_RTL_TIMEOUT. Larger meshes need more.
     rtl_timeout: int | None = None
     # The most cycles a gate program's run may take before OpenPiton ends it
     # at max cycles; None keeps OpenPiton's limit, 1,500,000 under Verilator.
+    # A run stops at the lower of the two limits.
     max_cycle: int | None = None
 
     def __post_init__(self) -> None:
