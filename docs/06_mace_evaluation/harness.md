@@ -87,10 +87,13 @@ A `faultcheck_<fault>` method builds and checks the task's expert configuration 
 A candidate becomes verified when its fault checks fail on every task it applies to.
 
 A reverted-fix run needs a checkout that lacks one fix of `scripts/patch_openpiton.sh`: patch a fresh checkout with `PATCH_SKIP` naming that fix (see [Environment Patches](../04_chia_openpiton/environment_patches.md)), and pass `--label reverted_fix=<N>` so each run records it.
+Give each fix its own database: the runner skips a job whose task, method, and repeat already finished in the database, whatever the checkout.
+Run `expert` on the checkout as well: it fails when the task still needs the fix.
 
 ```bash
 PATCH_SKIP="11" bash scripts/patch_openpiton.sh ~/openpiton-no11
-python examples/eval_batch.py --piton-root ~/openpiton-no11 --methods mace --tasks ariane-2x2-barrier     --label reverted_fix=11 --db-path runs/reverted_fix.db
+python examples/eval_batch.py --piton-root ~/openpiton-no11 --methods expert,mace --tasks ariane-2x2-barrier \
+    --label reverted_fix=11 --db-path runs/reverted_fix_11.db
 ```
 
 ## Co-design searches
