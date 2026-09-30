@@ -185,6 +185,19 @@ class TestResimulateAccepted:
         result = LoopResult(run_id="r", status="budget_exceeded", iterations=((self._accepted("/c"),),))
         assert runner.resimulate_accepted(make_db(tmp_path), result, MaceSpec(workloads=("a.c",), objective="o"), None) == 0
 
+    def test_a_resimulation_runs_with_the_spec_s_limits(self, monkeypatch):
+        seen = {}
+
+        class _Node:
+            @staticmethod
+            def run(root, config, program, **kwargs):
+                seen.update(kwargs)
+
+        monkeypatch.setattr(runner, "OpenPitonWorkspaceNode", _Node)
+        spec = MaceSpec(workloads=("a.c",), objective="o", rtl_timeout=4_000_000, max_cycle=6_000_000)
+        runner._run_program("/c", PitonConfig(), "a.c", spec)
+        assert (seen["rtl_timeout"], seen["max_cycle"]) == (4_000_000, 6_000_000)
+
 
 class TestRunBatch:
     def test_skips_finished_jobs_and_survives_a_failing_one(self, tmp_path, monkeypatch):

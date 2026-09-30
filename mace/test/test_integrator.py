@@ -660,3 +660,11 @@ class TestEveryGateProgramRemote:
         _run_batch([node], make_spec(workloads=("a.c", "b.c")), [task("t")], llm, (), str(WORKLOADS_DIR), "r", 2)
         assert node.run.calls[0] == "r/iter2/t/run"
         assert node.run.calls[2] == "r/iter2/t/run:b.c"
+
+    def test_the_spec_s_max_cycle_reaches_every_run(self, monkeypatch):
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+        node = _FakeRemoteNode("/root_a")
+        spec = make_spec(workloads=("a.c", "b.c"), max_cycle=6_000_000)
+        _run_batch([node], spec, [task("t")], llm, (), str(WORKLOADS_DIR), "r", 0)
+        assert [c["max_cycle"] for c in node.run.calls] == [6_000_000, 6_000_000]

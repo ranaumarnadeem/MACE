@@ -438,6 +438,16 @@ class TestEveryGateProgram:
         run_mace_step(str(stub_piton_root), make_spec(rtl_timeout=4_000_000), TASK, FakeLLM(responses=["edit"]))
         assert "-rtl_timeout=4000000" in sims_argv.lines()[1]
 
+    def test_the_spec_s_max_cycle_reaches_the_run(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        run_mace_step(str(stub_piton_root), make_spec(max_cycle=6_000_000), TASK, FakeLLM(responses=["edit"]))
+        assert "-max_cycle=6000000" in sims_argv.lines()[1]
+
+    def test_without_max_cycle_openpiton_keeps_its_limit(self, stub_piton_root, monkeypatch, sims_argv):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        run_mace_step(str(stub_piton_root), make_spec(), TASK, FakeLLM(responses=["edit"]))
+        assert "-max_cycle" not in sims_argv.lines()[1]
+
 
 class TestRunGatePrograms:
     def _result(self, test, success):

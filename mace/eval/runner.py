@@ -307,7 +307,7 @@ def _run_codesign_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
 def _run_program(root: str, config, program: str, spec: MaceSpec):
     return OpenPitonWorkspaceNode.run(
         root, config, program, asm_diag_root=str(WORKLOADS_DIR),
-        rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
+        rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT, max_cycle=spec.max_cycle,
     )
 
 

@@ -441,6 +441,7 @@ def _run_batch(
                     program,
                     asm_diag_root=asm_diag_root,
                     rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
+                    max_cycle=spec.max_cycle,
                     timeout_seconds=run_timeout,
                     _chia_tag=_tag(task.id, phase),
                 )

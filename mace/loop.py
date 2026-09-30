@@ -93,6 +93,7 @@ def run_mace_step(
             program,
             asm_diag_root=diag_root,
             rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
+            max_cycle=spec.max_cycle,
         ),
         spec.workloads,
     )
