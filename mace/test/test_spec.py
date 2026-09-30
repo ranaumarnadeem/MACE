@@ -267,6 +267,19 @@ class TestRtlTimeout:
             MaceSpec(workloads=("w.c",), objective="o", rtl_timeout=bad)
 
 
+class TestMaxCycle:
+    def test_defaults_to_none(self):
+        assert MaceSpec(workloads=("w.c",), objective="o").max_cycle is None
+
+    def test_keeps_a_positive_int(self):
+        assert MaceSpec(workloads=("w.c",), objective="o", max_cycle=6_000_000).max_cycle == 6_000_000
+
+    @pytest.mark.parametrize("bad", [0, -5, 1.5, True, "6000000"])
+    def test_must_be_a_positive_int(self, bad):
+        with pytest.raises(ValueError, match="max_cycle"):
+            MaceSpec(workloads=("w.c",), objective="o", max_cycle=bad)
+
+
 class TestTaskNetwork:
     def test_defaults_to_none(self):
         assert Task(id="t", deps=(), kind="config", spec="s").network is None

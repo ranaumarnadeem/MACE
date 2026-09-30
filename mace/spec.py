@@ -70,15 +70,19 @@ class MaceSpec:
     target_mesh: tuple[int, int] = (1, 1)
     budget: Budget = field(default_factory=Budget)
     coverage: bool = False
-    # Simulated-cycle limit for every gate program; None uses
+    # How many cycles a hart may go without retiring an instruction before
+    # a gate program's run fails with TIMEOUT; None uses
     # mace.workloads.RECOMMENDED_RTL_TIMEOUT. Larger meshes need more.
     rtl_timeout: int | None = None
+    # The most cycles a gate program's run may take before OpenPiton ends it
+    # at max cycles; None keeps OpenPiton's limit, 1,500,000 under Verilator.
+    max_cycle: int | None = None
 
     def __post_init__(self) -> None:
-        if self.rtl_timeout is not None and (
-            not isinstance(self.rtl_timeout, int) or isinstance(self.rtl_timeout, bool) or self.rtl_timeout <= 0
-        ):
-            raise ValueError(f"rtl_timeout must be a positive int or None, got {self.rtl_timeout!r}")
+        for name in ("rtl_timeout", "max_cycle"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):
+                raise ValueError(f"{name} must be a positive int or None, got {value!r}")
         if self.core not in ("ariane", "sparc", "pico"):
             raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
         if not isinstance(self.coverage, bool):
