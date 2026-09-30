@@ -27,7 +27,7 @@ A source edit leaves the build ID unchanged but changes the fingerprint, so the 
 
 ## Run
 
-For a `config` or `workload` task, `run()` simulates the first entry of `MaceSpec.workloads` in a new directory under the model's `runs/`.
+For a `config` or `workload` task, `run()` simulates each entry of `MaceSpec.workloads` in order, each in a new directory under the model's `runs/`, and stops at the first that does not pass.
 It passes `-rtl_timeout=1000000` and an `-asm_diag_root` pointing at `mace/workloads/`, which sims searches in addition to the checkout's own diags.
 The finish mask holds one `1` per tile, so a multi-tile run passes only when every tile reaches the good trap.
 The planner prompt lists every gate workload.
