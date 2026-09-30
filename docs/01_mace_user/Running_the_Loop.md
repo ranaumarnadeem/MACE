@@ -15,7 +15,7 @@ A frozen `MaceSpec` from `mace/spec.py` describes a loop run.
 | `target_mesh` | `(1, 1)` | `(x_tiles, y_tiles)`, each from 1 to 256. |
 | `budget` | `Budget()` | Stop conditions; see below. |
 | `coverage` | `False` | Adds Verilator line coverage to every `config` and `workload` build; see [Code Coverage](Code_Coverage.md). |
-| `rtl_timeout` | `None` | How many cycles a hart may go without retiring an instruction before its simulation fails with `TIMEOUT`; `None` uses `RECOMMENDED_RTL_TIMEOUT` (1,000,000). Larger meshes need more. |
+| `rtl_timeout` | `None` | OpenPiton's `TIMEOUT` limit, which caps a gate workload's simulation at this many cycles; `None` uses `RECOMMENDED_RTL_TIMEOUT` (1,000,000). Larger meshes need more. |
 | `max_cycle` | `None` | The most cycles a gate workload's simulation may take before it ends with verdict `maxcycles`; `None` keeps OpenPiton's limit. |
 
 `target_mesh` sets `x_tiles` and `y_tiles` for every `config` and `workload` build.
@@ -48,9 +48,15 @@ The C workloads use RISC-V inline assembly and do not run on OpenSPARC T1.
 
 ## Simulation limits
 
+OpenPiton's testbench ends a simulation that has not passed in one of two ways.
+Its `TIMEOUT` check fails a thread slot that goes `-rtl_timeout` cycles without retiring an instruction.
+Each Ariane or PicoRV32 tile has four thread slots, and three of them never retire, so a run fails with `TIMEOUT` once it lasts that many cycles.
+Its cycle limit ends a run after `-max_cycle` cycles with verdict `maxcycles`.
+
 Each loop simulation runs with `-rtl_timeout` set to the spec's `rtl_timeout`, or to 1,000,000 (`RECOMMENDED_RTL_TIMEOUT` in `mace/workloads.py`) when that is `None`.
 OpenPiton's own default is 50,000 cycles.
 When the spec sets `max_cycle`, each simulation also runs with `-max_cycle`; otherwise OpenPiton's testbench ends a Verilator simulation after 1,500,000 cycles.
+A run stops at the lower limit, so an `rtl_timeout` above 1,500,000 needs a `max_cycle` as well.
 No command-line flag sets either field: build the spec in Python, or set them on a task of the [evaluation suite](../06_mace_evaluation/harness.md).
 
 ## Budget
