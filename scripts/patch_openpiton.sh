@@ -723,6 +723,63 @@ PYEOF
 )
 fi
 
+# 13. CVA6's L1.5 adapter drives the invalidation fields inv.vld and inv.all
+#     of icache_rtrn_o and dcache_rtrn_o from continuous assigns, while its
+#     p_rtrn_logic block assigns other fields of the same packed structs and
+#     reads these. Verilator 5 orders such partial assignments wrongly
+#     (verilator#5829), so the adapter sometimes drops an invalidation from
+#     the coherence network and the L1D keeps a stale line: a plain load
+#     never sees another tile's update, which fix 11 works around in the
+#     exit barrier. Upstream CVA6 moved the four fields into p_rtrn_logic in
+#     cva6#2809; OpenPiton pins an older CVA6, so make the same move. Lives
+#     in the ariane submodule.
+if ! skip 13; then
+(
+    cd "$ROOT"
+    ADAPTER="piton/design/chip/tile/ariane/core/cache_subsystem/wt_l15_adapter.sv"
+    if [ ! -f "$ADAPTER" ]; then
+        echo "not found, skipping fix 13 (ariane submodule not initialized?): $ADAPTER"
+    elif ! grep -q "assign dcache_rtrn_o.inv.vld  = rtrn_fifo_data.l15_inval_dcache_inval;" "$ADAPTER"; then
+        echo "already patched: $ADAPTER (fix 13)"
+    else
+        python3 - "$ADAPTER" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+defaults = (
+    "  always_comb begin : p_rtrn_logic\n"
+    "    icache_rtrn_o.rtype = ICACHE_IFILL_ACK;\n"
+    "    dcache_rtrn_o.rtype = DCACHE_LOAD_ACK;\n"
+    "    icache_rtrn_vld_o   = 1'b0;\n"
+    "    dcache_rtrn_vld_o   = 1'b0;\n"
+)
+swaps = [
+    (defaults,
+     defaults
+     + "    icache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_icache_inval;\n"
+     + "    icache_rtrn_o.inv.all = rtrn_fifo_data.l15_inval_icache_all_way;\n"
+     + "    dcache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_dcache_inval;\n"
+     + "    dcache_rtrn_o.inv.all = rtrn_fifo_data.l15_inval_dcache_all_way;\n"),
+    ("  assign icache_rtrn_o.inv.vld  = rtrn_fifo_data.l15_inval_icache_inval;\n"
+     "  assign icache_rtrn_o.inv.all  = rtrn_fifo_data.l15_inval_icache_all_way;\n", ""),
+    ("  assign dcache_rtrn_o.inv.vld  = rtrn_fifo_data.l15_inval_dcache_inval;\n"
+     "  assign dcache_rtrn_o.inv.all  = rtrn_fifo_data.l15_inval_dcache_all_way;\n", ""),
+]
+for old, new in swaps:
+    count = content.count(old)
+    if count != 1:
+        print(f"ERROR: expected exactly 1 match for {old.strip().splitlines()[0]!r}, found {count}", file=sys.stderr)
+        sys.exit(1)
+    content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: wt_l15_adapter.sv drives the invalidation fields from p_rtrn_logic, as cva6#2809 does")
+PYEOF
+    fi
+)
+fi
+
 # Addition (not a bug fix): pico_reset_ut, a real, standalone unit test for
 # picorv32.v's self-boot behavior (finding 6) -- proves finding 8's -sys=
 # generalization end to end by authoring a genuinely NEW unit-test

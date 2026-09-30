@@ -113,9 +113,36 @@ CVA6_TRACE_NEW = """    string dasm_fn;
     $sformat(dasm_fn, "trace_hart_%0.0f.dasm", hart_id_i);
     f = $fopen(dasm_fn, "w");"""
 
+# Fix 13: wt_l15_adapter.sv drives the invalidation fields from continuous
+# assigns; cva6#2809 moves them into p_rtrn_logic.
+ADAPTER_DEFAULTS = """  always_comb begin : p_rtrn_logic
+    icache_rtrn_o.rtype = ICACHE_IFILL_ACK;
+    dcache_rtrn_o.rtype = DCACHE_LOAD_ACK;
+    icache_rtrn_vld_o   = 1'b0;
+    dcache_rtrn_vld_o   = 1'b0;
+"""
+ADAPTER_INV_ASSIGNS = (
+    """  assign icache_rtrn_o.inv.vld  = rtrn_fifo_data.l15_inval_icache_inval;
+  assign icache_rtrn_o.inv.all  = rtrn_fifo_data.l15_inval_icache_all_way;
+""",
+    """  assign dcache_rtrn_o.inv.vld  = rtrn_fifo_data.l15_inval_dcache_inval;
+  assign dcache_rtrn_o.inv.all  = rtrn_fifo_data.l15_inval_dcache_all_way;
+""",
+)
+ADAPTER_INV_IN_BLOCK = """    icache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_icache_inval;
+    icache_rtrn_o.inv.all = rtrn_fifo_data.l15_inval_icache_all_way;
+    dcache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_dcache_inval;
+    dcache_rtrn_o.inv.all = rtrn_fifo_data.l15_inval_dcache_all_way;
+"""
+ADAPTER_INV_IDX = (
+    "  assign icache_rtrn_o.inv.idx  = {rtrn_fifo_data.l15_inval_address_15_4, 4'b0000};\n",
+    "  assign dcache_rtrn_o.inv.idx  = {rtrn_fifo_data.l15_inval_address_15_4, 4'b0000};\n",
+)
+
 PC_CMP = "piton/verif/env/manycore/pc_cmp.v.pyv"
 SYSCALLS = "piton/verif/diag/assembly/include/riscv/ariane/syscalls.c"
 CVA6 = "piton/design/chip/tile/ariane/core/cva6.sv"
+ADAPTER = "piton/design/chip/tile/ariane/core/cache_subsystem/wt_l15_adapter.sv"
 
 
 def _run_patch(piton_root: Path) -> subprocess.CompletedProcess:
@@ -212,7 +239,7 @@ class TestPicoFixesApplyToASyntheticTree:
 
 @pytest.fixture
 def multitile_piton_root(synthetic_piton_root) -> Path:
-    """synthetic_piton_root plus the upstream text fixes 10-12 target."""
+    """synthetic_piton_root plus the upstream text fixes 10-13 target."""
     root = synthetic_piton_root
     (root / PC_CMP).write_text(
         "module manycore_monitor;\n"
@@ -228,6 +255,11 @@ def multitile_piton_root(synthetic_piton_root) -> Path:
     )
     (root / CVA6).parent.mkdir(parents=True)
     (root / CVA6).write_text(f"  initial begin\n{CVA6_TRACE_OLD}\n  end\n")
+    (root / ADAPTER).parent.mkdir(parents=True)
+    (root / ADAPTER).write_text(
+        f"module wt_l15_adapter;\n{ADAPTER_DEFAULTS}    if(!rtrn_fifo_empty) begin\n    end\n  end\n\n"
+        f"{ADAPTER_INV_IDX[0]}{ADAPTER_INV_ASSIGNS[0]}\n{ADAPTER_INV_IDX[1]}{ADAPTER_INV_ASSIGNS[1]}endmodule\n"
+    )
     return root
 
 
@@ -258,14 +290,25 @@ class TestMultiTileFixesApplyToASyntheticTree:
         assert CVA6_TRACE_OLD not in text
         assert CVA6_TRACE_NEW in text
 
-    def test_fixes_10_to_12_are_idempotent(self, multitile_piton_root):
+    def test_fix_13_moves_the_invalidation_fields_into_p_rtrn_logic(self, multitile_piton_root):
+        result = _run_patch(multitile_piton_root)
+        assert result.returncode == 0, result.stderr
+
+        text = (multitile_piton_root / ADAPTER).read_text()
+        assert ADAPTER_DEFAULTS + ADAPTER_INV_IN_BLOCK in text
+        for assigns in ADAPTER_INV_ASSIGNS:
+            assert assigns not in text
+        for idx in ADAPTER_INV_IDX:
+            assert idx in text
+
+    def test_fixes_10_to_13_are_idempotent(self, multitile_piton_root):
         first = _run_patch(multitile_piton_root)
         assert first.returncode == 0, first.stderr
-        after_first = {p: (multitile_piton_root / p).read_text() for p in (PC_CMP, SYSCALLS, CVA6)}
+        after_first = {p: (multitile_piton_root / p).read_text() for p in (PC_CMP, SYSCALLS, CVA6, ADAPTER)}
 
         second = _run_patch(multitile_piton_root)
         assert second.returncode == 0, second.stderr
-        for fix in ("fix 10", "fix 11", "fix 12"):
+        for fix in ("fix 10", "fix 11", "fix 12", "fix 13"):
             assert f"({fix})" in second.stdout, fix
         for p, text in after_first.items():
             assert (multitile_piton_root / p).read_text() == text
@@ -300,6 +343,12 @@ class TestPatchSkip:
         assert CVA6_TRACE_OLD in (multitile_piton_root / CVA6).read_text()
         for new in SYSCALLS_NEW:
             assert new in (multitile_piton_root / SYSCALLS).read_text()
+
+    def test_skipping_fix_13_keeps_the_adapter_s_assigns(self, multitile_piton_root):
+        before = (multitile_piton_root / ADAPTER).read_text()
+        result = _run_patch_skipping(multitile_piton_root, "13")
+        assert result.returncode == 0, result.stderr
+        assert (multitile_piton_root / ADAPTER).read_text() == before
 
     def test_skipping_the_boot_rom_fixes_leaves_its_makefile_alone(self, synthetic_piton_root):
         makefile = synthetic_piton_root / "piton/design/chipset/rv64_platform/bootrom/linux/Makefile"
