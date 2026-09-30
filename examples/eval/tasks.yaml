@@ -129,6 +129,93 @@ tasks:
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
 
+  # More 2x2 candidates: OpenPiton's Ariane C tests, MACE's own gate
+  # programs, and PicoRV32 ISA tests. Every hart runs the program, so tests
+  # that check one hart's view of shared memory are left out: amo_align.c,
+  # and the ISA tests that store to or run atomics on shared data.
+
+  - id: ariane-2x2-hello
+    core: ariane
+    mesh: [2, 2]
+    workloads: [hello_world.c]
+    objective: Verify the hello_world.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-clint
+    core: ariane
+    mesh: [2, 2]
+    workloads: [clint_plic_access.c]
+    objective: Verify the clint_plic_access.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-lrsc-single
+    core: ariane
+    mesh: [2, 2]
+    workloads: [lrsc_single.c]
+    objective: Verify the lrsc_single.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-accu
+    core: ariane
+    mesh: [2, 2]
+    workloads: [accu_test.c]
+    objective: Verify the accu_test.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-scatter-gather
+    core: ariane
+    mesh: [2, 2]
+    workloads: [scatter_gather.c]
+    objective: Verify the scatter_gather.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: ariane-2x2-producer-consumer
+    core: ariane
+    mesh: [2, 2]
+    workloads: [producer_consumer.c]
+    objective: Verify the producer_consumer.c gate workload passes on a 2x2 mesh.
+    expert: {}
+
+  - id: pico-2x2-lw
+    core: pico
+    mesh: [2, 2]
+    workloads: [lw.S]
+    objective: >-
+      Verify the lw.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-jal
+    core: pico
+    mesh: [2, 2]
+    workloads: [jal.S]
+    objective: >-
+      Verify the jal.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-mul
+    core: pico
+    mesh: [2, 2]
+    workloads: [mul.S]
+    objective: >-
+      Verify the mul.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-beq
+    core: pico
+    mesh: [2, 2]
+    workloads: [beq.S]
+    objective: >-
+      Verify the beq.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
   # Co-design: the cache geometry that finishes matmul.c soonest within the
   # area of OpenPiton's default caches. Simulated finish times on a 2x2
   # mesh: 127,013,250 for the default caches; 105,567,250 with a 16 KB L1.5
