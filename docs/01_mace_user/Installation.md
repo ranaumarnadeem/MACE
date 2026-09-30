@@ -102,7 +102,7 @@ bash scripts/patch_openpiton.sh ~/openpiton
 
 With no argument, the script uses `PITON_ROOT`.
 Running it again is safe.
-It applies twelve fixes:
+It applies thirteen fixes:
 
 | Fix | File | Change |
 |---|---|---|
@@ -118,6 +118,7 @@ It applies twelve fixes:
 | 10 | `pc_cmp.v.pyv` | Widens `finish_mask`, so meshes above 8 tiles are checked in full. |
 | 11 | Ariane `syscalls.c` | Polls the multi-hart exit barrier with atomic reads. |
 | 12 | CVA6 `cva6.sv` | Writes one `trace_hart_<id>.dasm` file per tile. |
+| 13 | CVA6 `wt_l15_adapter.sv` | Stops the L1.5 adapter from dropping cache invalidations under Verilator 5, as upstream cva6#2809 does. |
 
 The script also adds `pico_reset_ut`, a standalone unit-test environment for PicoRV32's reset behavior.
 The loop keeps reusing models built before a fix; [Troubleshooting](Troubleshooting.md) shows how to rebuild them.

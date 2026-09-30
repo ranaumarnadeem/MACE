@@ -2,7 +2,7 @@
 
 # Environment Patches
 
-`scripts/patch_openpiton.sh` applies twelve numbered fixes to an OpenPiton checkout and adds one unit-test environment. The fixes edit files in the checkout because some settings have no other hook. The boot ROM `Makefile`, for example, sets its compiler flags with plain `=` assignments, which neither the environment nor a `sims` flag can override.
+`scripts/patch_openpiton.sh` applies thirteen numbered fixes to an OpenPiton checkout and adds one unit-test environment. The fixes edit files in the checkout because some settings have no other hook. The boot ROM `Makefile`, for example, sets its compiler flags with plain `=` assignments, which neither the environment nor a `sims` flag can override.
 
 ## Running the script
 
@@ -13,7 +13,7 @@ PITON_ROOT=/path/to/openpiton bash scripts/patch_openpiton.sh
 
 Run it once per checkout, on every worker that hosts one. The GCP worker in `cluster/local.yaml` runs it from `worker_setup_commands`. The script needs `bash`, `git`, `python3`, and GNU `grep` and `sed`. It exits with status 2 when no root is given or the root has no `piton/` directory. It exits with status 1 when the boot ROM `Makefile` is missing, when a text block or anchor it edits does not appear exactly once, or when fix 5 finds a half-applied guard.
 
-The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 12 skip with a `not found, skipping fix N` message when their target file is absent.
+The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 13 skip with a `not found, skipping fix N` message when their target file is absent.
 
 `PATCH_SKIP` names fixes to leave out, as space-separated numbers, and the script prints `skipped fix N (PATCH_SKIP)` for each. A checkout patched with `PATCH_SKIP="11"` has every fix but 11, so the failure fix 11 addresses comes back; the evaluation's reverted-fix runs prepare their checkouts this way.
 
@@ -39,6 +39,7 @@ The script's edits change the checkout's source fingerprint, so a model built be
 | 10 | `piton/verif/env/manycore/pc_cmp.v.pyv` | Under Verilator, `finish_mask` is a 32-bit `integer`, while `active_thread` and `good` widen per tile. The mask truncates past 8 tiles, so a 4x4 run passes once 8 of its 16 tiles finish. Declares `finish_mask` as `reg [31:0]` for every simulator, so the template widens it too. |
 | 11 | `piton/verif/diag/assembly/include/riscv/ariane/syscalls.c` | The exit barrier polls `finish_sync0` and `finish_sync1` with plain loads, which do not reliably observe other tiles' atomic updates. On a multi-tile mesh every hart but the last spins forever. Polls through an atomic fetch-add of zero (`ATOMIC_FETCH_OP`). |
 | 12 | `piton/design/chip/tile/ariane/core/cva6.sv` | CVA6's Verilator instruction tracer always opens `trace_hart_00.dasm`, so all tiles write one file. Names the file `trace_hart_<hart_id>.dasm`. |
+| 13 | `piton/design/chip/tile/ariane/core/cache_subsystem/wt_l15_adapter.sv` | Under Verilator 5, CVA6's L1.5 adapter sometimes drops cache invalidations, so an L1D keeps stale lines and a plain load misses another tile's update; [Ariane (CVA6)](../05_mace_cores/ariane.md) describes the cause. Moves the adapter's four `inv.vld` and `inv.all` assignments from continuous `assign`s into `p_rtrn_logic`, as upstream CVA6 does in [cva6#2809](https://github.com/openhwgroup/cva6/pull/2809). |
 
 Fixes 3 and 4 address checkouts on a Windows-mounted path, such as `/mnt/c` under WSL.
 
@@ -50,7 +51,7 @@ The environment builds under Verilator, using fix 8. Running it, or any other no
 
 ## Tests
 
-`chia_openpiton/test/test_patch_openpiton.py` runs the script against a small synthetic tree: a git repository with the boot ROM `Makefile`, `picorv32.v`, `pc_cmp.v.pyv`, `syscalls.c`, and `cva6.sv`. It checks that fixes 6, 7, 10, 11, and 12 replace their exact text blocks, and that a second run changes nothing and reports `already patched`. The test holds its own copy of each original and replacement block, so an edit to the script's blocks fails the test. It cannot detect changes in upstream OpenPiton.
+`chia_openpiton/test/test_patch_openpiton.py` runs the script against a small synthetic tree: a git repository with the boot ROM `Makefile`, `picorv32.v`, `pc_cmp.v.pyv`, `syscalls.c`, `cva6.sv`, and `wt_l15_adapter.sv`. It checks that fixes 6, 7, 10, 11, 12, and 13 replace their exact text blocks, and that a second run changes nothing and reports `already patched`. The test holds its own copy of each original and replacement block, so an edit to the script's blocks fails the test. It cannot detect changes in upstream OpenPiton.
 
 ```bash
 pytest chia_openpiton/test/test_patch_openpiton.py -q

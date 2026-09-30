@@ -98,7 +98,7 @@ git -C ~/openpiton submodule update --init --recursive piton/design/chip/tile/ar
 bash scripts/patch_openpiton.sh ~/openpiton
 ```
 
-The patch script applies twelve numbered fixes and is safe to run again.
+The patch script applies thirteen numbered fixes and is safe to run again.
 
 ## Run
 
