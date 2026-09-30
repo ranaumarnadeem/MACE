@@ -225,7 +225,10 @@ tasks:
       soonest on a 2x2 mesh, within the cache area of OpenPiton's default
       caches.
     verified: true
+    # A run stops at the lower limit, and OpenPiton's own cycle limit is
+    # 1,500,000, so rtl_timeout needs max_cycle to reach 5,000,000.
     rtl_timeout: 5000000
+    max_cycle: 5000000
     # Built and simulated one at a time on one checkout, 20 designs take
     # about three hours.
     budget: {max_wall_s: 18000}
