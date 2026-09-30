@@ -43,9 +43,10 @@ class TestTheRepositorySuite:
         tasks = load_suite(SUITE)
         assert len({t.id for t in tasks}) == len(tasks)
 
-    def test_the_verified_bring_up_tasks_are_the_table_1_cells(self):
-        verified = {t.id for t in load_suite(SUITE) if t.verified and t.kind == "bringup"}
-        assert verified == {"ariane-2x2-barrier", "ariane-4x4-barrier", "pico-2x2-addi", "pico-4x4-addi"}
+    def test_the_first_four_tasks_are_the_verified_table_1_cells(self):
+        first = load_suite(SUITE)[:4]
+        assert [t.id for t in first] == ["ariane-2x2-barrier", "ariane-4x4-barrier", "pico-2x2-addi", "pico-4x4-addi"]
+        assert all(t.verified for t in first)
 
     def test_the_co_design_task_s_grid_fits_its_simulations(self):
         (task,) = [t for t in load_suite(SUITE) if t.kind == "codesign"]

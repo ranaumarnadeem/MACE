@@ -7,7 +7,7 @@
 # Candidates stay `verified: false` until a pilot run passes them, and the
 # batch runner skips them unless given --include-unverified.
 #
-# The four verified tasks are the cells of the hackathon paper's Table 1,
+# The first four tasks are the cells of the hackathon paper's Table 1,
 # with the objectives those runs used.
 
 version: 1
@@ -59,14 +59,117 @@ tasks:
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
 
-  # Candidates. Each needs one passing expert run before it counts.
+  # Verified by an expert run: another mesh, MACE's own gate programs,
+  # OpenPiton's Ariane C tests, and PicoRV32 ISA tests.
 
   - id: ariane-4x2-barrier
     core: ariane
     mesh: [4, 2]
     workloads: [barrier_atomic.c]
     objective: Verify the barrier_atomic.c gate workload passes on a 4x2 mesh.
+    verified: true
     expert: {}
+
+  - id: pico-4x2-addi
+    core: pico
+    mesh: [4, 2]
+    workloads: [addi.S]
+    objective: >-
+      Verify the addi.S gate workload passes on a 4x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    verified: true
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: ariane-2x2-scatter-gather
+    core: ariane
+    mesh: [2, 2]
+    workloads: [scatter_gather.c]
+    objective: Verify the scatter_gather.c gate workload passes on a 2x2 mesh.
+    verified: true
+    expert: {}
+
+  - id: ariane-2x2-producer-consumer
+    core: ariane
+    mesh: [2, 2]
+    workloads: [producer_consumer.c]
+    objective: Verify the producer_consumer.c gate workload passes on a 2x2 mesh.
+    verified: true
+    expert: {}
+
+  - id: ariane-2x2-hello
+    core: ariane
+    mesh: [2, 2]
+    workloads: [hello_world.c]
+    objective: Verify the hello_world.c gate workload passes on a 2x2 mesh.
+    verified: true
+    expert: {}
+
+  - id: ariane-2x2-lrsc-single
+    core: ariane
+    mesh: [2, 2]
+    workloads: [lrsc_single.c]
+    objective: Verify the lrsc_single.c gate workload passes on a 2x2 mesh.
+    verified: true
+    expert: {}
+
+  - id: ariane-2x2-accu
+    core: ariane
+    mesh: [2, 2]
+    workloads: [accu_test.c]
+    objective: Verify the accu_test.c gate workload passes on a 2x2 mesh.
+    verified: true
+    expert: {}
+
+  - id: pico-2x2-lw
+    core: pico
+    mesh: [2, 2]
+    workloads: [lw.S]
+    objective: >-
+      Verify the lw.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    verified: true
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-jal
+    core: pico
+    mesh: [2, 2]
+    workloads: [jal.S]
+    objective: >-
+      Verify the jal.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    verified: true
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-mul
+    core: pico
+    mesh: [2, 2]
+    workloads: [mul.S]
+    objective: >-
+      Verify the mul.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    verified: true
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-beq
+    core: pico
+    mesh: [2, 2]
+    workloads: [beq.S]
+    objective: >-
+      Verify the beq.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+    verified: true
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  # Candidates. Each needs one passing expert run before it counts. With the
+  # default simulation limits, each of these timed out: a hart went
+  # rtl_timeout cycles without retiring an instruction. OpenPiton's own
+  # regression runs hello_world_many.c on a 4x4 mesh with -rtl_timeout
+  # 10000000.
 
   - id: ariane-2x2-hello-many
     core: ariane
@@ -98,123 +201,11 @@ tasks:
       pass on a 2x2 mesh.
     expert: {}
 
-  - id: pico-4x2-addi
-    core: pico
-    mesh: [4, 2]
-    workloads: [addi.S]
-    objective: >-
-      Verify the addi.S gate workload passes on a 4x2 pico mesh in a single
-      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-    expert:
-      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
-
-  - id: pico-2x2-amoadd
-    core: pico
-    mesh: [2, 2]
-    workloads: [amoadd_w.S]
-    objective: >-
-      Verify the amoadd_w.S gate workload passes on a 2x2 pico mesh in a
-      single task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-    expert:
-      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
-
-  - id: pico-8x8-addi
-    core: pico
-    mesh: [8, 8]
-    workloads: [addi.S]
-    objective: >-
-      Verify the addi.S gate workload passes on an 8x8 pico mesh in a single
-      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-    budget: {max_wall_s: 7200}
-    expert:
-      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
-
-  # More 2x2 candidates: OpenPiton's Ariane C tests, MACE's own gate
-  # programs, and PicoRV32 ISA tests. Every hart runs the program, so tests
-  # that check one hart's view of shared memory are left out: amo_align.c,
-  # and the ISA tests that store to or run atomics on shared data.
-
-  - id: ariane-2x2-hello
-    core: ariane
-    mesh: [2, 2]
-    workloads: [hello_world.c]
-    objective: Verify the hello_world.c gate workload passes on a 2x2 mesh.
-    expert: {}
-
-  - id: ariane-2x2-clint
-    core: ariane
-    mesh: [2, 2]
-    workloads: [clint_plic_access.c]
-    objective: Verify the clint_plic_access.c gate workload passes on a 2x2 mesh.
-    expert: {}
-
-  - id: ariane-2x2-lrsc-single
-    core: ariane
-    mesh: [2, 2]
-    workloads: [lrsc_single.c]
-    objective: Verify the lrsc_single.c gate workload passes on a 2x2 mesh.
-    expert: {}
-
-  - id: ariane-2x2-accu
-    core: ariane
-    mesh: [2, 2]
-    workloads: [accu_test.c]
-    objective: Verify the accu_test.c gate workload passes on a 2x2 mesh.
-    expert: {}
-
-  - id: ariane-2x2-scatter-gather
-    core: ariane
-    mesh: [2, 2]
-    workloads: [scatter_gather.c]
-    objective: Verify the scatter_gather.c gate workload passes on a 2x2 mesh.
-    expert: {}
-
-  - id: ariane-2x2-producer-consumer
-    core: ariane
-    mesh: [2, 2]
-    workloads: [producer_consumer.c]
-    objective: Verify the producer_consumer.c gate workload passes on a 2x2 mesh.
-    expert: {}
-
-  - id: pico-2x2-lw
-    core: pico
-    mesh: [2, 2]
-    workloads: [lw.S]
-    objective: >-
-      Verify the lw.S gate workload passes on a 2x2 pico mesh in a single
-      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-    expert:
-      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
-
-  - id: pico-2x2-jal
-    core: pico
-    mesh: [2, 2]
-    workloads: [jal.S]
-    objective: >-
-      Verify the jal.S gate workload passes on a 2x2 pico mesh in a single
-      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-    expert:
-      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
-
-  - id: pico-2x2-mul
-    core: pico
-    mesh: [2, 2]
-    workloads: [mul.S]
-    objective: >-
-      Verify the mul.S gate workload passes on a 2x2 pico mesh in a single
-      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-    expert:
-      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
-
-  - id: pico-2x2-beq
-    core: pico
-    mesh: [2, 2]
-    workloads: [beq.S]
-    objective: >-
-      Verify the beq.S gate workload passes on a 2x2 pico mesh in a single
-      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-    expert:
-      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+  # Left out. Every hart runs the program, so a test that checks one hart's
+  # view of shared memory cannot pass on a mesh: amo_align.c, amoadd_w.S,
+  # and the other ISA tests that store to or run atomics on shared data.
+  # clint_plic_access.c uses uint64_t without <stdint.h>, which GCC 16
+  # rejects. An 8x8 PicoRV32 mesh timed out after 47 minutes of simulation.
 
   # Co-design: the cache geometry that finishes matmul.c soonest within the
   # area of OpenPiton's default caches. Simulated finish times on a 2x2
