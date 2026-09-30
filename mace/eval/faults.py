@@ -52,12 +52,6 @@ def _with_defines(task: Task, add: set[str] = frozenset(), drop: set[str] = froz
     return dataclasses.replace(task, config_rtl=tuple(sorted(flags)) or None)
 
 
-def _with_cache(task: Task, name: str, geometry: tuple[int, int]) -> Task:
-    caches = dict(task.caches or ())
-    caches[name] = geometry
-    return dataclasses.replace(task, caches=tuple(sorted(caches.items())))
-
-
 FAULTS: dict[str, Fault] = {
     fault.name: fault
     for fault in (
@@ -83,14 +77,6 @@ FAULTS: dict[str, Fault] = {
             True,
             lambda task: dataclasses.replace(task, network="xbar_config"),
             min_rows=2,
-        ),
-        Fault(
-            "l1d_three_way",
-            "Sets a three-way L1D; Ariane draws its replacement way from two random bits, so it can pick a "
-            "fourth way that does not exist.",
-            frozenset(("ariane",)),
-            False,
-            lambda task: _with_cache(task, "l1d", (6144, 3)),
         ),
     )
 }

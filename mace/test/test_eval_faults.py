@@ -10,8 +10,8 @@ from mace.eval.faults import BIST_DEFINE, FAULTS, FPGA_DEFINE, first_plan_breake
 from mace.spec import Task
 
 
-def task(kind="config", config_rtl=None, caches=None):
-    return Task(id="t1", deps=(), kind=kind, spec="s", config_rtl=config_rtl, caches=caches)
+def task(kind="config", config_rtl=None):
+    return Task(id="t1", deps=(), kind=kind, spec="s", config_rtl=config_rtl)
 
 
 class TestFaults:
@@ -26,10 +26,6 @@ class TestFaults:
 
     def test_drop_bist_removes_its_define(self):
         assert FAULTS["drop_bist"].break_task(task(config_rtl=(BIST_DEFINE,))).config_rtl is None
-
-    def test_a_cache_fault_overrides_one_cache(self):
-        broken = FAULTS["l1d_three_way"].break_task(task(caches=(("l2", (32768, 4)),)))
-        assert broken.caches_dict == {"l1d": (6144, 3), "l2": (32768, 4)}
 
     def test_the_crossbar_fault_selects_the_crossbar(self):
         assert FAULTS["crossbar"].break_task(task()).network == "xbar_config"

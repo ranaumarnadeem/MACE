@@ -20,7 +20,7 @@ Run:
     MAKEFLAGS=-j1 python examples/eval_batch.py --piton-root ~/openpiton \\
         --methods expert,codesign_random,codesign_grid,codesign_bayes
     MAKEFLAGS=-j1 python examples/eval_batch.py --piton-root ~/openpiton \\
-        --methods faultcheck_crossbar,faultcheck_l1d_three_way --tasks ariane-2x2-barrier
+        --methods faultcheck_crossbar,faultcheck_fpga_synth --tasks ariane-2x2-barrier
     export GOOGLE_CLOUD_PROJECT=<your-gcp-project> MAKEFLAGS=-j1
     python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-b \\
         --methods mace,one_shot,retry_agent,expert --repeats 3
