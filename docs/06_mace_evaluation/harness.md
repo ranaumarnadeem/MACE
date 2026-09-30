@@ -79,12 +79,11 @@ Each changes the first plan's `config` and `workload` tasks before they run and 
 | `fpga_synth` | Adds `PITON_FPGA_SYNTH` | The Verilator build fails with `%Error-PINNOTFOUND` | Ariane, PicoRV32 |
 | `drop_bist` | Removes `CONFIG_DISABLE_BIST_CLEAR` | The PicoRV32 simulation times out | PicoRV32 |
 | `crossbar` | Selects `xbar_config` | On a mesh with two or more rows, the Verilator build fails with duplicate pin connections | Ariane, PicoRV32 |
-| `l1d_three_way` | Sets a 6 KB three-way L1D | Unverified: Ariane draws its replacement way from two random bits, so it can pick a way that does not exist | Not yet |
 
 A fault applies to bring-up tasks on the cores it lists, and `crossbar` only to meshes with two or more rows, since OpenPiton's crossbar has one port per column.
 A `seeded_<fault>` method runs the loop with that fault seeded, only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
 A `faultcheck_<fault>` method builds and checks the task's expert configuration with the fault applied, with no LLM, once per task; the fault breaks that task when the run fails.
-A candidate becomes verified when its fault checks fail on every task it applies to.
+A candidate fault becomes verified when its fault checks fail on every task it applies to, and one whose check passes is dropped.
 
 A reverted-fix run needs a checkout that lacks one fix of `scripts/patch_openpiton.sh`: patch a fresh checkout with `PATCH_SKIP` naming that fix (see [Environment Patches](../04_chia_openpiton/environment_patches.md)), and pass `--label reverted_fix=<N>` so each run records it.
 Give each fix its own database: the runner skips a job whose task, method, and repeat already finished in the database, whatever the checkout.
