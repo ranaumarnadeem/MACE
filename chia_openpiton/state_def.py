@@ -67,6 +67,12 @@ DEFAULT_CACHES: dict[str, tuple[int, int]] = {
     "l2": (65536, 4),
 }
 
+# Ariane's L1.5 adapter (core/cache_subsystem/wt_l15_adapter.sv in the Ariane
+# submodule) asserts this, but inside `ifndef VERILATOR, so a Verilator build
+# of a configuration that breaks it compiles and runs. PitonConfig.way_violations
+# checks it, and OpenPitonWorkspaceNode.build refuses such a configuration.
+ARIANE_WAY_RULE = "On Ariane, neither the L1D nor the L1I may have more ways than the L1.5."
+
 
 @dataclass(frozen=True)
 class PitonConfig:
@@ -141,6 +147,19 @@ class PitonConfig:
     @property
     def num_tiles(self) -> int:
         return self.x_tiles * self.y_tiles
+
+    def way_violations(self) -> tuple[str, ...]:
+        """How this configuration breaks :data:`ARIANE_WAY_RULE`; empty when
+        it keeps the rule, and always empty for another core or a unit-test
+        ``sys``, which builds no Ariane caches."""
+        if self.core != "ariane" or self.sys != "manycore":
+            return ()
+        l15_ways = self.caches["l15"][1]
+        return tuple(
+            f"{name} has {self.caches[name][1]} ways, more than the L1.5's {l15_ways}"
+            for name in ("l1d", "l1i")
+            if self.caches[name][1] > l15_ways
+        )
 
     @property
     def key(self) -> str:
@@ -218,7 +237,7 @@ class PitonBuildArtifact:
     """Result of one ``sims ... -<sim>_build``."""
 
     success: bool
-    returncode: int  # -1 on timeout
+    returncode: int  # -1 on timeout, or when build() refused the configuration
     config: PitonConfig
     sim_type: str
     model_dir: str  # $PITON_ROOT/build/manycore/<build_id>
@@ -226,7 +245,7 @@ class PitonBuildArtifact:
     wall_time_s: float
     verilator_version: str = ""
     cache_key: str = ""
-    failure_reason: str = ""  # parse.build_failure_reason, "" on success
+    failure_reason: str = ""  # parse.build_failure_reason, "way_rule" when refused, "" on success
     # True when this call skipped `sims` entirely because a prior successful
     # build for the identical config.key already exists on this worker.
     reused: bool = False

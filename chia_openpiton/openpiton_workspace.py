@@ -682,6 +682,11 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         ``#1`` delays without an explicit timing choice, and v4 has no such flag
         and errors if given one.
 
+        An Ariane configuration that breaks
+        :data:`~chia_openpiton.state_def.ARIANE_WAY_RULE` is refused without
+        running ``sims``: the artifact fails with ``failure_reason="way_rule"``,
+        ``returncode=-1``, and the violations as its ``errors``.
+
         Args:
             piton_root: OpenPiton checkout root on the worker.
             config: The configuration to build, from :meth:`configure` or
@@ -714,6 +719,24 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         root = _require_root(piton_root)
         if sim_type not in SIM_TYPES:
             raise ValueError(f"sim_type must be one of {sorted(SIM_TYPES)}, got {sim_type!r}")
+
+        # Before any cache lookup, so a model built before this check existed
+        # is not served either. See ARIANE_WAY_RULE in state_def.
+        violations = config.way_violations()
+        if violations:
+            logger.error("refusing build_id=%s: %s", config.build_id, "; ".join(violations))
+            return PitonBuildArtifact(
+                success=False,
+                returncode=-1,
+                config=config,
+                sim_type=sim_type,
+                model_dir=os.path.join(root, "build", config.sys, config.build_id),
+                binary_path="",
+                wall_time_s=0.0,
+                cache_key=config.key,
+                failure_reason="way_rule",
+                errors=violations,
+            )
 
         # configure(address_map=...) writes straight into this checkout's
         # single shared piton/verif/env/manycore -- not scoped by build_id.

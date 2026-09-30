@@ -170,6 +170,17 @@ class TestIntegrate:
     def test_empty_task_list_produces_no_results(self, stub_piton_root):
         assert integrate(str(stub_piton_root), make_spec(), (), FakeLLM(responses=[])) == ()
 
+    def test_a_task_against_ariane_s_way_rule_fails_without_a_build(self, stub_piton_root, sims_argv):
+        """The failure reaches triage and the re-plan like any failed build."""
+        bad = Task(id="cfg1", deps=(), kind="config", spec="an 8-way L1D", caches=(("l1d", (16384, 8)),))
+        (result,) = integrate(str(stub_piton_root), make_spec(), (bad,), FakeLLM(responses=["edit cfg"]))
+        assert result.passed is False
+        assert (result.build.failure_reason, result.build.errors) == (
+            "way_rule", ("l1d has 8 ways, more than the L1.5's 4",)
+        )
+        assert result.run is None
+        assert len(sims_argv) == 0
+
 
 class TestOpenNodes:
     def test_empty_piton_roots_returns_empty_list(self):

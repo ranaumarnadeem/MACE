@@ -114,6 +114,26 @@ class TestCacheKey:
         assert PitonConfig(x_tiles=1).build_id != PitonConfig(x_tiles=2).build_id
 
 
+class TestWayRule:
+    def test_an_l1d_with_more_ways_than_the_l15_breaks_it(self):
+        assert PitonConfig(caches={"l1d": (16384, 8)}).way_violations() == ("l1d has 8 ways, more than the L1.5's 4",)
+
+    def test_a_two_way_l15_is_below_both_default_l1s(self):
+        assert PitonConfig(caches={"l15": (8192, 2)}).way_violations() == (
+            "l1d has 4 ways, more than the L1.5's 2",
+            "l1i has 4 ways, more than the L1.5's 2",
+        )
+
+    def test_the_defaults_and_equal_ways_keep_it(self):
+        assert PitonConfig().way_violations() == ()
+        assert PitonConfig(caches={"l1d": (16384, 8), "l15": (16384, 8)}).way_violations() == ()
+
+    def test_it_is_ariane_s_rule(self):
+        for core in ("sparc", "pico"):
+            assert PitonConfig(core=core, caches={"l1d": (16384, 8)}).way_violations() == ()
+        assert PitonConfig(sys="ifu_esl_lfsr", caches={"l1d": (16384, 8)}).way_violations() == ()
+
+
 class TestSimsFlags:
     def test_mesh_core_and_network_always_present(self):
         flags = PitonConfig(x_tiles=2, y_tiles=2).sims_flags()

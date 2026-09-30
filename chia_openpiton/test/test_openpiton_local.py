@@ -382,6 +382,16 @@ class TestBuildResult:
     def test_a_good_build_has_no_error_lines(self, node, cfg):
         assert node.build(cfg).errors == ()
 
+    def test_an_ariane_config_against_the_way_rule_is_refused_without_sims(self, node, sims_argv):
+        """Verilator skips Ariane's own assertion of the rule, so sims would
+        build and run the design."""
+        config = PitonConfig(caches={"l1d": (16384, 8)}, source_rev="deadbeef", verilator_version="Verilator 5.020")
+        art = node.build(config)
+        assert (art.success, art.returncode, art.binary_path) == (False, -1, "")
+        assert art.failure_reason == "way_rule"
+        assert art.errors == ("l1d has 8 ways, more than the L1.5's 4",)
+        assert len(sims_argv) == 0
+
     def test_non_manycore_sys_builds_under_its_own_dir_and_binary_name(self, node, cfg):
         """A unit-test sys (e.g. ifu_esl_lfsr) builds a differently-named
         binary under build/<sys>/, not build/manycore/Vcmp_top -- the
