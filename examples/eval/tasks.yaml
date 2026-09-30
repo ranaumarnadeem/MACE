@@ -165,19 +165,19 @@ tasks:
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
 
-  # Candidates. Each needs one passing expert run before it counts. Each
-  # waits for its turn by polling, with plain loads, a counter that other
-  # harts update atomically. CVA6's L1.5 adapter drops cache invalidations
-  # under Verilator 5 (docs/05_mace_cores/ariane.md), so the load never sees
-  # the update: with rtl_timeout at 10,000,000, hello_world_many.c still had
-  # only hart 0's line out after 4 minutes of simulation. Porting cva6#2809
-  # fixes the adapter.
+  # OpenPiton's Ariane C tests that wait for their turn by polling, with
+  # plain loads, a counter that other harts update atomically. They pass on
+  # a checkout with fix 13 of scripts/patch_openpiton.sh, which stops CVA6's
+  # L1.5 adapter from dropping cache invalidations under Verilator 5
+  # (docs/05_mace_cores/ariane.md). Without it the load never sees the
+  # update and the run times out.
 
   - id: ariane-2x2-hello-many
     core: ariane
     mesh: [2, 2]
     workloads: [hello_world_many.c]
     objective: Verify the hello_world_many.c gate workload passes on a 2x2 mesh.
+    verified: true
     expert: {}
 
   - id: ariane-2x2-shared-var
@@ -185,6 +185,7 @@ tasks:
     mesh: [2, 2]
     workloads: [add_shared_var.c]
     objective: Verify the add_shared_var.c gate workload passes on a 2x2 mesh.
+    verified: true
     expert: {}
 
   - id: ariane-2x2-lrsc
@@ -192,6 +193,7 @@ tasks:
     mesh: [2, 2]
     workloads: [lrsc_test.c]
     objective: Verify the lrsc_test.c gate workload passes on a 2x2 mesh.
+    verified: true
     expert: {}
 
   - id: ariane-2x2-two-programs
@@ -201,6 +203,7 @@ tasks:
     objective: >-
       Verify the barrier_atomic.c and hello_world_many.c gate workloads both
       pass on a 2x2 mesh.
+    verified: true
     expert: {}
 
   # Left out. Every hart runs the program, so a test that checks one hart's
