@@ -52,8 +52,9 @@ l15=8192,4 l2=65536,4):
 CACHES: <task id> | <name>=<size>,<associativity> ...
 
 Only l1i, l1d, l15, l2 are recognized names; size and associativity must be
-positive integers. A task with no CACHES: line keeps the mesh's default
-cache geometry.
+positive integers. On Ariane, neither l1d nor l1i may have more ways than
+l15, and a build that breaks this is refused. A task with no CACHES: line
+keeps the mesh's default cache geometry.
 
 If a task needs a specific RTL define set on top of the mesh's defaults --
 for example because an earlier attempt's failure feedback identified one a

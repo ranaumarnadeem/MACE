@@ -43,6 +43,10 @@ class TestBuildPrompt:
         prompt = build_prompt(make_spec())
         assert "CACHES:" in prompt
 
+    def test_states_ariane_s_way_rule(self):
+        prompt = " ".join(build_prompt(make_spec()).split())
+        assert "On Ariane, neither l1d nor l1i may have more ways than l15" in prompt
+
     def test_documents_unit_test_as_a_kind(self):
         prompt = build_prompt(make_spec())
         assert "kind=config|workload|unit_test" in prompt
