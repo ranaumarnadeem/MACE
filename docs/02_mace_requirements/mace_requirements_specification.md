@@ -80,6 +80,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-VER-13:** MACE shall record every run, iteration, and task result in a SQLite database, including the cache sizes and associativities in each build's configuration.
 - **REQ-VER-14:** MACE shall report each iteration's results to an optional caller-supplied callback after recording them and before failure analysis.
 - **REQ-VER-15:** MACE shall report five metrics for a recorded run: successful tasks, iterations, failures recovered, execution time, and compute cost.
+- **REQ-VER-16:** When the run specification sets `max_cycle`, MACE shall pass it to every gate workload's simulation as the testbench's cycle limit.
 
 ### Failure Analysis and Replanning
 

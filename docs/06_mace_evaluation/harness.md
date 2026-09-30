@@ -9,7 +9,7 @@ The evaluation harness runs every method on every task of a suite, records each 
 ## Task suite
 
 `examples/eval/tasks.yaml` lists the tasks, and `mace.eval.suite.load_suite()` reads and checks it.
-Each task names a core, a mesh, the gate workloads, the objective every method gets, a budget, and an optional `rtl_timeout`.
+Each task names a core, a mesh, the gate workloads, the objective every method gets, a budget, and optional `rtl_timeout` and `max_cycle` limits for every simulation; [Running the Loop](../01_mace_user/Running_the_Loop.md) describes both.
 Its `expert` block holds the known passing configuration: cache overrides and extra RTL defines on top of the defaults.
 
 `verified: true` marks a task whose expert configuration has passed.

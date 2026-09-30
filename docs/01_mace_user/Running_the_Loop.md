@@ -15,7 +15,8 @@ A frozen `MaceSpec` from `mace/spec.py` describes a loop run.
 | `target_mesh` | `(1, 1)` | `(x_tiles, y_tiles)`, each from 1 to 256. |
 | `budget` | `Budget()` | Stop conditions; see below. |
 | `coverage` | `False` | Adds Verilator line coverage to every `config` and `workload` build; see [Code Coverage](Code_Coverage.md). |
-| `rtl_timeout` | `None` | Simulated-cycle limit for every gate workload; `None` uses `RECOMMENDED_RTL_TIMEOUT` (1,000,000). Larger meshes need more. |
+| `rtl_timeout` | `None` | How many cycles a hart may go without retiring an instruction before its simulation fails with `TIMEOUT`; `None` uses `RECOMMENDED_RTL_TIMEOUT` (1,000,000). Larger meshes need more. |
+| `max_cycle` | `None` | The most cycles a gate workload's simulation may take before it ends with verdict `maxcycles`; `None` keeps OpenPiton's limit. |
 
 `target_mesh` sets `x_tiles` and `y_tiles` for every `config` and `workload` build.
 The planner sees the mesh in its prompt but cannot change it.
@@ -45,10 +46,12 @@ The loop adds `mace/workloads/` to the diag directories `sims` searches, so Open
 Use `addi.S` for PicoRV32, which has an assembler but no C compiler in OpenPiton.
 The C workloads use RISC-V inline assembly and do not run on OpenSPARC T1.
 
-## Simulation timeout
+## Simulation limits
 
-Each loop simulation runs with `-rtl_timeout=1000000` (`RECOMMENDED_RTL_TIMEOUT` in `mace/workloads.py`) at any mesh size, and no flag changes it.
+Each loop simulation runs with `-rtl_timeout` set to the spec's `rtl_timeout`, or to 1,000,000 (`RECOMMENDED_RTL_TIMEOUT` in `mace/workloads.py`) when that is `None`.
 OpenPiton's own default is 50,000 cycles.
+When the spec sets `max_cycle`, each simulation also runs with `-max_cycle`; otherwise OpenPiton's testbench ends a Verilator simulation after 1,500,000 cycles.
+No command-line flag sets either field: build the spec in Python, or set them on a task of the [evaluation suite](../06_mace_evaluation/harness.md).
 
 ## Budget
 

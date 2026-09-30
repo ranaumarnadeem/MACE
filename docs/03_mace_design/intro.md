@@ -20,7 +20,7 @@ The [MACE Requirements Specification](../02_mace_requirements/mace_requirements_
 ## Terms
 
 - **objective**: The English statement of what a run should achieve (`MaceSpec.objective`). The planner turns it into tasks. `MaceSpec.target_mesh` sets the mesh size of every build.
-- **MaceSpec**: The input to one run (`mace/spec.py`): `workloads`, `objective`, `core` (`ariane`, `sparc`, or `pico`; default `ariane`), `target_mesh` (default `(1, 1)`, 1 to 256 tiles per axis), `budget`, `coverage` (default `False`), and `rtl_timeout` (default `None`, which uses `RECOMMENDED_RTL_TIMEOUT`).
+- **MaceSpec**: The input to one run (`mace/spec.py`): `workloads`, `objective`, `core` (`ariane`, `sparc`, or `pico`; default `ariane`), `target_mesh` (default `(1, 1)`, 1 to 256 tiles per axis), `budget`, `coverage` (default `False`), `rtl_timeout` (default `None`, which uses `RECOMMENDED_RTL_TIMEOUT`), and `max_cycle` (default `None`, which keeps OpenPiton's cycle limit).
 - **task**: One node of the planner's DAG (`mace.spec.Task`), with an `id`, `deps`, a `kind` (`config`, `workload`, or `unit_test`), an instruction (`spec`), and optional `caches` and `config_rtl` overrides.
 - **level**: A group of tasks whose dependencies all lie in earlier groups. Tasks in one level can run in parallel.
 - **gate workload**: A program in `MaceSpec.workloads`. The loop simulates each one in order, and a `config` or `workload` task passes only when all of them pass. It can be a C program in `mace/workloads/` or an OpenPiton test such as `addi.S`.
