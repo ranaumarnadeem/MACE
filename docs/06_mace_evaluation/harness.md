@@ -101,8 +101,8 @@ A design sets each cache's size and associativity and the interconnect, `2dmesh_
 OpenPiton's crossbar has one port per column, so the suite loader accepts `xbar_config` only for a mesh with one row of tiles.
 The space lists the allowed sizes and associativities of the searched caches; the others keep their defaults.
 Each round, the strategy proposes up to `batch` designs it has not tried.
-A design's cache area is known before it is built, and so is whether it keeps Ariane's way rule: neither the L1D nor the L1I may have more ways than the L1.5.
-Ariane's L1.5 adapter asserts that rule, but inside `` `ifndef VERILATOR ``, so a Verilator build of a design that breaks it still builds and runs.
+A design's cache area is known before it is built, and so is whether it keeps [Ariane's way rule](../04_chia_openpiton/piton_config.md): neither the L1D nor the L1I may have more ways than the L1.5.
+`build()` would refuse a design that breaks the rule, so a search rejects one first.
 A design over the budget or against the rule is recorded as infeasible, with the reason, without a build, and does not use up a simulation; the strategy hears the outcome like any other.
 The rest build and run in parallel through the loop's own build-and-check path.
 A design that passes has a finish time, the sum of its gate workloads' simulated finish times (`sim_time`), and is feasible.

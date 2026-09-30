@@ -47,6 +47,7 @@ A batch's `unit_test` tasks run one after another before its remote tasks start.
 
 A task's configuration depends only on the spec and the task's own overrides.
 Two tasks in one level can therefore build different cache geometries.
+On Ariane, [build()](../04_chia_openpiton/workspace_node.md) refuses a task whose L1D or L1I has more ways than its L1.5, so the task fails with the failure reason `way_rule`, and triage and the re-plan see which cache broke the rule.
 
 ## Unit-Test Tasks
 

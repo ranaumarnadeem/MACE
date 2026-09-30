@@ -32,6 +32,7 @@ DEFAULT_CACHES = {
 }
 MAX_TILES_PER_AXIS = 256
 COVERAGE_LINE_FLAG = "-vlt_build_args=--coverage-line"
+ARIANE_WAY_RULE = "On Ariane, neither the L1D nor the L1I may have more ways than the L1.5."
 ```
 
 `DEFAULT_CACHES` mirrors `piton/tools/src/sims/manycore.config`. Each cache name fills the `<name>` in `-config_<name>_size` and `-config_<name>_associativity`. `MAX_TILES_PER_AXIS` matches the limit `sims` enforces with `DIE. x_tiles can be at most 256`. Adding `COVERAGE_LINE_FLAG` to `extra_flags` turns on Verilator line coverage (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
@@ -61,6 +62,13 @@ After validation it fills in each cache a `caches` mapping leaves out from `DEFA
 | `build_id` | `"mace_"` followed by the first 12 hex digits of `key` |
 | `finish_mask` | `"1" * num_tiles`, one digit per tile |
 | `sims_flags()` | The `sims` arguments the configuration implies, in a stable order |
+| `way_violations()` | One line per L1 that has more ways than the L1.5, such as `l1d has 8 ways, more than the L1.5's 4`; empty for a configuration that keeps `ARIANE_WAY_RULE`, another core, or a unit-test `sys` |
+
+### Ariane's way rule
+
+Ariane's L1.5 adapter, `core/cache_subsystem/wt_l15_adapter.sv` in the Ariane submodule, asserts `ARIANE_WAY_RULE`, but inside `` `ifndef VERILATOR ``.
+A Verilator build of a configuration that breaks the rule therefore compiles and runs.
+[build()](workspace_node.md) refuses such a configuration instead, and a co-design search rejects one before building it.
 
 ### key and build_id
 

@@ -114,11 +114,12 @@ It returns the resulting `PitonConfig`, whose construction raises `ValueError` o
 ### build
 
 1. Rejects a `sim_type` outside `vlt`, `vcs`, `ncv`, `icv`, `msm`, and `riv` with `ValueError`. Only `vlt` (Verilator) is license-free.
-2. Raises `ValueError` when `git diff -- piton/verif/env/manycore` differs from `config.diff`, for example after another `configure(address_map=...)` call on the checkout. The check runs only for a configuration that recorded the checkout's state, a non-empty `source_rev` or `diff`, as `configure()` sets. A configuration with both fields empty, such as each one MACE's loop constructs, builds the checkout as it stands.
-3. Returns the cached model, if one exists and the checkout has not changed since it was built.
-4. With `clean=True`, or when the cached model is stale, deletes the model's `obj_dir` and marker.
-5. For `sim_type="vlt"`, adds `--no-timing` when Verilator is version 5 or later, unless an `extra_build_args` entry already contains `timing`. The version comes from `config.verilator_version`, or from `verilator_version_text()`.
-6. Runs, in `$PITON_ROOT/build`:
+2. Refuses an Ariane configuration whose L1D or L1I has more ways than its L1.5 (see [Ariane's way rule](piton_config.md)). It returns a failed artifact without running `sims`: `returncode=-1`, `failure_reason="way_rule"`, and the lines of `config.way_violations()` as `errors`. A cached model of such a configuration is not served either.
+3. Raises `ValueError` when `git diff -- piton/verif/env/manycore` differs from `config.diff`, for example after another `configure(address_map=...)` call on the checkout. The check runs only for a configuration that recorded the checkout's state, a non-empty `source_rev` or `diff`, as `configure()` sets. A configuration with both fields empty, such as each one MACE's loop constructs, builds the checkout as it stands.
+4. Returns the cached model, if one exists and the checkout has not changed since it was built.
+5. With `clean=True`, or when the cached model is stale, deletes the model's `obj_dir` and marker.
+6. For `sim_type="vlt"`, adds `--no-timing` when Verilator is version 5 or later, unless an `extra_build_args` entry already contains `timing`. The version comes from `config.verilator_version`, or from `verilator_version_text()`.
+7. Runs, in `$PITON_ROOT/build`:
 
 ```text
 sims <config.sims_flags()> -build_id=<config.build_id> -<sim_type>_build [-<sim_type>_build_args=<arg> ...]
@@ -211,7 +212,7 @@ After sourcing, the Ariane prologue prepends `$RISCV/bin`, and `$VERILATOR_ROOT/
 | `wall_time_s` | `float` | Build wall time; `0.0` when reused |
 | `verilator_version` | `str` | Version text behind the `--no-timing` decision |
 | `cache_key` | `str` | `config.key` |
-| `failure_reason` | `str` | Failure tag; `""` on success |
+| `failure_reason` | `str` | Failure tag, `way_rule` for a refused configuration; `""` on success |
 | `reused` | `bool` | `True` when served from the build cache |
 | `stdout`, `stderr` | `str` | Tail of each stream. `sims` prints Verilator's output to stdout |
 | `errors` | `tuple[str, ...]` | Error lines from the full output of a failed build, from [build_errors](parsers.md); `()` on success |
