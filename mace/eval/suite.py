@@ -61,7 +61,8 @@ from mace.spec import Budget, MaceSpec, Task
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _TASK_KEYS = frozenset(
-    ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout", "codesign")
+    ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout", "max_cycle",
+     "codesign")
 )
 _CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
 
@@ -102,6 +103,7 @@ class SuiteTask:
     budget: Budget
     verified: bool = False
     rtl_timeout: int | None = None
+    max_cycle: int | None = None
     expert_caches: dict[str, tuple[int, int]] = field(default_factory=dict)
     expert_config_rtl: tuple[str, ...] = ()
     codesign: CodesignConfig | None = None
@@ -120,6 +122,7 @@ class SuiteTask:
             target_mesh=self.mesh,
             budget=self.budget,
             rtl_timeout=self.rtl_timeout,
+            max_cycle=self.max_cycle,
         )
 
     def expert_task(self) -> Task:
@@ -259,6 +262,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             budget=_budget(entry.get("budget") or {}, f"task {task_id}", base_budget),
             verified=bool(entry.get("verified", False)),
             rtl_timeout=entry.get("rtl_timeout"),
+            max_cycle=entry.get("max_cycle"),
             expert_caches=caches,
             expert_config_rtl=tuple(expert.get("config_rtl") or ()),
             codesign=_codesign(entry.get("codesign"), task_id, entry.get("core", "ariane"), (mesh[0], mesh[1])),

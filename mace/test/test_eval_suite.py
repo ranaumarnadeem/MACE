@@ -74,6 +74,15 @@ class TestLoading:
         (task,) = load_suite(write(tmp_path, text))
         assert (task.budget.max_iterations, task.budget.max_wall_s) == (3, 7200)
 
+    def test_a_task_s_simulation_limits_reach_its_spec(self, tmp_path):
+        text = MINIMAL.replace("    verified: true\n", "    verified: true\n    rtl_timeout: 4000000\n    max_cycle: 6000000\n")
+        (task,) = load_suite(write(tmp_path, text))
+        assert (task.spec().rtl_timeout, task.spec().max_cycle) == (4_000_000, 6_000_000)
+
+    def test_a_task_without_limits_leaves_them_to_the_defaults(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, MINIMAL))
+        assert (task.spec().rtl_timeout, task.spec().max_cycle) == (None, None)
+
     @pytest.mark.parametrize(
         "old,new,message",
         [
@@ -87,6 +96,7 @@ class TestLoading:
             ("CONFIG_DISABLE_BIST_CLEAR", "bad-define", "config_rtl"),
             ("verified: true", "verified: true\n    colour: red", "unknown keys"),
             ("max_iterations: 3", "max_iterations: 0", "defaults"),
+            ("verified: true", "verified: true\n    max_cycle: 0", "max_cycle"),
         ],
     )
     def test_a_malformed_entry_fails_to_load(self, tmp_path, old, new, message):
