@@ -121,5 +121,5 @@ It applies thirteen fixes:
 | 13 | CVA6 `wt_l15_adapter.sv` | Stops the L1.5 adapter from dropping cache invalidations under Verilator 5, as upstream cva6#2809 does. |
 
 The script also adds `pico_reset_ut`, a standalone unit-test environment for PicoRV32's reset behavior.
-The loop keeps reusing models built before a fix; [Troubleshooting](Troubleshooting.md) shows how to rebuild them.
+A model built before a fix rebuilds on its next build; [Troubleshooting](Troubleshooting.md) explains when.
 [Environment Patches](../04_chia_openpiton/environment_patches.md) describes each fix in detail.
