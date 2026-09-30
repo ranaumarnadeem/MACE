@@ -129,10 +129,11 @@ python examples/eval_report.py vm1.db vm2.db --out runs/eval.md --csv runs/eval.
 ```
 
 The report reads each database with `DBReader` and starts no Ray instance.
+Within one database, a run that a later run of the same task, method, and repeat replaced, such as one a stopped batch left `running`, is left out of the tables, and the report gives their number.
 For bring-up methods it writes one row per task and method, with passes out of runs, the median and interquartile range of time to pass, and medians of machine time, builds, simulations, LLM calls, thinking tokens, and dollars.
 Time to pass is the wall time of passed runs, and machine time sums build and simulation time.
 A second table sums each method across tasks.
 A third compares each method with `mace` task by task, over the tasks where both passed at least once, with an exact two-sided Wilcoxon signed-rank test on time to pass.
 
 For co-design searches it writes one row per task and method: the median best feasible finish, the best finish any search of the task found, how many searches came within 5% of it and the median simulations they needed, the share of feasible designs, and how many proposals were rejected before a build.
-`--csv` writes every run's numbers for plots.
+`--csv` writes every run's numbers for plots, with `replaced` marking the runs the tables leave out.
