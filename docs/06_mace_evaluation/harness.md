@@ -13,9 +13,9 @@ Each task names a core, a mesh, the gate workloads, the objective every method g
 Its `expert` block holds the known passing configuration: cache overrides and extra RTL defines on top of the defaults.
 
 `verified: true` marks a task whose expert configuration has passed.
-The four Table 1 cells are verified, and the co-design task is verified because its default caches pass `matmul.c`.
-The other bring-up tasks are candidates: other meshes, OpenPiton's Ariane C tests, MACE's own gate programs, PicoRV32 ISA tests, and an 8x8 PicoRV32 mesh.
-Every hart runs the program, so a test that checks one hart's view of shared memory, such as `amo_align.c`, cannot pass on a mesh and is left out.
+Besides the four Table 1 cells, the verified bring-up tasks cover other meshes, MACE's own gate programs, OpenPiton's Ariane C tests, and PicoRV32 ISA tests, and the co-design task is verified because its default caches pass `matmul.c`.
+The candidates are OpenPiton Ariane C tests that timed out with the default simulation limits.
+Every hart runs the program, so a test that checks one hart's view of shared memory, such as `amo_align.c` or `amoadd_w.S`, cannot pass on a mesh and is left out.
 The batch runner skips a candidate unless it gets `--include-unverified` or names the task in `--tasks`.
 
 Loading checks every field and builds each expert configuration as a `PitonConfig`, so a malformed entry fails before any job starts.
