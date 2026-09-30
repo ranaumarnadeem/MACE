@@ -14,7 +14,7 @@ Its `expert` block holds the known passing configuration: cache overrides and ex
 
 `verified: true` marks a task whose expert configuration has passed.
 Besides the four Table 1 cells, the verified bring-up tasks cover other meshes, MACE's own gate programs, OpenPiton's Ariane C tests, and PicoRV32 ISA tests, and the co-design task is verified because its default caches pass `matmul.c`.
-The candidates are OpenPiton Ariane C tests that poll, with plain loads, a counter other harts update atomically; they time out because of CVA6's cache-invalidation issue under Verilator 5, which [Ariane (CVA6)](../05_mace_cores/ariane.md) describes.
+OpenPiton's Ariane C tests that poll, with plain loads, a counter other harts update atomically, such as `hello_world_many.c`, pass only on a checkout with fix 13, which [Ariane (CVA6)](../05_mace_cores/ariane.md) describes.
 Every hart runs the program, so a test that checks one hart's view of shared memory, such as `amo_align.c` or `amoadd_w.S`, cannot pass on a mesh and is left out.
 The batch runner skips a candidate unless it gets `--include-unverified` or names the task in `--tasks`.
 
