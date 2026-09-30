@@ -165,11 +165,10 @@ tasks:
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
 
-  # Candidates. Each needs one passing expert run before it counts. With the
-  # default simulation limits, each of these timed out: a hart went
-  # rtl_timeout cycles without retiring an instruction. OpenPiton's own
-  # regression runs hello_world_many.c on a 4x4 mesh with -rtl_timeout
-  # 10000000.
+  # Candidates. Each needs one passing expert run before it counts. Each of
+  # these timed out at the default rtl_timeout, which caps a run at
+  # 1,000,000 cycles. OpenPiton's own regression runs hello_world_many.c on
+  # a 4x4 mesh with -rtl_timeout 10000000.
 
   - id: ariane-2x2-hello-many
     core: ariane
