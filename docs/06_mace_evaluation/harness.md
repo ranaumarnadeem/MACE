@@ -79,6 +79,7 @@ Each changes the first plan's `config` and `workload` tasks before they run and 
 | `fpga_synth` | Adds `PITON_FPGA_SYNTH` | The Verilator build fails with `%Error-PINNOTFOUND` | Ariane, PicoRV32 |
 | `drop_bist` | Removes `CONFIG_DISABLE_BIST_CLEAR` | The PicoRV32 simulation times out | PicoRV32 |
 | `crossbar` | Selects `xbar_config` | On a mesh with two or more rows, the Verilator build fails with duplicate pin connections | Ariane, PicoRV32 |
+| `l1d_eight_way` | Sets an 8 KB eight-way L1D | `build()` refuses it under [Ariane's way rule](../04_chia_openpiton/piton_config.md), with failure reason `way_rule`, before any build | Ariane |
 
 A fault applies to bring-up tasks on the cores it lists, and `crossbar` only to meshes with two or more rows, since OpenPiton's crossbar has one port per column.
 A `seeded_<fault>` method runs the loop with that fault seeded, only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
