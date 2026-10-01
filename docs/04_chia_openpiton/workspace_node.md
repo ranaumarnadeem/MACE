@@ -195,7 +195,7 @@ Each `bash -lc` command exports `PITON_ROOT` and sources `piton/piton_settings.b
 | `LIBRARY_PATH` | `$RISCV/lib` |
 | `LD_LIBRARY_PATH` | `$RISCV/lib`, prepended to the existing value |
 
-After sourcing, the Ariane prologue prepends `$RISCV/bin`, and `$VERILATOR_ROOT/bin` when set, to `PATH`.
+`piton_settings.bash` puts `/usr/bin` first on `PATH`, so after sourcing, the Ariane prologue prepends `$RISCV/bin`, and every prologue prepends `$VERILATOR_ROOT/bin` when `VERILATOR_ROOT` is set. Setting `VERILATOR_ROOT` therefore selects the Verilator for every core.
 
 ## Result types
 
