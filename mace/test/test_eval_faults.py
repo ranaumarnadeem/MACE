@@ -10,8 +10,8 @@ from mace.eval.faults import BIST_DEFINE, FAULTS, FPGA_DEFINE, first_plan_breake
 from mace.spec import Task
 
 
-def task(kind="config", config_rtl=None):
-    return Task(id="t1", deps=(), kind=kind, spec="s", config_rtl=config_rtl)
+def task(kind="config", config_rtl=None, caches=None):
+    return Task(id="t1", deps=(), kind=kind, spec="s", config_rtl=config_rtl, caches=caches)
 
 
 class TestFaults:
@@ -36,6 +36,16 @@ class TestFaults:
         crossbar = FAULTS["crossbar"]
         assert crossbar.applies_to("ariane", (2, 2))
         assert not crossbar.applies_to("ariane", (4, 1))
+
+    def test_the_eight_way_l1d_breaks_ariane_s_way_rule(self):
+        from chia_openpiton.state_def import PitonConfig
+
+        fault = FAULTS["l1d_eight_way"]
+        broken = fault.break_task(task(caches=(("l2", (32768, 4)),)))
+        assert broken.caches_dict == {"l1d": (8192, 8), "l2": (32768, 4)}
+        assert PitonConfig(core="ariane", caches=broken.caches_dict).way_violations()
+        assert fault.verified
+        assert fault.applies_to("ariane", (2, 2)) and not fault.applies_to("pico", (2, 2))
 
     def test_a_fault_applies_only_to_its_cores(self):
         assert FAULTS["drop_bist"].applies_to("pico", (2, 2))

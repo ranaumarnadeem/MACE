@@ -338,7 +338,7 @@ class TestSeededJobs:
         assert kwargs["labels"].meta["fault"] == "crossbar"
 
     def test_fault_checks_run_once_and_call_no_llm(self):
-        for name in ("fpga_synth", "drop_bist", "crossbar"):
+        for name in ("fpga_synth", "drop_bist", "crossbar", "l1d_eight_way"):
             assert f"faultcheck_{name}" in runner.ONCE_METHODS
             assert f"faultcheck_{name}" in runner.NO_LLM_METHODS
 
