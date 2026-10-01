@@ -163,8 +163,18 @@ class TestEnvironment:
 
         env = _env_prefix("/work/openpiton", "sparc")
         assert "ARIANE_ROOT" not in env
-        assert "VERILATOR_ROOT" not in env
+        assert "export VERILATOR_ROOT" not in env
         assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
+
+    @pytest.mark.parametrize("core", ["ariane", "sparc", "pico"])
+    def test_a_caller_s_verilator_root_goes_first_on_path_for_every_core(self, core):
+        """piton_settings.bash puts /usr/bin first, which would shadow the
+        Verilator a caller names through VERILATOR_ROOT."""
+        from chia_openpiton.openpiton_workspace import _env_prefix
+
+        env = _env_prefix("/work/openpiton", core)
+        verilator_path_at = env.index('if [ -n "${VERILATOR_ROOT:-}" ]; then export PATH="$VERILATOR_ROOT/bin:$PATH"; fi')
+        assert verilator_path_at > env.index("piton_settings.bash")
 
     def test_pico_needs_no_riscv_toolchain(self):
         """pico reuses the installed riscv64-unknown-elf-gcc via a sims flag
@@ -175,7 +185,7 @@ class TestEnvironment:
 
         env = _env_prefix("/work/openpiton", "pico")
         assert "ARIANE_ROOT" not in env
-        assert "VERILATOR_ROOT" not in env
+        assert "export VERILATOR_ROOT" not in env
         assert 'source "$PITON_ROOT/piton/piton_settings.bash"' in env
 
 

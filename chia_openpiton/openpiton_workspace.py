@@ -201,11 +201,10 @@ def _env_prefix(piton_root: str, core: str) -> str:
         # distro riscv64-unknown-elf-gcc shadows ours -- and Ubuntu's package
         # ships no newlib, so every diag fails with "string.h: No such file".
         # Re-prepending here keeps the toolchain we actually installed.
-        lines += [
-            'export PATH="$RISCV/bin:$PATH"',
-            'if [ -n "${VERILATOR_ROOT:-}" ]; then '
-            'export PATH="$VERILATOR_ROOT/bin:$PATH"; fi',
-        ]
+        lines.append('export PATH="$RISCV/bin:$PATH"')
+    # The same /usr/bin would shadow a Verilator the caller names through
+    # VERILATOR_ROOT, whatever the core, so its bin goes first as well.
+    lines.append('if [ -n "${VERILATOR_ROOT:-}" ]; then export PATH="$VERILATOR_ROOT/bin:$PATH"; fi')
     return " && ".join(lines) + " && "
 
 
@@ -569,7 +568,8 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         """``verilator --version`` as seen *inside OpenPiton's environment*.
 
         Deliberately not a bare ``verilator --version`` on the host PATH:
-        ``ariane_setup.sh`` prepends ``$VERILATOR_ROOT/bin``, so the Verilator a
+        ``piton_settings.bash`` puts ``/usr/bin`` first, and the prologue then
+        prepends ``$VERILATOR_ROOT/bin`` when it is set, so the Verilator a
         build actually uses can differ from the one a plain shell finds. The
         ``--no-timing`` decision depends on this, and getting it from the wrong
         binary produces a build that fails on a flag mismatch.
