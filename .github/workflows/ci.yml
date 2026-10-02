@@ -85,3 +85,25 @@ jobs:
         run: >
           pytest chia_openpiton/test mace/test -q
           --ignore=chia_openpiton/test/cluster --ignore=mace/test/cluster
+
+  tier1:
+    # A live local Ray instance and a stub sims: the dispatch, placement, and
+    # replay paths that tier 0 replaces with fakes. The tests that need a
+    # patched OpenPiton checkout or a GCP worker skip themselves.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install CHIA v1.0.1
+        run: pip install chialoops==1.0.1
+
+      - name: Install mace and test deps
+        run: pip install -e ".[test,eval]"
+
+      - name: Tier-1 tests
+        run: pytest chia_openpiton/test/cluster mace/test/cluster -q -rs
