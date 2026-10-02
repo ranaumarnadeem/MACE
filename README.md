@@ -143,6 +143,26 @@ cover the flags, the shell commands, and the comparison runs.
 | `flake.nix` | Nix development shell |
 | `dockerfiles/` | An earlier worker image, unused by the current setup |
 
+## FAQ
+
+**Can an LLM agent build a multicore RISC-V system?**
+MACE does this for OpenPiton: from an English objective it configures, builds and verifies 2x2 and 4x4 meshes of Ariane or PicoRV32 cores, replanning on failure until simulation passes or the run's budget is spent.
+
+**Does MACE change the CPU core?**
+MACE's agents do not edit the cores. They configure OpenPiton's tiles, caches and NoC around them and can add RTL defines. Before the first build, `scripts/patch_openpiton.sh` fixes three bugs in OpenPiton's copies of the cores: PicoRV32 never booting from reset (fix 6), CVA6's tracer writing every hart to one file (fix 12), and CVA6's L1.5 adapter dropping invalidations under Verilator 5 (fix 13).
+
+**Can I use the OpenPiton support without the agents?**
+Yes. `chia_openpiton/` is a standalone CHIA adapter for OpenPiton with no dependency on `mace/`.
+
+**What simulator does it use?**
+Verilator, through OpenPiton's `sims` tool.
+
+## Related projects
+
+- [OpenPiton](https://github.com/PrincetonUniversity/openpiton): the manycore research framework MACE builds on
+- [CHIA](https://github.com/ucb-bar/chia): the agentic hardware framework MACE extends
+- [faultflow](https://github.com/ranaumarnadeem/faultflow), [autoMBIST](https://github.com/ranaumarnadeem/autoMBIST): open-source DFT tools by one of the authors
+
 ## Contributing
 
 AI coding assistants follow the rules in [`.claude/`](.claude/): `CLAUDE.md`
