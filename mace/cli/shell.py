@@ -54,16 +54,13 @@ from mace.metrics import (
     DBReader,
     all_runs,
     failure_taxonomy,
-    get_post_mortem,
     module_status,
     open_db,
-    record_post_mortem,
     summary,
     trace_run,
 )
 from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec, PostMortem
-from mace.workloads import RECOMMENDED_RTL_TIMEOUT
 
 app = typer.Typer(help="MACE: point it at a core, tell it what to verify, and watch it work.")
 

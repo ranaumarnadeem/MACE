@@ -12,7 +12,7 @@ non-interactive example scripts are.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from chia_openpiton.state_def import MAX_TILES_PER_AXIS, PitonCore
