@@ -107,3 +107,41 @@ jobs:
 
       - name: Tier-1 tests
         run: pytest chia_openpiton/test/cluster mace/test/cluster -q -rs
+
+  package:
+    # Installs the wheel, without -e, into a clean venv and runs it from
+    # outside the checkout, so a module or data file the wheel leaves out
+    # fails here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Build the sdist and the wheel
+        run: |
+          pip install build==1.6.1
+          python -m build
+
+      - name: Install the wheel into a clean venv
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install chialoops==1.0.1 dist/*.whl
+
+      - name: The installed package runs
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$RUNNER_TEMP/venv/bin/mace" --help > /dev/null
+          "$RUNNER_TEMP/venv/bin/python" - <<'EOF'
+          import chia_openpiton.tools as tools
+          import mace
+          from mace.workloads import verify_checksums
+
+          assert "site-packages" in mace.__file__, mace.__file__
+          verify_checksums()
+          assert sorted(tools._FIXTURES_DIR.glob("*.log")), "no fixture logs installed"
+          print("installed package OK:", mace.__file__)
+          EOF
