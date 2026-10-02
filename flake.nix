@@ -278,6 +278,13 @@
               echo "  Once you have an OpenPiton checkout, patch it before building:"
               echo "    bash scripts/patch_openpiton.sh /path/to/openpiton"
             fi
+
+            # OpenPiton's bw_cpp, which sims runs to read its config, starts
+            # with #!/bin/csh, a host path the tcsh above cannot provide.
+            if [ ! -x /bin/csh ]; then
+              echo "  /bin/csh is missing, so sims cannot read its config. Install csh on the host,"
+              echo "  such as with: sudo apt install tcsh"
+            fi
           '';
         };
       });
