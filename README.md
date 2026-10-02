@@ -21,9 +21,11 @@ You give MACE an objective, a core (Ariane/CVA6 or PicoRV32) and a target mesh s
 
 ## Results
 
-The loop passes 2x2 and 4x4 meshes of Ariane (CVA6) running `barrier_atomic.c`
-and of PicoRV32 running `addi.S` in Verilator simulation. Table 1 of the paper
-compares it with manual bring-up and a one-shot LLM configuration:
+The MACE loop brought all four configurations (Ariane and PicoRV32, 2x2 and 4x4)
+to a passing Verilator simulation; the one-shot LLM configuration failed all
+four. Ariane (CVA6) runs `barrier_atomic.c` and PicoRV32 runs `addi.S`. Table 1
+of the paper compares the loop with manual bring-up and the one-shot
+configuration:
 
 | Core | Mesh | Manual | One-shot LLM | MACE loop |
 |---|---|---|---|---|
