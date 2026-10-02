@@ -753,7 +753,7 @@ class MaceShell(cmd.Cmd):
                     c.print(f"  [dim]model_dir: {r.build.model_dir}[/dim]")
                     if not r.build.success:
                         c.print(Panel(r.build.stderr[-4000:], title="build stderr (tail)", border_style="red"))
-                        c.print(f"  [dim]full stderr is on the build artifact; model_dir above has sims.log[/dim]")
+                        c.print("  [dim]full stderr is on the build artifact; model_dir above has sims.log[/dim]")
                 elif r.task.kind == "unit_test":
                     c.print(f"[yellow]Unit test:[/yellow] {r.task.spec}")
                     status = "[green]OK[/green]" if r.build.success else "[bold red]FAILED[/bold red]"
@@ -784,7 +784,7 @@ class MaceShell(cmd.Cmd):
                         if r.run.status_log:
                             c.print(Panel(r.run.status_log, title="status.log", border_style="dim"))
                     elif not r.build.success:
-                        c.print(f"  [dim]never reached run -- build failed, see stderr above[/dim]")
+                        c.print("  [dim]never reached run -- build failed, see stderr above[/dim]")
 
         result = run_mace_loop(
             (self.session.piton_root,), spec, self.llm, self.db,

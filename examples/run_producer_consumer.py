@@ -72,11 +72,11 @@ def main() -> int:
         print(f"Run dir: {run_result.run_dir}")
 
         if run_result.fake_uart:
-            print(f"\n--- UART output ---")
+            print("\n--- UART output ---")
             print(run_result.fake_uart)
 
         if run_result.sim_log_tail:
-            print(f"\n--- Sim log (tail) ---")
+            print("\n--- Sim log (tail) ---")
             print(run_result.sim_log_tail[-2000:])
 
         if run_result.success and run_result.verdict == "pass":

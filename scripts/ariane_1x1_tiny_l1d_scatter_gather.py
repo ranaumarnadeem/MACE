@@ -81,8 +81,8 @@ def main() -> int:
 
     print(f"Using OpenPiton checkout: {piton_root}")
     print(f"Workload: {workload}")
-    print(f"Mesh: 1x1")
-    print(f"Core: ariane")
+    print("Mesh: 1x1")
+    print("Core: ariane")
     print(f"Caches: {dict(sorted(TINY_L1D_CACHES.items()))}")
     print(f"asm_diag_root: {asm_diag_root}")
     print(f"RTL timeout: {RECOMMENDED_RTL_TIMEOUT} cycles")
