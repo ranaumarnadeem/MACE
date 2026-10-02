@@ -60,6 +60,8 @@ jobs:
             end
           endmodule
           EOF
+          # The inner bash expands $RUNNER_TEMP, from the environment.
+          # shellcheck disable=SC2016
           nix develop --command bash -euo pipefail -c '
             cd "$RUNNER_TEMP/vl"
             verilator --binary --no-timing top.v
@@ -69,6 +71,8 @@ jobs:
       - name: RISC-V GCC compiles for Ariane and PicoRV32
         run: |
           echo 'int main(void) { return 0; }' > "$RUNNER_TEMP/t.c"
+          # The inner bash expands $RUNNER_TEMP, from the environment.
+          # shellcheck disable=SC2016
           nix develop --command bash -euo pipefail -c '
             riscv64-unknown-elf-gcc -march=rv64imafdc -mabi=lp64d -c "$RUNNER_TEMP/t.c" -o "$RUNNER_TEMP/t64.o"
             riscv64-unknown-elf-gcc -march=rv32ima -mabi=ilp32 -c "$RUNNER_TEMP/t.c" -o "$RUNNER_TEMP/t32.o"
