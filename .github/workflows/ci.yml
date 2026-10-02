@@ -38,7 +38,7 @@ jobs:
           pip install ruff==0.16.10 shellcheck-py==0.11.0.1
           actionlint-py==1.7.12.25 cffconvert==2.0.0
 
-      # pyproject.toml selects the checks: syntax errors and undefined names.
+      # pyproject.toml selects the checks: syntax errors and all of Pyflakes.
       - name: Python (ruff)
         run: ruff check --output-format=github .
 

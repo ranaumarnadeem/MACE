@@ -52,9 +52,9 @@ chia_openpiton = ["test/fixtures/*.log"]
 target-version = "py310"
 
 [tool.ruff.lint]
-# Only the checks that catch bugs rather than style: syntax errors, undefined
-# names, and malformed comparisons and statements.
-select = ["E9", "F63", "F7", "F82"]
+# Syntax errors (E9) and all of Pyflakes (F): undefined names, unused imports
+# and variables, and malformed comparisons and statements. No style checks.
+select = ["E9", "F"]
 
 [tool.pytest.ini_options]
 # Import tests under their full package path, not by bare filename: the test
