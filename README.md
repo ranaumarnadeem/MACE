@@ -1,17 +1,11 @@
-# MACE
+# MACE: Multicore Agentic Co-Design Engine
 
-MACE (Multicore Agentic Co-Design Engine) plans, builds, and verifies
-[OpenPiton](https://github.com/PrincetonUniversity/openpiton) designs on the
-[CHIA](https://github.com/ucb-bar/chia) framework. You give it a hardware
-objective in English, a core, and a target mesh. An LLM planner turns the
-objective into a task DAG, and independent tasks run in parallel, one per
-OpenPiton checkout. A configuration passes only when its Verilator build
-succeeds and every tile of the simulated mesh reaches its good trap. When a task
-fails, a failure-analysis agent reads its logs and the planner replans, until
-the design passes or the run's budget is spent.
+**MACE is an LLM-agent system that turns a single-core design into a verified multicore OpenPiton system: it plans, builds and simulates OpenPiton meshes on the CHIA framework from a hardware objective written in English.**
 
-MACE was built for the A3 CHIA Hackathon at MICRO 2026.
+You give MACE an objective, a core (Ariane/CVA6 or PicoRV32) and a target mesh size. An LLM planner turns the objective into a task DAG; independent tasks run in parallel, one per OpenPiton checkout. A configuration passes only when its Verilator build succeeds and every tile of the simulated mesh reaches its good trap. When a task fails, a failure-analysis agent reads the logs and the planner replans, until the design passes or the run's budget is spent. The agents do not edit the cores; MACE reuses OpenPiton's NoC, caches and coherence infrastructure to make the system multicore.
 
+- Accepted as a poster at the A3 workshop, MICRO 2026
+- Built for the A3 CHIA Hackathon at MICRO 2026
 - Documentation: https://ranaumarnadeem.github.io/MACE/
 - Paper: [`paper/mace_paper.pdf`](paper/mace_paper.pdf)
 - Proposal: [`CHIA_proposal.pdf`](CHIA_proposal.pdf)
