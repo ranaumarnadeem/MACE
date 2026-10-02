@@ -41,6 +41,13 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["chia_openpiton*", "mace*"]
 
+# Data files read at runtime: the gate workloads and their checksums
+# (mace/workloads.py), and the logs compare_to_fixture() reads
+# (chia_openpiton/tools.py). Without these, a non-editable install lacks them.
+[tool.setuptools.package-data]
+mace = ["workloads/*.c", "workloads/CHECKSUMS"]
+chia_openpiton = ["test/fixtures/*.log"]
+
 [tool.pytest.ini_options]
 # Import tests under their full package path, not by bare filename: the test
 # directories have no __init__.py and several files share names across packages.
