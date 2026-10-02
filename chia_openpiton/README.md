@@ -74,7 +74,7 @@ and have shown read-after-write coherency gaps during the boot ROM step.
 bash scripts/patch_openpiton.sh /path/to/openpiton
 ```
 
-The script applies twelve numbered fixes and is safe to run again.
+The script applies thirteen numbered fixes and is safe to run again.
 [Environment Patches](https://ranaumarnadeem.github.io/MACE/04_chia_openpiton/environment_patches.html)
 lists them.
 
