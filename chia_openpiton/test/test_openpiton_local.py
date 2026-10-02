@@ -176,6 +176,31 @@ class TestEnvironment:
         verilator_path_at = env.index('if [ -n "${VERILATOR_ROOT:-}" ]; then export PATH="$VERILATOR_ROOT/bin:$PATH"; fi')
         assert verilator_path_at > env.index("piton_settings.bash")
 
+    @pytest.mark.parametrize("core", ["ariane", "sparc", "pico"])
+    def test_the_caller_s_library_path_is_cleared_first(self, core):
+        """The Nix dev shell exports an LD_LIBRARY_PATH holding Nix's
+        libstdc++, and OpenPiton's prebuilt configsrch, a host binary, fails
+        to load it on a host with an older glibc."""
+        from chia_openpiton.openpiton_workspace import _env_prefix
+
+        assert _env_prefix("/work/openpiton", core).startswith("unset LD_LIBRARY_PATH && ")
+
+    @pytest.mark.parametrize(
+        ("core", "expected"), [("pico", "<unset>"), ("ariane", "/opt/riscv/lib")]
+    )
+    def test_a_command_sees_only_the_prologue_s_library_path(
+        self, stub_piton_root, monkeypatch, core, expected
+    ):
+        from chia_openpiton.openpiton_workspace import _run
+
+        monkeypatch.setenv("LD_LIBRARY_PATH", "/nix/store/fake-gcc-lib/lib")
+        monkeypatch.setenv("RISCV", "/opt/riscv")
+        out, err, rc, _ = _run(
+            'echo "${LD_LIBRARY_PATH:-<unset>}"', str(stub_piton_root), core, str(stub_piton_root), 30
+        )
+        assert rc == 0, err
+        assert out.strip() == expected
+
     def test_pico_needs_no_riscv_toolchain(self):
         """pico reuses the installed riscv64-unknown-elf-gcc via a sims flag
         (-rv32_target_triple, see PitonConfig.sims_flags) rather than any

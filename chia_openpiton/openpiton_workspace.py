@@ -175,9 +175,19 @@ def _env_prefix(piton_root: str, core: str) -> str:
     Mirrors ``piton/ariane_setup.sh`` and the ``before_script`` block of
     OpenPiton's own ``.gitlab-ci.yml``. Two details are load-bearing:
     ``piton_settings.bash`` does *not* set ``PITON_ROOT`` (it expects it to be
-    exported already), and ``ARIANE_ROOT`` must carry a trailing slash.
+    exported already), and ``ARIANE_ROOT`` must carry a trailing slash. The
+    caller's ``LD_LIBRARY_PATH`` is cleared first, so OpenPiton's tools see
+    only the library path this prologue and ``piton_settings.bash`` set.
     """
-    lines = [f"export PITON_ROOT={shlex.quote(piton_root)}"]
+    lines = [
+        # OpenPiton's prebuilt configsrch, which sims runs for every tool
+        # lookup, is a host binary. The Nix dev shell exports an
+        # LD_LIBRARY_PATH holding Nix's libstdc++, which needs a newer glibc
+        # than an Ubuntu or Debian host has, so with it configsrch fails to
+        # load and every sims command stops.
+        "unset LD_LIBRARY_PATH",
+        f"export PITON_ROOT={shlex.quote(piton_root)}",
+    ]
     if core == "ariane":
         lines += [
             'export ARIANE_ROOT="$PITON_ROOT/piton/design/chip/tile/ariane/"',
@@ -192,7 +202,7 @@ def _env_prefix(piton_root: str, core: str) -> str:
             '[ -x "$ARIANE_ROOT/tmp/verilator-4.014/bin/verilator" ]; then '
             'export VERILATOR_ROOT="$ARIANE_ROOT/tmp/verilator-4.014/"; fi',
             'export LIBRARY_PATH="$RISCV/lib"',
-            'export LD_LIBRARY_PATH="$RISCV/lib:$LD_LIBRARY_PATH"',
+            'export LD_LIBRARY_PATH="$RISCV/lib"',
         ]
     lines.append('source "$PITON_ROOT/piton/piton_settings.bash"')
     if core == "ariane":
