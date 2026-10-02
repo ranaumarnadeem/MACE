@@ -54,7 +54,6 @@ def extract_module_port_list(verilog_text: str, module_name: str) -> str:
     if stripped.startswith("#("):
         depth = 0
         i = pos + skip + 1  # position of the '('
-        start = i
         while i < len(text):
             if text[i] == "(":
                 depth += 1
