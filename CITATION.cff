@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use MACE, please cite it as below."
+title: "MACE: A Multicore Agentic Co-Design Engine"
+abstract: >-
+  An LLM-agent system that plans, builds and verifies multicore OpenPiton
+  designs on the CHIA framework from a natural-language hardware objective,
+  with parallel task execution, a Verilator verification gate and
+  failure-driven replanning.
+type: software
+authors:
+  - given-names: Rana Umar
+    family-names: Nadeem
+    orcid: "https://orcid.org/0009-0008-9880-0116"
+  - given-names: Samrah
+    family-names: Mumtaz
+  - given-names: Muhammad
+    family-names: Imran
+version: 0.0.1
+license: BSD-3-Clause
+repository-code: "https://github.com/ranaumarnadeem/MACE"
+url: "https://ranaumarnadeem.github.io/MACE/"
+keywords:
+  - OpenPiton
+  - CHIA
+  - multicore
+  - LLM agents
+  - agentic AI
+  - hardware design automation
+  - RISC-V
+  - network on chip
+  - Verilator
+# doi: add after minting a Zenodo DOI from a tagged GitHub release
