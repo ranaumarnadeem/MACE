@@ -59,6 +59,13 @@ GCP_ROOT = os.environ.get("OPENPITON_GCP_ROOT", "")
 # need it spelled out. sims exposes this without patching anything.
 ZICSR = ("-rv64_march=rv64imafdc_zicsr_zifencei",)
 
+# PicoRV32 boots inside the SRAM model's power-on BIST clear, which drops its
+# first writes, so a pico build needs CONFIG_DISABLE_BIST_CLEAR (see
+# docs/05_mace_cores/pico.md). Other cores keep configure()'s default.
+CORE_RTL = (
+    {"config_rtl": ("MINIMAL_MONITORING", "CONFIG_DISABLE_BIST_CLEAR")} if CORE == "pico" else {}
+)
+
 real_only = pytest.mark.skipif(
     not REAL, reason="set OPENPITON_TEST_REAL=1 (and OPENPITON_ROOT) to run"
 )
@@ -130,7 +137,7 @@ class TestAcceptance1:
         node = OpenPitonWorkspaceNode(checkout, pg_ready_timeout_s=120)
         try:
             cfg = get(node.configure.chia_remote(
-                x_tiles=1, y_tiles=1, core=CORE, extra_flags=ZICSR))
+                x_tiles=1, y_tiles=1, core=CORE, extra_flags=ZICSR, **CORE_RTL))
             assert cfg.build_id.startswith("mace_")
 
             art = get(node.build.chia_remote(cfg, timeout_seconds=5400))
@@ -156,9 +163,9 @@ class TestAcceptance1:
         node = OpenPitonWorkspaceNode(checkout, pg_ready_timeout_s=120)
         try:
             a = get(node.configure.chia_remote(x_tiles=1, y_tiles=1, core=CORE,
-                                               extra_flags=ZICSR))
+                                               extra_flags=ZICSR, **CORE_RTL))
             b = get(node.configure.chia_remote(x_tiles=1, y_tiles=1, core=CORE,
-                                               extra_flags=ZICSR))
+                                               extra_flags=ZICSR, **CORE_RTL))
             assert a.key == b.key
             assert a.build_id == b.build_id
         finally:
@@ -180,7 +187,7 @@ class TestAcceptance3:
             # Different meshes so neither can be served by the other's model.
             cfgs = [
                 get(n.configure.chia_remote(x_tiles=x, y_tiles=1, core=CORE,
-                                            extra_flags=ZICSR))
+                                            extra_flags=ZICSR, **CORE_RTL))
                 for n, x in zip(nodes, (1, 2))
             ]
             assert cfgs[0].build_id != cfgs[1].build_id
