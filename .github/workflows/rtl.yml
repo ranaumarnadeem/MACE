@@ -6,9 +6,9 @@ name: RTL smoke
 # trap. It runs weekly, on demand, and when the adapter, the patch script, or
 # the toolchain changes.
 #
-# MACE installs with pip, and the two tools go on PATH without entering the
-# Nix shell: the shell's LD_LIBRARY_PATH carries a newer glibc than the
-# runner's, and OpenPiton's prebuilt configsrch then fails to load.
+# The two jobs follow the two install routes on the Installation page. `pico`
+# installs MACE with pip and puts the flake's tools on PATH, as the conda
+# route does. `pico-nix-shell` runs everything inside `nix develop`.
 
 on:
   push:
@@ -101,5 +101,38 @@ jobs:
           OPENPITON_TEST_CORE: pico
           MAKEFLAGS: -j2
         run: >
+          pytest chia_openpiton/test/cluster/openpiton_e2e_test.py
+          -k TestAcceptance1 -rs -s
+
+  pico-nix-shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OPENPITON_COMMIT: 1c6bfd2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Enter the Nix shell
+        run: nix develop --command true
+
+      - name: Clone OpenPiton at the pinned commit
+        run: |
+          root="$HOME/openpiton"
+          git clone --filter=blob:none https://github.com/PrincetonUniversity/openpiton.git "$root"
+          git -C "$root" checkout "$OPENPITON_COMMIT"
+          echo "OPENPITON_ROOT=$root" >> "$GITHUB_ENV"
+
+      - name: Patch the checkout
+        run: nix develop --command bash scripts/patch_openpiton.sh "$OPENPITON_ROOT"
+
+      - name: Build a 1x1 PicoRV32 tile and run addi.S (tier 2)
+        env:
+          OPENPITON_TEST_REAL: "1"
+          OPENPITON_TEST_CORE: pico
+          MAKEFLAGS: -j2
+        run: >
+          nix develop --command
           pytest chia_openpiton/test/cluster/openpiton_e2e_test.py
           -k TestAcceptance1 -rs -s
