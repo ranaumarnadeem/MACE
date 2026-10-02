@@ -17,7 +17,7 @@ ray.init(address="local", resources={"openpiton": 1}, log_to_driver=False)
 
 @ray.remote(resources={"openpiton": 1})
 def diag(piton_root: str) -> tuple[str, str, int]:
-    from chia_openpiton.openpiton_workspace import _env_prefix, _run
+    from chia_openpiton.openpiton_workspace import _run
 
     cmd = (
         'cd piton/design/chipset/rv64_platform/bootrom/linux && '
