@@ -27,3 +27,7 @@ paper/*.blg
 # Created by flake.nix's own shellHook on first `nix develop` -- a local,
 # machine-specific virtualenv, never committed.
 .venv/
+
+# AI-assistant local state, such as settings and worktrees. The rule files
+# already tracked in .claude/ stay tracked.
+.claude/
