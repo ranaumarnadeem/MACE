@@ -1,7 +1,16 @@
 [project]
 name = "mace"
 version = "0.0.1"
-description = "MACE: A Multicore Agentic Co-Design Engine"
+description = "Multicore Agentic Co-Design Engine: LLM agents that build and verify multicore OpenPiton systems on CHIA"
+authors = [
+    {name = "Rana Umar Nadeem"},
+    {name = "Samrah Mumtaz"},
+    {name = "Muhammad Imran"},
+]
+keywords = [
+    "OpenPiton", "CHIA", "multicore", "LLM agents", "agentic AI",
+    "hardware design automation", "RISC-V", "network on chip", "Verilator",
+]
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 requires-python = ">=3.10,<3.11"
@@ -11,6 +20,11 @@ dependencies = ["typer>=0.12", "rich>=13", "ray>=2.54,<3"]
 # v1.0.1 release every result used: `nix develop` runs
 # `pip install chialoops==1.0.1` itself, and other setups run it first, or
 # `pip install -e` on a clone of the v1.0.1 tag. See README.
+
+[project.urls]
+Homepage = "https://ranaumarnadeem.github.io/MACE/"
+Documentation = "https://ranaumarnadeem.github.io/MACE/"
+Repository = "https://github.com/ranaumarnadeem/MACE"
 
 [project.scripts]
 mace = "mace.cli:main"

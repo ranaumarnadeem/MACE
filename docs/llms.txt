@@ -1,0 +1,24 @@
+# MACE: Multicore Agentic Co-Design Engine
+
+> MACE is an LLM-agent system that turns a single-core design into a verified multicore OpenPiton system: it plans, builds and simulates OpenPiton meshes on the CHIA framework from a hardware objective written in English.
+
+MACE has two parts. `chia_openpiton` is a CHIA adapter for OpenPiton's configure, build, run, and collect operations, and imports nothing from `mace`. `mace` is the agentic loop on top of it: a planner, parallel task execution, a Verilator verification gate, failure analysis, and replanning. The loop passes 2x2 and 4x4 meshes of Ariane (CVA6) and PicoRV32 in Verilator simulation.
+
+## Documentation
+
+- [MACE User Manual](https://ranaumarnadeem.github.io/MACE/01_mace_user/index.html): installing MACE, running the loop and the baselines, and reading the results
+- [MACE Requirements Specification](https://ranaumarnadeem.github.io/MACE/02_mace_requirements/mace_requirements_specification.html): what MACE must do
+- [MACE Design Document](https://ranaumarnadeem.github.io/MACE/03_mace_design/index.html): planning, parallel task execution, integration, verification, and failure analysis in the MACE loop
+- [chia_openpiton Adapter](https://ranaumarnadeem.github.io/MACE/04_chia_openpiton/index.html): how the loop builds and runs OpenPiton
+- [Supported Cores](https://ranaumarnadeem.github.io/MACE/05_mace_cores/index.html): the three OpenPiton cores (Ariane, OpenSPARC T1, and PicoRV32) and how to add another
+- [MACE Evaluation](https://ranaumarnadeem.github.io/MACE/06_mace_evaluation/index.html): the baselines, results, and cost measurements
+
+## Related projects
+
+- [OpenPiton](https://github.com/PrincetonUniversity/openpiton): the manycore research framework MACE builds on
+- [CHIA](https://github.com/ucb-bar/chia): the agentic hardware framework MACE extends
+
+## Optional
+
+- [Source code](https://github.com/ranaumarnadeem/MACE)
+- [Paper](https://github.com/ranaumarnadeem/MACE/blob/main/paper/mace_paper.pdf)

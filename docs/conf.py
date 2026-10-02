@@ -14,10 +14,12 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('..'))
 
+from html import escape
+
 
 # -- Project information -----------------------------------------------------
 
-project = 'MACE'
+project = 'MACE: Multicore Agentic Co-Design Engine'
 copyright = '2026, Rana Umar Nadeem, Samrah Mumtaz, Muhammad Imran'
 author = 'Rana Umar Nadeem, Samrah Mumtaz, Muhammad Imran'
 
@@ -53,6 +55,19 @@ exclude_patterns = ['_build', '**/build', 'Thumbs.db', '.DS_Store', 'README.md',
 html_theme = 'sphinx_rtd_theme'
 pygments_style = 'monokai'
 
+# The suffix of every page's <title>, and the site's root URL, from which
+# Sphinx writes each page's canonical link.
+html_title = project
+html_baseurl = 'https://ranaumarnadeem.github.io/MACE/'
+
+# The meta description of every page: the bold sentence that opens README.md.
+meta_description = (
+    'MACE is an LLM-agent system that turns a single-core design into a '
+    'verified multicore OpenPiton system: it plans, builds and simulates '
+    'OpenPiton meshes on the CHIA framework from a hardware objective '
+    'written in English.'
+)
+
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
@@ -65,8 +80,21 @@ html_theme_options = {'style_nav_header_background': '#DDDDDD'}
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
+# Files copied unchanged to the site root. llms.txt lists the docs for LLMs.
+html_extra_path = ['llms.txt']
+
 # Add custom CSS and JS files
 html_css_files = ['theme_overrides.css']
 html_js_files = []
 
 master_doc = 'index'
+
+
+def add_meta_description(app, pagename, templatename, context, doctree):
+    # Generated pages, such as genindex, start without metatags.
+    context['metatags'] = (context.get('metatags', '')
+                           + f'\n<meta name="description" content="{escape(meta_description)}" />')
+
+
+def setup(app):
+    app.connect('html-page-context', add_meta_description)
