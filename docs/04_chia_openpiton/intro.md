@@ -44,10 +44,12 @@ print('isolation OK')
 "
 ```
 
-The same job then runs the tier-0 tests, which start no Ray instance and need no OpenPiton checkout. To run the adapter's tier-0 tests alone:
+That check sees only the modules that importing the package loads. The `lint` job in the same workflow also fails on any line in `chia_openpiton/` that imports `mace`, such as an import inside a function.
+
+The `tier0` job then runs the tier-0 tests, which start no Ray instance and need no OpenPiton checkout. To run the adapter's tier-0 tests alone:
 
 ```bash
 pytest chia_openpiton/test -q --ignore=chia_openpiton/test/cluster
 ```
 
-`chia_openpiton/test/cluster/openpiton_e2e_test.py` holds tier 1 and tier 2. Tier 1 starts a local Ray instance and checks that a node reserves and releases its placement group. Tier 2 builds and runs diags on an OpenPiton checkout when `OPENPITON_TEST_REAL=1` and `OPENPITON_ROOT` are set. `chia_openpiton/README.md` keeps the upstreaming checklist.
+`chia_openpiton/test/cluster/openpiton_e2e_test.py` holds tier 1 and tier 2. Tier 1 starts a local Ray instance and checks that a node reserves and releases its placement group. Tier 2 builds and runs diags on an OpenPiton checkout when `OPENPITON_TEST_REAL=1` and `OPENPITON_ROOT` are set. The `tier1` job in `ci.yml` runs tier 1 on every push. The `RTL smoke` workflow, `.github/workflows/rtl.yml`, runs tier 2's first acceptance test on a 1x1 PicoRV32 tile: it patches OpenPiton at the pinned commit, builds the tile with the flake's Verilator, and runs `addi.S`. It runs every week and when the adapter, the patch script, or the flake changes. `chia_openpiton/README.md` keeps the upstreaming checklist.
