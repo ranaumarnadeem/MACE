@@ -185,7 +185,7 @@ Every `sims` and `verilator --version` command runs under `bash -lc` in its own 
 
 ## Environment
 
-Each `bash -lc` command exports `PITON_ROOT` and sources `piton/piton_settings.bash`. The `sparc` and `pico` cores need nothing more. For `core="ariane"`, the prologue sets these variables before sourcing:
+Each `bash -lc` command first unsets `LD_LIBRARY_PATH`, then exports `PITON_ROOT` and sources `piton/piton_settings.bash`. The `sparc` and `pico` cores need nothing more. For `core="ariane"`, the prologue sets these variables before sourcing:
 
 | Variable | Value |
 |---|---|
@@ -193,7 +193,9 @@ Each `bash -lc` command exports `PITON_ROOT` and sources `piton/piton_settings.b
 | `RISCV` | The existing value, else `$HOME/scratch/riscv_install` |
 | `VERILATOR_ROOT` | `$ARIANE_ROOT/tmp/verilator-4.014/`, only when unset and that Verilator is executable |
 | `LIBRARY_PATH` | `$RISCV/lib` |
-| `LD_LIBRARY_PATH` | `$RISCV/lib`, prepended to the existing value |
+| `LD_LIBRARY_PATH` | `$RISCV/lib` |
+
+OpenPiton's prebuilt `configsrch`, which `sims` runs to look up each tool's version, is a host binary. The Nix dev shell exports an `LD_LIBRARY_PATH` that holds Nix's `libstdc++`, which needs a newer glibc than an Ubuntu or Debian host has. With that path, `configsrch` fails to load, and `sims` stops with `configsrch returned error code 1`. The prologue clears the caller's value for this reason.
 
 `piton_settings.bash` puts `/usr/bin` first on `PATH`, so after sourcing, the Ariane prologue prepends `$RISCV/bin`, and every prologue prepends `$VERILATOR_ROOT/bin` when `VERILATOR_ROOT` is set. Setting `VERILATOR_ROOT` therefore selects the Verilator for every core.
 

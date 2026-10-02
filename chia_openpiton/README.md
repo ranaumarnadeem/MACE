@@ -51,6 +51,10 @@ build time. PicoRV32 uses the same `riscv64-unknown-elf-gcc`, targeting
   `Simulation -> PASS (HIT GOOD TRAP)`.
 - `piton_settings.bash` does not set `PITON_ROOT`, so the adapter exports it
   first. `ARIANE_ROOT` keeps its trailing slash.
+- The adapter unsets the caller's `LD_LIBRARY_PATH` before OpenPiton's
+  environment. OpenPiton's prebuilt `configsrch`, which `sims` runs for every
+  tool lookup, is a host binary, and a library path such as the Nix dev
+  shell's, which holds a `libstdc++` built for a newer glibc, stops it loading.
 - The Verilator version decides one flag. Verilator 5 needs `--timing` or
   `--no-timing` for OpenPiton's bare `#1` delays, and Verilator 4 rejects both.
   The adapter reads the version inside OpenPiton's environment, which can find a
