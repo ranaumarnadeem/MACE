@@ -11,7 +11,6 @@ shells out to is a stub ``sims`` staged in a temporary checkout.
 
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
 

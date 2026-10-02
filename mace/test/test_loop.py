@@ -15,7 +15,6 @@ from __future__ import annotations
 import pytest
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
-from chia_openpiton.state_def import PitonConfig
 from mace.loop import _unit_test_tool_name, run_mace_step
 from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM

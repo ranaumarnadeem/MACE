@@ -22,7 +22,6 @@ Two things make this possible without a live cluster:
 
 from __future__ import annotations
 
-import os
 import time
 
 import pytest

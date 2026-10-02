@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from mace.planner import PlanningError, build_prompt, plan
-from mace.spec import MaceSpec, Task
+from mace.spec import MaceSpec
 from mace.test.conftest import FakeLLM
 
 PLANNER_TRANSCRIPT = """\

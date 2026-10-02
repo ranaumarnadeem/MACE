@@ -16,7 +16,7 @@ from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunRe
 from mace import metrics, planner
 from mace.baselines import expert, one_shot, retry_agent
 from mace.llm import VertexQueryResult
-from mace.spec import Budget, LoopOptions, MaceSpec, StepResult, Task
+from mace.spec import Budget, LoopOptions, MaceSpec, StepResult
 from mace.test.conftest import FakeLLM
 
 

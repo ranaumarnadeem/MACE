@@ -46,7 +46,6 @@ from chia.base.ChiaFunction import get  # noqa: E402
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy  # noqa: E402
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode  # noqa: E402
-from chia_openpiton.state_def import PitonConfig  # noqa: E402
 
 REAL = os.environ.get("OPENPITON_TEST_REAL") == "1"
 ROOT = os.environ.get("OPENPITON_ROOT", "")

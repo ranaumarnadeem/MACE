@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
+from chia_openpiton.state_def import PitonBuildArtifact, PitonRunResult
 from mace.integrator import (
     _run_batch,
     close_nodes,
