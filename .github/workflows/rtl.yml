@@ -57,7 +57,8 @@ jobs:
           pip install chialoops==1.0.1
           pip install -e ".[test]"
 
-      # OpenPiton's scripts assume csh, and its Perl tools use Bit::Vector.
+      # OpenPiton's bw_cpp starts with #!/bin/csh, and its Perl tools use
+      # Bit::Vector.
       - name: Install OpenPiton's system packages
         run: |
           sudo apt-get update -q
@@ -113,6 +114,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: cachix/install-nix-action@v31
+
+      # The one host package the Nix route needs: bw_cpp's #!/bin/csh is a
+      # host path, which the shell's tcsh cannot provide.
+      - name: Install csh at /bin/csh
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends tcsh
 
       - name: Enter the Nix shell
         run: nix develop --command true
