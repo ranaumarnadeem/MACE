@@ -40,7 +40,10 @@ __all__ = [
 ]
 
 try:
-    from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
+    # The redundant alias marks a re-export, so ruff's F401 accepts it.
+    from chia_openpiton.openpiton_workspace import (
+        OpenPitonWorkspaceNode as OpenPitonWorkspaceNode,
+    )
 
     __all__.append("OpenPitonWorkspaceNode")
 except ImportError:  # pragma: no cover - ray / chia not installed
