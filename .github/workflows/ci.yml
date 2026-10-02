@@ -1,15 +1,61 @@
-name: tier-0 tests
+name: CI
 
 # Upstream CHIA runs no tests in CI (its workflows only build images), but two
-# people commit here daily into one integration branch, so tier 0 -- which needs
-# neither Ray nor OpenPiton -- runs on every push.
+# people commit here daily into one integration branch, so every push runs
+# these jobs. None needs OpenPiton or an LLM.
 
 on:
   push:
     branches: ["**"]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install the checkers
+        run: >
+          pip install ruff==0.16.10 shellcheck-py==0.11.0.1
+          actionlint-py==1.7.12.25 cffconvert==2.0.0
+
+      # pyproject.toml selects the checks: syntax errors and undefined names.
+      - name: Python (ruff)
+        run: ruff check --output-format=github .
+
+      - name: Shell scripts (bash -n, shellcheck)
+        run: |
+          for f in scripts/*.sh; do bash -n "$f"; done
+          shellcheck -S warning scripts/*.sh
+
+      # actionlint also runs shellcheck on each step's script.
+      - name: Workflows (actionlint)
+        run: actionlint
+
+      # The tier-0 job checks what importing chia_openpiton loads; this also
+      # catches an import of mace inside a function.
+      - name: chia_openpiton has no import of mace
+        run: |
+          if grep -rnE '^\s*(from|import)\s+mace(\.|\s|$)' chia_openpiton --include='*.py'; then
+            echo "chia_openpiton must not import mace (see .claude/CLAUDE.md)"
+            exit 1
+          fi
+
+      - name: Docs writing rules
+        run: python scripts/check_docs_style.py
+
+      - name: CITATION.cff
+        run: cffconvert --validate
+
   tier0:
     runs-on: ubuntu-latest
     steps:
