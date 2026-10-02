@@ -146,7 +146,7 @@ MACE/
   scripts/           Standalone diagnostics + the checkout patch script.
   cluster/           CHIA cluster YAML (WSL head, optional GCP worker).
   paper/             The 4-page paper (mace_paper.tex / .pdf).
-  docs/              This guide, the earlier handoff PDF, the filed CHIA issue draft.
+  docs/              This guide and the Sphinx documentation site.
   dockerfiles/       A worker image — built once, not currently used (Section 8).
   runs/              Metrics DBs and run logs. Gitignored.
 ```
@@ -1342,13 +1342,8 @@ deliberately not built yet" above).
 - [`paper/mace_paper.pdf`](../paper/mace_paper.pdf) — the full 4-page
   write-up: architecture, results, baselines, and every limitation stated as
   precisely as this doc states them.
-- [`docs/chia_tailnet_issue_draft.md`](chia_tailnet_issue_draft.md) — the
-  text that became [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72).
-- [`docs/PROJECT_HANDOFF.pdf`](PROJECT_HANDOFF.pdf) — an earlier
-  point-in-time snapshot (Sep 8) with a very detailed blow-by-blow of the GCP
-  investigation as it was happening live; superseded by this doc for current
-  status, but worth reading if you want the full narrative of how the GCP
-  finding was reached, including a wrong turn that was caught and corrected.
+- [ucb-bar/chia#72](https://github.com/ucb-bar/chia/issues/72): the CHIA
+  issue for the tailnet-relayed worker that never receives a task lease.
 - `CHIA_proposal.pdf` — the original hackathon proposal.
 - `cluster/local.yaml` — read its header comments directly before your first
   `chia up`; they carry the exact machine type/zone/quota decisions and why,

@@ -44,7 +44,7 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 # The standalone notes kept in docs/ are not part of the site.
 exclude_patterns = ['_build', '**/build', 'Thumbs.db', '.DS_Store', 'README.md',
-                    'TECHNICAL_GUIDE.md', 'chia_tailnet_issue_draft.md', 'gcp_dispatch_bug.md']
+                    'TECHNICAL_GUIDE.md']
 
 
 # -- Options for HTML output -------------------------------------------------
