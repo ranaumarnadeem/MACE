@@ -25,6 +25,7 @@ from chia_openpiton.test.conftest import STUB_SETTINGS, STUB_SIMS  # noqa: E402
 from chia_openpiton.tools import PitonToolServer  # noqa: E402
 
 import mace.integrator as integrator_mod  # noqa: E402
+from mace.llm import VertexQueryResult  # noqa: E402
 from mace.metrics import open_db, summary  # noqa: E402
 from mace.orchestrator import run_mace_loop  # noqa: E402
 from mace.report import generate_post_mortem  # noqa: E402
@@ -244,25 +245,33 @@ class TestWallTimeBudget:
         assert llm.calls == []
 
 
-class TestCostBudget:
-    """extract_cost_usd itself is tested in isolation in mace/test/test_llm.py
-    (TestExtractCostUsd) -- these tests monkeypatch it to a fixed value, the
-    same way TestWallTimeBudget monkeypatches time.monotonic, to prove the
-    accumulate-and-check logic in run_mace_loop independent of which LLM
-    backend actually reported the cost."""
+def _costed(text: str, usd: float) -> VertexQueryResult:
+    """A reply that carries its cost in ``usage``, as a Vertex reply does."""
+    return VertexQueryResult(
+        result=text, returncode=0, stderr="", stream_result=text, success=True,
+        usage={"cost_usd": usd},
+    )
 
-    def test_stops_when_accumulated_cost_exceeds_max_usd(self, ray_local, tmp_path, monkeypatch):
+
+class TestCostBudget:
+    """mace.usage records every LLM call's ``usage["cost_usd"]``; these tests
+    script that cost on the replies, the way mace/test/test_orchestrator.py
+    does, and run the loop over real Ray. A remote task call returns a copy of
+    the queue's head without popping it (see FakeLLM), so the triage call that
+    follows it pops the same reply."""
+
+    def test_stops_when_accumulated_cost_exceeds_max_usd(self, ray_local, tmp_path):
         checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="fail")
         db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
         budget = Budget(max_iterations=5, max_usd=1.0)
+        # Each plan costs 0.6; the task, triage, and post-mortem calls cost nothing.
         llm = FakeLLM(
             responses=[
-                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
-                TASK_LINE, "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                _costed(TASK_LINE, 0.6), "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
+                _costed(TASK_LINE, 0.6), "DIAGNOSIS: rtl_suspect\nFIX: try again\n",
                 "ASSESSMENT: inconclusive\n",  # post-mortem, once budget is exhausted
             ]
         )
-        monkeypatch.setattr("mace.orchestrator.extract_cost_usd", lambda query: 0.6)
 
         result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db)
 
@@ -270,11 +279,11 @@ class TestCostBudget:
         # iter0: total=0.6 (<=1.0, iter1 allowed); iter1: total=1.2 (iter2 blocked)
         assert len(result.iterations) == 2
 
-    def test_iteration_usd_is_recorded_in_the_db(self, ray_local, tmp_path, monkeypatch):
+    def test_iteration_usd_is_recorded_in_the_db(self, ray_local, tmp_path):
         checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
         db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
-        llm = FakeLLM(responses=[TASK_LINE, "edit t1"])
-        monkeypatch.setattr("mace.orchestrator.extract_cost_usd", lambda query: 0.25)
+        # The task call's reply carries the cost back from the Ray worker.
+        llm = FakeLLM(responses=[TASK_LINE, _costed("edit t1", 0.25)])
 
         result = run_mace_loop((checkout,), make_spec(), llm, db)
 
