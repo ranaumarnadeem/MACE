@@ -1,0 +1,105 @@
+name: RTL smoke
+
+# Builds and simulates RTL: OpenPiton at the README's pinned commit, patched by
+# scripts/patch_openpiton.sh, with the flake's Verilator and RISC-V GCC. The
+# tier-2 acceptance test builds a 1x1 PicoRV32 tile and runs addi.S to a good
+# trap. It runs weekly, on demand, and when the adapter, the patch script, or
+# the toolchain changes.
+#
+# MACE installs with pip, and the two tools go on PATH without entering the
+# Nix shell: the shell's LD_LIBRARY_PATH carries a newer glibc than the
+# runner's, and OpenPiton's prebuilt configsrch then fails to load.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "chia_openpiton/**"
+      - "scripts/patch_openpiton.sh"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/rtl.yml"
+  pull_request:
+    paths:
+      - "chia_openpiton/**"
+      - "scripts/patch_openpiton.sh"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/rtl.yml"
+  schedule:
+    - cron: "0 7 * * 1"  # Mondays, 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rtl-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OPENPITON_COMMIT: 1c6bfd2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install CHIA v1.0.1 and mace
+        run: |
+          pip install chialoops==1.0.1
+          pip install -e ".[test]"
+
+      # OpenPiton's scripts assume csh, and its Perl tools use Bit::Vector.
+      - name: Install OpenPiton's system packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends tcsh libbit-vector-perl
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Put the flake's Verilator and RISC-V GCC on PATH
+        run: |
+          verilator=$(nix build --no-link --print-out-paths .#verilator)
+          riscv=$(nix develop --command printenv RISCV | tail -1)
+          echo "$verilator/bin" >> "$GITHUB_PATH"
+          echo "$riscv/bin" >> "$GITHUB_PATH"
+          echo "VERILATOR_ROOT=$verilator/share/verilator" >> "$GITHUB_ENV"
+          echo "RISCV=$riscv" >> "$GITHUB_ENV"
+
+      - name: Check the tools
+        run: |
+          verilator --version
+          riscv64-unknown-elf-gcc --version | head -1
+
+      # On the runner's own disk, as chia_openpiton/README.md asks.
+      - name: Clone OpenPiton at the pinned commit
+        run: |
+          root="$HOME/openpiton"
+          git clone --filter=blob:none https://github.com/PrincetonUniversity/openpiton.git "$root"
+          git -C "$root" checkout "$OPENPITON_COMMIT"
+          echo "OPENPITON_ROOT=$root" >> "$GITHUB_ENV"
+
+      - name: Patch the checkout, and check a second run changes nothing
+        run: |
+          bash scripts/patch_openpiton.sh "$OPENPITON_ROOT"
+          first=$(git -C "$OPENPITON_ROOT" diff | sha256sum)
+          bash scripts/patch_openpiton.sh "$OPENPITON_ROOT"
+          second=$(git -C "$OPENPITON_ROOT" diff | sha256sum)
+          [ "$first" = "$second" ] || { echo "a second patch run changed the checkout"; exit 1; }
+
+      - name: Build a 1x1 PicoRV32 tile and run addi.S (tier 2)
+        env:
+          OPENPITON_TEST_REAL: "1"
+          OPENPITON_TEST_CORE: pico
+          MAKEFLAGS: -j2
+        run: >
+          pytest chia_openpiton/test/cluster/openpiton_e2e_test.py
+          -k TestAcceptance1 -rs -s
