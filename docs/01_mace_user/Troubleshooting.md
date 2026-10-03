@@ -63,11 +63,11 @@ Check which `verilator` OpenPiton's environment finds through `PATH` and `VERILA
 
 | Version | Result with this RTL |
 |---|---|
-| 5.020 | Builds and runs Ariane and PicoRV32 with `--no-timing`; used for the evaluation. OpenSPARC T1 stalls. |
+| 5.020 | Builds and runs Ariane and PicoRV32 with `--no-timing`; used for the evaluation. OpenSPARC T1 stalls. Ubuntu 24.04's `5.020-1` package has the same missing `-c` as 5.040 and 5.048, so the evaluation machines add `-c` before `$(CFG_CXXFLAGS_PCH)` in the two precompiled-header rules of `/usr/share/verilator/include/verilated.mk`. |
 | 5.028 | Internal crash `Wide Op w/ no temp` in `V3EmitCFunc.cpp` (verilator#5820), fixed in 5.036. |
 | 5.040, 5.048 | Their `verilated.mk` sets `CFG_CXXFLAGS_PCH` without `-c`, so every build fails to link the precompiled header with ``undefined reference to `main'`` (tag `pch_link_failure`). |
 | 5.049 devel | Builds, but its `verilator_coverage` faults on `--version`. |
-| 5.052 | Pinned by `flake.nix`; has none of the 5.028, 5.040, 5.048, and 5.049 problems. |
+| 5.052 | Pinned by `flake.nix`; has none of the 5.028, 5.040, 5.048, and 5.049 problems, and runs OpenSPARC T1. |
 
 ## Tool name length
 
