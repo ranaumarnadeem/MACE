@@ -70,7 +70,8 @@ To run the co-design Bayesian search, install the `eval` extra as well: `pip ins
 Install the toolchain yourself: Verilator, a `riscv64-unknown-elf` GCC that covers `rv64imafdc`/`lp64d`, `dtc` and `python3` for the RV64 boot ROM, and csh at `/bin/csh` for OpenPiton's `bw_cpp`.
 Set `RISCV` to the toolchain's install directory.
 For Ariane builds the adapter puts `$RISCV/bin` first on `PATH`, and uses `$HOME/scratch/riscv_install` when `RISCV` is unset.
-PicoRV32 needs no separate compiler, because the adapter drives the same `riscv64-unknown-elf-gcc` for `rv32ima`/`ilp32`.
+PicoRV32 builds get no such `PATH` entry: they assemble for `rv32ima`/`ilp32` with the `riscv64-unknown-elf-gcc` that `PATH` finds after `piton_settings.bash` puts `/usr/bin` first.
+On Ubuntu 24.04 that compiler comes from the `gcc-riscv64-unknown-elf`, `binutils-riscv64-unknown-elf`, and `picolibc-riscv64-unknown-elf` packages (GCC 13.2), which every PicoRV32 result used; without a compiler on `PATH`, a PicoRV32 run times out.
 [Troubleshooting](Troubleshooting.md) lists Verilator versions that fail with this RTL.
 
 ## Check the Python install
