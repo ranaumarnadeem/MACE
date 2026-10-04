@@ -68,8 +68,28 @@ class TestCachesColumnMigration:
         run_id = metrics.start_run(db, make_spec())
         metrics.record_iteration(db, run_id, 0, (make_result("a", True),), wall_s=1.0)
 
-        row = db.query_one("SELECT caches FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
+        row = db.query_one("SELECT caches, config_rtl FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
         assert row["caches"] is not None
+        assert row["config_rtl"] is not None
+
+    def test_opening_a_db_whose_llm_calls_lack_the_reply_column_adds_it(self, tmp_path):
+        from mace.usage import LLMCall
+
+        db_path = tmp_path / "old.db"
+        con = sqlite3.connect(str(db_path))
+        con.execute(
+            "CREATE TABLE llm_calls (run_id TEXT NOT NULL, seq INTEGER NOT NULL, iteration INTEGER, "
+            "phase TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, "
+            "thinking_tokens INTEGER NOT NULL DEFAULT 0, usd REAL NOT NULL DEFAULT 0, "
+            "wall_s REAL NOT NULL DEFAULT 0, ok INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (run_id, seq))"
+        )
+        con.commit()
+        con.close()
+
+        db = metrics.open_db(str(db_path), ray_placement=False)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_llm_calls(db, run_id, 0, (LLMCall("plan", reply="TASK: a"),))
+        assert db.query_one("SELECT reply FROM llm_calls WHERE run_id = ?", (run_id,))["reply"] == "TASK: a"
 
     def test_opening_a_fresh_db_twice_does_not_raise(self, tmp_path):
         db_path = tmp_path / "fresh.db"
@@ -149,6 +169,22 @@ class TestRecordIteration:
 
         row = db.query_one("SELECT caches FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
         assert json.loads(row["caches"]) == {**{k: list(v) for k, v in DEFAULT_CACHES.items()}, "l1d": [128, 1]}
+
+    def test_records_the_build_s_rtl_defines(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        cfg = PitonConfig(config_rtl=("MINIMAL_MONITORING", "CONFIG_DISABLE_BIST_CLEAR"))
+        build = PitonBuildArtifact(
+            success=True, returncode=0, config=cfg, sim_type="vlt",
+            model_dir="/x", binary_path="/x/Vcmp_top", wall_time_s=1.0,
+        )
+        result = StepResult(task=Task(id="a", deps=(), kind="config", spec="x"), query=None, build=build,
+                            run=None, passed=False)
+
+        metrics.record_iteration(db, run_id, 0, (result,), wall_s=1.0)
+
+        row = db.query_one("SELECT config_rtl FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
+        assert json.loads(row["config_rtl"]) == ["CONFIG_DISABLE_BIST_CLEAR", "MINIMAL_MONITORING"]
 
     def test_records_iteration_and_task_rows(self, tmp_path):
         db = open_test_db(tmp_path)
@@ -596,6 +632,15 @@ class TestLlmCalls:
         ]
         assert rows[0]["input_tokens"] == 10
         assert (rows[2]["thinking_tokens"], rows[2]["ok"]) == (3, 0)
+
+    def test_each_call_s_reply_is_stored(self, tmp_path):
+        from mace.usage import LLMCall
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_llm_calls(db, run_id, 0, (LLMCall("plan", reply="TASK: a | deps= | kind=config | x"),))
+        row = db.query_one("SELECT reply FROM llm_calls WHERE run_id = ?", (run_id,))
+        assert row["reply"] == "TASK: a | deps= | kind=config | x"
 
     def test_no_calls_writes_nothing(self, tmp_path):
         db = open_test_db(tmp_path)

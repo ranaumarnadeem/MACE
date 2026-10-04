@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class LLMCall:
-    """One LLM call's cost."""
+    """One LLM call's cost and reply."""
 
     phase: str
     input_tokens: int = 0
@@ -38,6 +38,8 @@ class LLMCall:
     usd: float = 0.0
     wall_s: float = 0.0
     ok: bool = True
+    # The reply's text, so a run's plans and diagnoses can be read later.
+    reply: str = ""
 
 
 def call_from(phase: str, query, wall_s: float) -> LLMCall:
@@ -51,6 +53,7 @@ def call_from(phase: str, query, wall_s: float) -> LLMCall:
         usd=float(usage.get("cost_usd", 0.0) or 0.0),
         wall_s=wall_s,
         ok=bool(getattr(query, "success", False)),
+        reply=str(getattr(query, "result", "") or ""),
     )
 
 

@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     run_s REAL,
     programs TEXT,
     evidence TEXT,
+    config_rtl TEXT,
     PRIMARY KEY (run_id, iteration, task_id)
 );
 
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     usd REAL NOT NULL DEFAULT 0,
     wall_s REAL NOT NULL DEFAULT 0,
     ok INTEGER NOT NULL DEFAULT 1,
+    reply TEXT,
     PRIMARY KEY (run_id, seq)
 );
 
@@ -141,7 +143,9 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "runs": {"method": "TEXT", "task": "TEXT", "repeat": "INTEGER", "seed": "INTEGER", "meta": "TEXT"},
     "tasks": {
         "caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL", "programs": "TEXT", "evidence": "TEXT",
+        "config_rtl": "TEXT",
     },
+    "llm_calls": {"reply": "TEXT"},
     "evaluations": {"simulated": "INTEGER NOT NULL DEFAULT 1", "rejected": "TEXT NOT NULL DEFAULT ''"},
 }
 
@@ -307,12 +311,12 @@ def record_llm_calls(
         [
             (
                 "INSERT INTO llm_calls "
-                "(run_id, seq, iteration, phase, input_tokens, output_tokens, thinking_tokens, usd, wall_s, ok) "
+                "(run_id, seq, iteration, phase, input_tokens, output_tokens, thinking_tokens, usd, wall_s, ok, reply) "
                 "VALUES (?, (SELECT COALESCE(MAX(seq), -1) + 1 FROM llm_calls WHERE run_id = ?), "
-                "?, ?, ?, ?, ?, ?, ?, ?)",
+                "?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id, run_id, iteration, c.phase, c.input_tokens, c.output_tokens,
-                    c.thinking_tokens, c.usd, c.wall_s, int(c.ok),
+                    c.thinking_tokens, c.usd, c.wall_s, int(c.ok), c.reply,
                 ),
             )
             for c in calls
@@ -350,8 +354,8 @@ def record_resimulation(db: SQLiteNode, run_id: str, task_id: str, run) -> None:
 def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tuple]:
     """Build one task row's (sql, params) for record_iteration's transaction.
 
-    Records the cache geometry the build *actually* used
-    (``result.build.config.caches``), not what the task's own spec text
+    Records the cache geometry and RTL defines the build *actually* used
+    (``result.build.config``), not what the task's own spec text
     asked for -- the two can disagree (a Planner-requested override that
     never reached the build is exactly the failure mode this column exists
     to make visible), and only the build's own resolved PitonConfig is
@@ -364,8 +368,8 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
     return (
         "INSERT OR REPLACE INTO tasks "
         "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module, "
-        "build_s, run_s, programs, evidence) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "build_s, run_s, programs, evidence, config_rtl) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             iteration,
@@ -385,6 +389,7 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
             # evaluation job's cache clear removes, and a run without triage
             # keeps no other account of why a task failed.
             None if result.passed else failure_evidence(result),
+            json.dumps(sorted(result.build.config.config_rtl)),
         ),
     )
 

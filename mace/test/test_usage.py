@@ -31,7 +31,7 @@ class TestCallFrom:
         )
         assert call == usage.LLMCall(
             phase="plan", input_tokens=10, output_tokens=2, thinking_tokens=5,
-            usd=0.5, wall_s=1.5, ok=True,
+            usd=0.5, wall_s=1.5, ok=True, reply="ok",
         )
 
     def test_a_reply_without_usage_records_zero_tokens(self):
