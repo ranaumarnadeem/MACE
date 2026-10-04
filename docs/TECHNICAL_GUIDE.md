@@ -785,6 +785,13 @@ neither baseline (b) nor a bare pass/fail number could show on its own:
   independence is also what lets two unrelated tasks use different cache
   geometries in the same run.
 
+  **Update: a task now inherits its dependencies' RTL defines.** The
+  planner still split the work this way in about one plan in ten, despite
+  the single-task objective, and both one-shot and the loop failed on it.
+  `mace.planner.plan` now adds every dependency's `CONFIG_RTL:` flags to a
+  task's own. Cache overrides stay per task, so unrelated tasks can
+  still build different geometries.
+
   **Update: the boot fix generalizes to larger meshes; `barrier_atomic.c`
   never runs on pico at any mesh size, for a simpler and more fundamental
   reason than first suspected.** On a 2x2 pico mesh, all four tiles

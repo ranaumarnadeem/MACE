@@ -53,7 +53,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EXEC-2:** MACE shall run at most one task on an OpenPiton checkout at a time, running each level in batches of at most one task per checkout.
 - **REQ-EXEC-3:** MACE shall run the `config` and `workload` tasks of a batch concurrently.
 - **REQ-EXEC-4:** MACE shall dispatch all remote builds and runs for one checkout to the same Ray worker.
-- **REQ-EXEC-5:** MACE shall give every `config` and `workload` task its own build configuration, formed only from the run's core and mesh, the task's cache overrides, and the task's RTL defines added to the default defines.
+- **REQ-EXEC-5:** MACE shall give every `config` and `workload` task its own build configuration, formed only from the run's core and mesh, the task's cache overrides, and the RTL defines of the task and of every task it depends on, added to the default defines.
 - **REQ-EXEC-6:** When the run specification requests coverage, MACE shall build every `config` and `workload` task with Verilator line coverage.
 - **REQ-EXEC-7:** MACE shall pass the tools the caller supplies to the loop to every LLM call it makes: planning, task execution, diagnosis, and post-mortem.
 - **REQ-EXEC-8:** For a `unit_test` task, MACE shall scaffold an OpenPiton unit-test environment for the RTL module the task names, give the agent the module's port list, and ask it to reconcile the scaffolded testbench with the module.

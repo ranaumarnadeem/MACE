@@ -93,7 +93,7 @@ Each flag must match `^[A-Z][A-Z0-9_]*$`.
 The parser drops other tokens and merges several lines for one task.
 
 - Nothing checks a define against the RTL, so an unknown define is accepted and costs a full build.
-- Each task builds its own configuration, so a define on one task does not carry over to tasks that depend on it. For a define every build needs, ask for a single task in the objective.
+- A task also builds with the defines of every task it depends on, directly or through other tasks. `CACHES:` overrides stay with the task they name.
 - The planner can request a define named in the objective or in triage feedback. Name `CONFIG_DISABLE_BIST_CLEAR` in a PicoRV32 objective.
 
 ## Driving the loop from Python

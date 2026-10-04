@@ -43,9 +43,9 @@ A batch's `unit_test` tasks run one after another before its remote tasks start.
 - `core`, `x_tiles`, and `y_tiles` come from the spec;
 - `extra_flags` holds `-vlt_build_args=--coverage-line` when `spec.coverage` is set;
 - `caches` takes the task's `CACHES:` override, and `PitonConfig` fills in the caches it leaves out from `DEFAULT_CACHES`;
-- `config_rtl` is the sorted union of the default `("MINIMAL_MONITORING",)` and the task's `CONFIG_RTL:` flags.
+- `config_rtl` is the sorted union of the default `("MINIMAL_MONITORING",)` and the task's `CONFIG_RTL:` flags, which include those of the tasks it depends on (see [Planner](planner.md)).
 
-A task's configuration depends only on the spec and the task's own overrides.
+A task's configuration depends only on the spec, the task's own overrides, and its dependencies' RTL defines.
 Two tasks in one level can therefore build different cache geometries.
 On Ariane, [build()](../04_chia_openpiton/workspace_node.md) refuses a task whose L1D or L1I has more ways than its L1.5, so the task fails with the failure reason `way_rule`, and triage and the re-plan see which cache broke the rule.
 

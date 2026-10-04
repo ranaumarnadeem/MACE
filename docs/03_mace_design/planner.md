@@ -44,7 +44,9 @@ The flags from all of a task's lines form a sorted union.
 The flags add to the default RTL defines and never replace them.
 No allowlist applies, so any well-formed name reaches the build.
 
-An override line applies only to the task it names (see [Parallel Task Execution](task_execution.md)).
+An override line applies to the task it names.
+`plan()` then adds to each task the `CONFIG_RTL:` flags of every task it depends on, directly or through other tasks, so a workload task that depends on a config task builds with that task's defines.
+`CACHES:` overrides stay with the task they name (see [Parallel Task Execution](task_execution.md)).
 
 ## Validation
 
