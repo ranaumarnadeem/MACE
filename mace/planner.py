@@ -10,9 +10,11 @@ mace.integrator.topological_levels already knows how to check.
 
 from __future__ import annotations
 
+import dataclasses
+
 from mace import usage
 from mace.agents import parse_tasks
-from mace.integrator import topological_levels
+from mace.integrator import topological_levels, topological_order
 from mace.spec import MaceSpec, Task
 
 # The run's inputs, in the words every LLM method's prompt uses. The
@@ -64,7 +66,8 @@ CONFIG_RTL: <task id> | <FLAG1> <FLAG2> ...
 
 Each flag is an upper-snake-case identifier (e.g. CONFIG_DISABLE_BIST_CLEAR).
 These add to the mesh's default RTL defines; they never replace them. A task
-with no CONFIG_RTL: line keeps the mesh's default RTL defines only.
+also builds with the CONFIG_RTL: flags of every task it depends on; a task
+with neither keeps the mesh's default RTL defines only.
 """
 
 
@@ -76,6 +79,26 @@ def render_inputs(spec: MaceSpec) -> str:
         x_tiles=spec.target_mesh[0],
         y_tiles=spec.target_mesh[1],
         workloads=", ".join(spec.workloads),
+    )
+
+
+def inherit_config_rtl(tasks: tuple[Task, ...]) -> tuple[Task, ...]:
+    """*tasks*, each with the ``CONFIG_RTL:`` flags of every task it depends
+    on, directly or through other tasks, added to its own.
+
+    A plan that sets a define in a config task and runs the gate workload in
+    a task that depends on it means the workload to build with that define.
+    Cache geometry and network stay per task. *tasks* must form a valid DAG.
+    """
+    flags: dict[str, frozenset[str]] = {}
+    for task in topological_order(tasks):
+        merged = set(task.config_rtl or ())
+        for dep in task.deps:
+            merged |= flags[dep]
+        flags[task.id] = frozenset(merged)
+    return tuple(
+        dataclasses.replace(t, config_rtl=tuple(sorted(flags[t.id]))) if flags[t.id] else t
+        for t in tasks
     )
 
 
@@ -100,6 +123,9 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "") -> tuple[Task, ...]:
     loop) is appended as extra context for a replan attempt; empty for a
     first attempt.
 
+    Each task also gets its dependencies' RTL defines (see
+    :func:`inherit_config_rtl`).
+
     Raises:
         PlanningError: no ``TASK:`` lines, or the ones that parsed don't
             form a valid DAG (unknown dep, cycle). Both cases mean "not
@@ -116,4 +142,4 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "") -> tuple[Task, ...]:
         topological_levels(tasks)
     except ValueError as e:
         raise PlanningError(f"planner produced an invalid task DAG: {e}") from e
-    return tasks
+    return inherit_config_rtl(tasks)

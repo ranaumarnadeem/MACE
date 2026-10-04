@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from mace.planner import PlanningError, build_prompt, plan
-from mace.spec import MaceSpec
+from mace.planner import PlanningError, build_prompt, inherit_config_rtl, plan
+from mace.spec import MaceSpec, Task
 from mace.test.conftest import FakeLLM
 
 PLANNER_TRANSCRIPT = """\
@@ -105,3 +105,36 @@ class TestPlan:
         llm = FakeLLM(responses=["TASK: a | deps=nope | kind=config | x\n"])
         with pytest.raises(PlanningError, match="invalid task DAG"):
             plan(make_spec(), llm)
+
+
+class TestInheritConfigRtl:
+    def test_a_task_gets_its_dependency_s_defines(self):
+        tasks = (
+            Task(id="cfg", deps=(), kind="config", spec="x", config_rtl=("CONFIG_DISABLE_BIST_CLEAR",)),
+            Task(id="run", deps=("cfg",), kind="workload", spec="jal.S"),
+        )
+        assert inherit_config_rtl(tasks)[1].config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",)
+
+    def test_defines_pass_through_a_chain_and_merge_with_the_task_s_own(self):
+        tasks = (
+            Task(id="c", deps=("b",), kind="workload", spec="z", config_rtl=("FLAG_C",)),
+            Task(id="b", deps=("a",), kind="config", spec="y"),
+            Task(id="a", deps=(), kind="config", spec="x", config_rtl=("FLAG_A",)),
+        )
+        assert [t.config_rtl for t in inherit_config_rtl(tasks)] == [("FLAG_A", "FLAG_C"), ("FLAG_A",), ("FLAG_A",)]
+
+    def test_tasks_without_dependencies_and_caches_are_unchanged(self):
+        tasks = (
+            Task(id="cfg", deps=(), kind="config", spec="x", caches=(("l1d", (16384, 4)),)),
+            Task(id="run", deps=("cfg",), kind="workload", spec="y"),
+            Task(id="alone", deps=(), kind="workload", spec="z"),
+        )
+        assert inherit_config_rtl(tasks) == tasks
+
+    def test_plan_applies_it(self):
+        llm = FakeLLM(responses=[
+            "TASK: cfg | deps= | kind=config | x\n"
+            "CONFIG_RTL: cfg | CONFIG_DISABLE_BIST_CLEAR\n"
+            "TASK: run | deps=cfg | kind=workload | jal.S\n"
+        ])
+        assert plan(make_spec(), llm)[1].config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",)
