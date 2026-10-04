@@ -15,16 +15,16 @@ Every insert uses `INSERT OR REPLACE` on the table's primary key, so recording t
 |---|---|---|
 | `runs` | `run_id` | `objective`, `core`, `x_tiles`, `y_tiles`, `started_at`, `finished_at`, `status`, `method`, `task`, `repeat`, `seed`, `meta` |
 | `iterations` | `run_id`, `iteration` | `num_tasks`, `num_passed`, `wall_s`, `usd` |
-| `tasks` | `run_id`, `iteration`, `task_id` | `kind`, `spec`, `passed`, `build_success`, `run_verdict`, `wall_s`, `caches`, `module`, `build_s`, `run_s`, `programs`, `evidence` |
+| `tasks` | `run_id`, `iteration`, `task_id` | `kind`, `spec`, `passed`, `build_success`, `run_verdict`, `wall_s`, `caches`, `module`, `build_s`, `run_s`, `programs`, `evidence`, `config_rtl` |
 | `failures` | `run_id`, `iteration`, `task_id` | `diagnosis`, `fix`, `recovered` |
 | `post_mortems` | `run_id` | `assessment`, `explanation`, `next_steps` |
-| `llm_calls` | `run_id`, `seq` | `iteration`, `phase`, `input_tokens`, `output_tokens`, `thinking_tokens`, `usd`, `wall_s`, `ok` |
+| `llm_calls` | `run_id`, `seq` | `iteration`, `phase`, `input_tokens`, `output_tokens`, `thinking_tokens`, `usd`, `wall_s`, `ok`, `reply` |
 
 - `run_id` is 12 hex digits.
 - `runs.method` names what ran: `mace` for a plain loop run, or the baseline or ablation an evaluation run was. `runs.task`, `runs.repeat`, and `runs.seed` identify the evaluation task and repeat, and `runs.meta` holds the run's environment as JSON. A database written before these columns existed gets them empty.
 - `iterations.wall_s` runs from the start of the planner call to the end of the iteration's last task, and excludes triage. `iterations.usd` is the cost of the iteration's planner, task, and triage calls; see [LLM Backends](LLM_Backends.md).
-- `tasks.build_s` and `tasks.run_s` are the build time and the summed simulation time, and `tasks.wall_s` is their sum; a reused build counts as 0. `tasks.programs` lists each gate workload run with its verdict, as JSON. `tasks.caches` holds the build configuration's cache map as JSON. `tasks.module` names the module of a `unit_test` task. `tasks.evidence` holds, for a task that did not pass, the text triage reads: the build flags and their changes from the defaults, then the build's errors and output tail or the failing simulation's transcript tail and status log. It stays after an evaluation job's cache clear removes the logs.
-- `llm_calls` holds one row per LLM call, numbered in the order the calls finished. `phase` is `plan`, `task`, `triage`, or `post_mortem`, and a post-mortem call has no iteration. `ok` is 0 for a call that failed; such a call records no tokens.
+- `tasks.build_s` and `tasks.run_s` are the build time and the summed simulation time, and `tasks.wall_s` is their sum; a reused build counts as 0. `tasks.programs` lists each gate workload run with its verdict, as JSON. `tasks.caches` holds the build configuration's cache map as JSON, and `tasks.config_rtl` its sorted RTL defines as a JSON list. `tasks.module` names the module of a `unit_test` task. `tasks.evidence` holds, for a task that did not pass, the text triage reads: the build flags and their changes from the defaults, then the build's errors and output tail or the failing simulation's transcript tail and status log. It stays after an evaluation job's cache clear removes the logs.
+- `llm_calls` holds one row per LLM call, numbered in the order the calls finished. `phase` is `plan`, `task`, `triage`, or `post_mortem`, and a post-mortem call has no iteration. `ok` is 0 for a call that failed; such a call records no tokens. `reply` holds the reply's text, such as a plan's `TASK:` lines or a triage diagnosis.
 - `failures.diagnosis` is free text. The triage prompt suggests `test_bug`, `config_error`, `timeout`, `maxcycles`, `rtl_suspect`, and `testbench_mismatch`. The loop records `unknown` when the reply has no `DIAGNOSIS:` line. When a run passes after earlier failures, all of its failures are marked `recovered`.
 - The post-mortem prompt asks for the assessment `fixable_config`, `likely_hardware_limitation`, or `inconclusive`.
 
@@ -62,7 +62,7 @@ for run in all_runs(db):
     print(run["run_id"], run["status"], run["successful_tasks"], run["execution_time_s"])
 ```
 
-`DBReader` reads the database with Python's `sqlite3` and starts no Ray. It adds the `caches` and `module` columns that an older database lacks, then refuses writes.
+`DBReader` reads the database with Python's `sqlite3` and starts no Ray. It adds the columns that an older database lacks, such as `caches`, `config_rtl`, and `reply`, then refuses writes.
 The loop writes through `open_db(path)`, a CHIA `SQLiteNode`; the first call on one starts Ray, because CHIA's profiler looks up its collector actor.
 `all_runs(db)` returns every run, newest first, with its summary merged in.
 `trace_run(db, run_id)` gives one run's iterations with their tasks and failures.

@@ -77,7 +77,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-VER-10:** MACE shall end the run with status `passed` when every task of an iteration passes.
 - **REQ-VER-11:** MACE shall end the run with status `failed` when an iteration produces no task results.
 - **REQ-VER-12:** MACE shall reuse an earlier successful build on the same checkout only when its core, mesh, network, cache geometry, RTL defines, and flags match, and the checkout's commit, file edits, untracked files, Ariane submodule, and Verilator version are unchanged since that build.
-- **REQ-VER-13:** MACE shall record every run, iteration, and task result in a SQLite database, including the cache sizes and associativities in each build's configuration.
+- **REQ-VER-13:** MACE shall record every run, iteration, and task result in a SQLite database, including the cache sizes and associativities and the RTL defines in each build's configuration.
 - **REQ-VER-14:** MACE shall report each iteration's results to an optional caller-supplied callback after recording them and before failure analysis.
 - **REQ-VER-15:** MACE shall report five metrics for a recorded run: successful tasks, iterations, failures recovered, execution time, and compute cost.
 - **REQ-VER-16:** When the run specification sets `max_cycle`, MACE shall pass it to every gate workload's simulation as the testbench's cycle limit.
@@ -109,7 +109,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-BUD-9:** MACE shall record a run with status `running` when it starts, and replace that status with `passed`, `failed`, `planning_failed`, `budget_exceeded`, `checksum_mismatch`, or `error` when the loop ends.
 - **REQ-BUD-10:** MACE shall record status `error` for a run that an exception ends, then re-raise the exception.
 - **REQ-BUD-11:** MACE shall cap each build's and simulation's timeout at the time left in the run's wall-clock limit, and shall not start a build or simulation after that limit has passed.
-- **REQ-BUD-12:** MACE shall record, for each LLM call, its phase, its input, output, and thinking tokens, its cost, its wall-clock time, and whether it succeeded.
+- **REQ-BUD-12:** MACE shall record, for each LLM call, its phase, its input, output, and thinking tokens, its cost, its wall-clock time, whether it succeeded, and the text of its reply.
 
 ### Deterministic Replay
 
