@@ -53,6 +53,7 @@ METHODS: dict[str, str] = {
     "one_checkout": "A2: the full loop on one checkout.",
     "build_check": "A3: a task passes on its build; accepted designs are simulated afterwards.",
     "no_reuse": "A5: every task rebuilds, even a configuration already built.",
+    "no_rtl_edits": "A6: the loop without rtl tasks; it changes only the build configuration.",
     "codesign_mace": "C0: MACE's LLM proposer picks each round's designs.",
     "codesign_random": "C1: uniform random designs, seeded by the repeat.",
     "codesign_grid": "C2: the task's fixed grid, in order.",
@@ -263,6 +264,11 @@ def run_job(job: Job, env: RunEnv):
         return run_mace_loop(
             roots, spec, env.llm, env.db, labels=labels,
             options=dataclasses.replace(options, reuse_builds=False),
+        )
+    if method == "no_rtl_edits":
+        return run_mace_loop(
+            roots, spec, env.llm, env.db, labels=labels,
+            options=dataclasses.replace(options, rtl_edits=False),
         )
     if method == "build_check":
         result = run_mace_loop(

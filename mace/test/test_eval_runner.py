@@ -114,6 +114,7 @@ class TestRunJob:
             ("one_checkout", "run_mace_loop", ("/a",), LoopOptions()),
             ("no_triage", "run_mace_loop", ("/a", "/b"), LoopOptions(triage="raw")),
             ("no_reuse", "run_mace_loop", ("/a", "/b"), LoopOptions(reuse_builds=False)),
+            ("no_rtl_edits", "run_mace_loop", ("/a", "/b"), LoopOptions(rtl_edits=False)),
             ("build_check", "run_mace_loop", ("/a", "/b"), LoopOptions(check="build")),
         ],
     )
