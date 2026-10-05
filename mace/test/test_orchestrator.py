@@ -93,7 +93,7 @@ def fake_plan(tasks_by_call):
     consuming *tasks_by_call* in order."""
     calls = list(tasks_by_call)
 
-    def _plan(spec, llm, tools=(), feedback=""):
+    def _plan(spec, llm, tools=(), feedback="", rtl_edits=True):
         return calls.pop(0)
 
     return _plan
@@ -123,7 +123,7 @@ class TestIterationWallTimeIncludesPlanning:
         db = make_db(tmp_path)
         planner_delay_s = 0.2
 
-        def slow_plan(spec, llm, tools=(), feedback=""):
+        def slow_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
             time.sleep(planner_delay_s)
             return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
 
@@ -227,7 +227,7 @@ class TestNodeLifecycleAcrossIterations:
             "mace.orchestrator.open_nodes", lambda piton_roots: open_calls.append(piton_roots)
         )
 
-        def raising_plan(spec, llm, tools=(), feedback=""):
+        def raising_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
             raise PlanningError("no TASK: lines in the planner's response")
 
         monkeypatch.setattr("mace.orchestrator.plan", raising_plan)
@@ -272,7 +272,7 @@ class TestStatusTransitions:
     def test_planning_error_stops_with_planning_failed(self, tmp_path, monkeypatch):
         from mace.planner import PlanningError
 
-        def raising_plan(spec, llm, tools=(), feedback=""):
+        def raising_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
             raise PlanningError("no TASK: lines in the planner's response")
 
         monkeypatch.setattr("mace.orchestrator.plan", raising_plan)
@@ -322,7 +322,7 @@ class TestStatusTransitions:
     ):
         seen_feedback = []
 
-        def recording_plan(spec, llm, tools=(), feedback=""):
+        def recording_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
             seen_feedback.append(feedback)
             return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
 
@@ -357,7 +357,7 @@ class TestStatusTransitions:
             Triage(diagnosis="build_timeout", fix="raise the sim wall clock"),
         ])
 
-        def recording_plan(spec, llm, tools=(), feedback=""):
+        def recording_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
             seen_feedback.append(feedback)
             return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
 
@@ -756,7 +756,7 @@ class TestLlmCallsAreRecorded:
         db = make_db(tmp_path)
         monkeypatch.setattr(
             "mace.orchestrator.plan",
-            lambda spec, llm, tools=(), feedback="": (Task(id="t1", deps=(), kind="workload", spec="w"),),
+            lambda spec, llm, tools=(), feedback="", rtl_edits=True: (Task(id="t1", deps=(), kind="workload", spec="w"),),
         )
         monkeypatch.setattr("mace.orchestrator.integrate_parallel", lambda *a, **k: (step_result("t1"),))
         result = run_mace_loop(
@@ -793,7 +793,7 @@ class TestLoopOptions:
     def _replan_feedback(self, tmp_path, monkeypatch, options):
         feedback_seen = []
 
-        def recording_plan(spec, llm, tools=(), feedback=""):
+        def recording_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
             feedback_seen.append(feedback)
             return (Task(id="t1", deps=(), kind="workload", spec="w"),)
 
@@ -857,7 +857,7 @@ class TestFeedbackNamesThePlansChanges:
 
         feedback_seen = []
 
-        def recording_plan(spec, llm, tools=(), feedback=""):
+        def recording_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
             feedback_seen.append(feedback)
             return (Task(id="t1", deps=(), kind="workload", spec="w"),)
 
@@ -881,7 +881,7 @@ class TestPlanHook:
         received = []
         monkeypatch.setattr(
             "mace.orchestrator.plan",
-            lambda spec, llm, tools=(), feedback="": (Task(id="t1", deps=(), kind="workload", spec="w"),),
+            lambda spec, llm, tools=(), feedback="", rtl_edits=True: (Task(id="t1", deps=(), kind="workload", spec="w"),),
         )
 
         def integrate(piton_roots, spec, tasks, llm, **kwargs):

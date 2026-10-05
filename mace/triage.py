@@ -57,6 +57,18 @@ def changes_from_defaults(config: PitonConfig) -> str:
     return "; ".join(parts) if parts else "none"
 
 
+# How much of an RTL edit's diff a prompt quotes.
+EDIT_DIFF_CHARS = 3000
+
+
+def edits_feedback(result: StepResult) -> str:
+    """The RTL edits a failed task's build carried, as a line block to add
+    to the re-plan's feedback; "" when it carried none."""
+    if not result.edits_diff:
+        return ""
+    return f"\nThe RTL edits it was built with:\n{result.edits_diff[:EDIT_DIFF_CHARS]}"
+
+
 def failure_evidence(result: StepResult) -> str:
     """What a failed task's build and simulation reported, capped in length.
 
@@ -73,6 +85,8 @@ def failure_evidence(result: StepResult) -> str:
         f"Build flags: {' '.join(build.config.sims_flags())}",
         f"Changes from the defaults: {changes_from_defaults(build.config)}",
     ]
+    if result.edits_diff:
+        context_parts.append(f"RTL edits the build carried:\n{result.edits_diff[:EDIT_DIFF_CHARS]}")
     if not build.success:
         context_parts.append(f"Build failure reason: {build.failure_reason}")
         if build.errors:

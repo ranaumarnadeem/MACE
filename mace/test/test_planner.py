@@ -138,3 +138,26 @@ class TestInheritConfigRtl:
             "TASK: run | deps=cfg | kind=workload | jal.S\n"
         ])
         assert plan(make_spec(), llm)[1].config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",)
+
+
+class TestRtlKind:
+    def test_the_prompt_offers_the_rtl_kind_by_default(self):
+        prompt = build_prompt(make_spec())
+        assert "kind=config|workload|unit_test|rtl" in prompt
+        assert 'kind "rtl" is a change to the design' in prompt
+
+    def test_without_rtl_edits_the_prompt_leaves_the_kind_out(self):
+        prompt = build_prompt(make_spec(), rtl_edits=False)
+        assert "kind=config|workload|unit_test |" in prompt
+        assert "|rtl" not in prompt and 'kind "rtl"' not in prompt
+
+    def test_plan_passes_the_choice_to_the_prompt(self):
+        llm = FakeLLM(responses=[PLANNER_TRANSCRIPT])
+        plan(make_spec(), llm, rtl_edits=False)
+        message, _ = llm.calls[0]
+        assert message == build_prompt(make_spec(), rtl_edits=False)
+
+    def test_an_rtl_task_line_parses(self):
+        llm = FakeLLM(responses=["TASK: fix | deps= | kind=rtl | Move inv.vld into p_rtrn_logic\n"])
+        (only,) = plan(make_spec(), llm)
+        assert only.kind == "rtl"

@@ -30,7 +30,7 @@ _TASK_RULES = """\
 Break this into an ordered set of tasks. Respond with one line per task,
 in exactly this format (a footer, not prose):
 
-TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|unit_test | <short instruction>
+TASK: <id> | deps=<comma-separated task ids, or empty> | kind={kinds} | <short instruction>
 
 - <id> must be unique.
 - deps must name only ids you also define here, and must not form a cycle.
@@ -40,7 +40,7 @@ TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|un
   -- for a unit_test task, the instruction must be just that module's RTL
   path relative to the checkout root (e.g. piton/design/chip/tile/pico/rtl/
   picorv32.v), nothing else.
-- Emit at least one TASK: line. Nothing else you write is parsed, but keep
+{rtl_rule}- Emit at least one TASK: line. Nothing else you write is parsed, but keep
   the rest brief.
 """
 
@@ -106,17 +106,33 @@ class PlanningError(Exception):
     """The Planner's response produced no usable task DAG."""
 
 
-def build_prompt(spec: MaceSpec, feedback: str = "") -> str:
+# The rtl kind's rule, left out of the prompt when LoopOptions.rtl_edits is
+# off.
+RTL_RULE = """\
+- kind "rtl" is a change to the design's RTL source. Its agent gets tools to
+  read files under piton/design/ and replace text in them; the changed
+  design is built and every gate workload simulated. Say in the instruction
+  what to change and why. A task that depends on an rtl task builds with
+  its changes. Testbench and monitor files under piton/verif/ cannot change.
+"""
+
+
+def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = True) -> str:
+    """The planner's prompt; *rtl_edits* False leaves out the rtl kind."""
+    rules = _TASK_RULES.format(
+        kinds="config|workload|unit_test|rtl" if rtl_edits else "config|workload|unit_test",
+        rtl_rule=RTL_RULE if rtl_edits else "",
+    )
     prompt = (
         f"You are planning the work for one MACE loop run against OpenPiton/{spec.core}.\n\n"
-        f"{render_inputs(spec)}\n{_TASK_RULES}\n{OVERRIDE_RULES}"
+        f"{render_inputs(spec)}\n{rules}\n{OVERRIDE_RULES}"
     )
     if feedback:
         prompt += f"\nFeedback from a previous attempt, to inform this plan:\n{feedback}\n"
     return prompt
 
 
-def plan(spec: MaceSpec, llm, tools=(), feedback: str = "") -> tuple[Task, ...]:
+def plan(spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = True) -> tuple[Task, ...]:
     """One LLM call, turned into a validated task DAG.
 
     ``feedback`` (from mace.triage.triage, via mace.loop's replan-on-failure
@@ -124,7 +140,8 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "") -> tuple[Task, ...]:
     first attempt.
 
     Each task also gets its dependencies' RTL defines (see
-    :func:`inherit_config_rtl`).
+    :func:`inherit_config_rtl`). *rtl_edits* False leaves the ``rtl`` kind
+    out of the prompt (see :class:`~mace.spec.LoopOptions`).
 
     Raises:
         PlanningError: no ``TASK:`` lines, or the ones that parsed don't
@@ -134,7 +151,7 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "") -> tuple[Task, ...]:
             failed plan means (retry with more context, give up) is the
             caller's job; this only refuses to hand back something broken.
     """
-    query = usage.prompt(llm, "plan", build_prompt(spec, feedback), tools)
+    query = usage.prompt(llm, "plan", build_prompt(spec, feedback, rtl_edits), tools)
     tasks = parse_tasks(query.result)
     if not tasks:
         raise PlanningError(f"no TASK: lines in the planner's response: {query.result!r}")

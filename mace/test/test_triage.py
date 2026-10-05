@@ -191,3 +191,21 @@ class TestObjectiveInTheprompt:
         llm = FakeLLM(responses=["DIAGNOSIS: config_error\nFIX: add the define"])
         triage(make_failed_result(), llm, objective="needs CONFIG_DISABLE_BIST_CLEAR")
         assert "Run objective: needs CONFIG_DISABLE_BIST_CLEAR" in llm.calls[0][0]
+
+
+class TestRtlEditsInTheEvidence:
+    def test_the_evidence_and_the_feedback_quote_the_edits_diff(self):
+        from mace.triage import edits_feedback, failure_evidence
+
+        result = make_failed_result()
+        result.edits_diff = "--- a/piton/design/x.v\n+++ b/piton/design/x.v\n-old\n+new\n"
+
+        assert "RTL edits the build carried:\n--- a/piton/design/x.v" in failure_evidence(result)
+        assert edits_feedback(result).startswith("\nThe RTL edits it was built with:\n--- a/piton/design/x.v")
+
+    def test_no_edits_add_nothing(self):
+        from mace.triage import edits_feedback, failure_evidence
+
+        result = make_failed_result()
+        assert "RTL edits" not in failure_evidence(result)
+        assert edits_feedback(result) == ""

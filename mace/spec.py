@@ -132,6 +132,9 @@ class LoopOptions:
       reply changes nothing that is built.
     - ``post_mortem``: ``False`` skips the post-mortem of a run that ends
       without passing.
+    - ``rtl_edits``: ``False`` leaves the ``rtl`` task kind out of the
+      planner's prompt and gives no task an RTL edit tool, so the loop
+      changes only the build configuration.
     """
 
     triage: str = "llm"
@@ -139,6 +142,7 @@ class LoopOptions:
     reuse_builds: bool = True
     task_prompts: bool = True
     post_mortem: bool = True
+    rtl_edits: bool = True
 
     def __post_init__(self) -> None:
         if self.triage not in TRIAGE_MODES:
@@ -147,7 +151,7 @@ class LoopOptions:
             raise ValueError(f"check must be one of {sorted(CHECK_MODES)}, got {self.check!r}")
 
 
-TASK_KINDS: frozenset[str] = frozenset(("config", "workload", "unit_test"))
+TASK_KINDS: frozenset[str] = frozenset(("config", "workload", "unit_test", "rtl"))
 NETWORKS: frozenset[str] = frozenset(("2dmesh_config", "xbar_config"))
 
 
@@ -235,6 +239,9 @@ class StepResult:
     ``runs`` holds one run per gate program, in the spec's order, stopping
     at the first that failed. ``run`` is the last of them: the failing run,
     or the final passing one.
+
+    ``edits`` and ``edits_diff`` describe the RTL edits applied for the
+    build (see mace.integrator); ``None`` and ``""`` when there were none.
     """
 
     task: Task
@@ -243,6 +250,10 @@ class StepResult:
     run: PitonRunResult | None
     passed: bool
     runs: tuple[PitonRunResult, ...] = ()
+    # The RTL edits this task's build carried, its own and its
+    # dependencies' (path -> full new content), and their unified diff.
+    edits: dict[str, str] | None = None
+    edits_diff: str = ""
 
 
 @dataclass(frozen=True)

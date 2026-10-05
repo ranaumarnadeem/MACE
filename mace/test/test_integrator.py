@@ -668,3 +668,134 @@ class TestEveryGateProgramRemote:
         spec = make_spec(workloads=("a.c", "b.c"), max_cycle=6_000_000)
         _run_batch([node], spec, [task("t")], llm, (), str(WORKLOADS_DIR), "r", 0)
         assert [c["max_cycle"] for c in node.run.calls] == [6_000_000, 6_000_000]
+
+
+class _FakeApplyAttr:
+    """node.apply_edits: merges the passed edits with the staged ones a test
+    names, as the real node does, and records each call."""
+
+    def __init__(self, staged_edits=None):
+        self.staged_edits = staged_edits or {}
+        self.calls = []
+
+    def chia_remote(self, edits, staged=""):
+        self.calls.append((dict(edits), staged))
+        merged = {**edits, **self.staged_edits.get(staged, {})}
+        return _FakeRef({"edits": merged, "diff": f"diff of {sorted(merged)}"})
+
+
+class _FakeRevertAttr:
+    def __init__(self):
+        self.calls = 0
+
+    def chia_remote(self):
+        self.calls += 1
+        return _FakeRef([])
+
+
+class _EditingNode(_FakeRemoteNode):
+    def __init__(self, piton_root, staged_edits=None):
+        super().__init__(piton_root)
+        self.apply_edits = _FakeApplyAttr(staged_edits)
+        self.revert_edits = _FakeRevertAttr()
+
+
+class TestRtlEdits:
+    EDIT = {"piton/design/chip/x.v": "module x; endmodule\n"}
+
+    def _session(self, monkeypatch, staged="t.json"):
+        def fake_session(node, spec, task, llm, tools, inherited, run_id, iteration):
+            return FakeLLM(responses=["changed x.v"]).prompt("edit"), staged
+
+        monkeypatch.setattr("mace.integrator._rtl_session", fake_session)
+
+    def _batch(self, monkeypatch, node, tasks, options=None, applied=None):
+        from mace.spec import LoopOptions
+
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+        return _run_batch(
+            [node] * len(tasks), make_spec(), tasks, llm, (), str(WORKLOADS_DIR), None, 0,
+            options=options or LoopOptions(), applied=applied,
+        )
+
+    def test_an_rtl_task_without_an_edit_fails_without_a_build(self, monkeypatch):
+        node = _EditingNode("/root_a")
+        [result] = self._batch(monkeypatch, node, [task("r", kind="rtl", spec="fix the adapter")])
+
+        assert result.passed is False
+        assert result.build.failure_reason == "no_rtl_edit"
+        assert node.build.calls == []
+        assert node.apply_edits.calls == []
+
+    def test_an_rtl_task_builds_with_its_edits_under_its_own_build_id_then_reverts(self, monkeypatch):
+        from mace.integrator import edits_digest
+
+        self._session(monkeypatch)
+        node = _EditingNode("/root_a", staged_edits={"t.json": self.EDIT})
+        [result] = self._batch(monkeypatch, node, [task("r", kind="rtl", spec="fix the adapter")])
+
+        assert result.passed is True
+        assert result.edits == self.EDIT
+        assert result.edits_diff == "diff of ['piton/design/chip/x.v']"
+        assert result.build.config.source_edits == edits_digest(self.EDIT)
+        assert node.apply_edits.calls == [({}, "t.json")]
+        assert node.revert_edits.calls == 1
+
+    def test_an_rtl_task_whose_agent_staged_nothing_fails_and_reverts(self, monkeypatch):
+        self._session(monkeypatch)
+        node = _EditingNode("/root_a")  # the staged file holds no edits
+        [result] = self._batch(monkeypatch, node, [task("r", kind="rtl", spec="fix the adapter")])
+
+        assert result.build.failure_reason == "no_rtl_edit"
+        assert node.build.calls == []
+        assert node.revert_edits.calls == 1
+
+    def test_a_task_builds_with_the_edits_of_the_tasks_it_depends_on(self, monkeypatch):
+        node = _EditingNode("/root_a")
+        [result] = self._batch(monkeypatch, node, [task("w", deps=("r",))], applied={"r": self.EDIT})
+
+        assert node.apply_edits.calls == [(self.EDIT, "")]
+        assert result.edits == self.EDIT
+        assert result.build.config.source_edits
+        assert node.revert_edits.calls == 1
+
+    def test_edits_are_reverted_when_the_build_raises(self, monkeypatch):
+        class Boom:
+            def chia_remote(self, *args, **kwargs):
+                raise RuntimeError("worker died")
+
+        node = _EditingNode("/root_a")
+        node.build = Boom()
+        with pytest.raises(RuntimeError, match="worker died"):
+            self._batch(monkeypatch, node, [task("w", deps=("r",))], applied={"r": self.EDIT})
+        assert node.revert_edits.calls == 1
+
+    def test_without_rtl_edits_an_rtl_task_runs_like_a_config_task(self, monkeypatch):
+        from mace.spec import LoopOptions
+
+        node = _EditingNode("/root_a")
+        [result] = self._batch(
+            monkeypatch, node, [task("r", kind="rtl", spec="x")], options=LoopOptions(rtl_edits=False)
+        )
+
+        assert result.passed is True
+        assert node.apply_edits.calls == []
+        assert len(node.build.calls) == 1
+
+    def test_integrate_parallel_hands_a_passed_task_s_edits_to_its_dependents(self, monkeypatch):
+        from mace.integrator import integrate_parallel
+
+        self._session(monkeypatch)
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        node = _EditingNode("/root_a", staged_edits={"t.json": self.EDIT})
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+
+        results = integrate_parallel(
+            ("/root_a",), make_spec(), (task("r", kind="rtl", spec="fix"), task("w", deps=("r",))), llm,
+            nodes=[node],
+        )
+
+        assert [r.passed for r in results] == [True, True]
+        assert node.apply_edits.calls == [({}, "t.json"), (self.EDIT, "")]
+        assert results[1].edits == self.EDIT

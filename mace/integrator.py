@@ -22,18 +22,24 @@ Two appliers, for two settled design decisions:
 from __future__ import annotations
 
 import concurrent.futures
+import dataclasses
+import hashlib
+import json
 import logging
+import os
 import threading
 import time
 
+import ray
 from chia.base.ChiaFunction import get
 from chia.base.llm_call import QueryResult
-from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
+from chia_openpiton.openpiton_workspace import EDIT_STAGING_DIR, OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
 from mace import usage
 from mace.loop import _config_for_task, run_gate_programs, run_mace_step
 from mace.replay import tag_for
 from mace.spec import LoopOptions, MaceSpec, StepResult, Task
+from mace.tools import RtlEditTool
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
 logger = logging.getLogger(__name__)
@@ -67,6 +73,82 @@ def _not_run(test: str) -> PitonRunResult:
         success=False, returncode=-1, test=test, sim_type="vlt", run_dir="",
         stderr=f"{NOT_STARTED}: the run's time budget ran out before this simulation",
     )
+
+
+NO_RTL_EDIT = "no_rtl_edit"
+
+
+def _no_edit_build(config: PitonConfig) -> PitonBuildArtifact:
+    """The build an rtl task gets when its agent recorded no edit."""
+    return PitonBuildArtifact(
+        success=False, returncode=-1, config=config, sim_type="vlt", model_dir="",
+        binary_path="", wall_time_s=0.0, failure_reason=NO_RTL_EDIT,
+        errors=("the rtl task's agent recorded no edit",),
+    )
+
+
+def edits_digest(edits: dict[str, str]) -> str:
+    """A short hash of *edits*, for ``PitonConfig.source_edits``."""
+    blob = json.dumps(edits, sort_keys=True).encode("utf-8", "surrogateescape")
+    return hashlib.sha256(blob).hexdigest()[:16]
+
+
+def inherited_edits(task: Task, applied: dict[str, dict[str, str]]) -> dict[str, str]:
+    """The RTL edits of the tasks *task* depends on, merged in ``deps``
+    order. *applied* maps each passed task to every edit its build carried,
+    its dependencies' included, so this reaches indirect dependencies."""
+    merged: dict[str, str] = {}
+    for dep in task.deps:
+        merged.update(applied.get(dep) or {})
+    return merged
+
+
+def rtl_prompt(spec: MaceSpec, task: Task, inherited: dict[str, str]) -> str:
+    """What an rtl task's agent is told."""
+    lines = [
+        f"You are changing the RTL of OpenPiton/{spec.core} for one task of a MACE run.",
+        "",
+        f"Objective: {spec.objective}",
+        f"Target mesh: {spec.target_mesh[0]}x{spec.target_mesh[1]} tiles",
+        f"Gate workloads (they must all pass on the changed design): {', '.join(spec.workloads)}",
+        "",
+        f"Task {task.id}: {task.spec}",
+        "",
+        "Find and read the relevant files under piton/design/ with the tools, then record the change "
+        "with the replace tool. Make the smallest change that does what the task says. Files under "
+        "piton/verif/, such as the testbench and the monitors, cannot change. After you finish, the "
+        "design is built and every gate workload simulated; you cannot run anything yourself. End with "
+        "one line saying what you changed and why.",
+    ]
+    if inherited:
+        lines += ["", "Edits from the tasks this one depends on are already applied to: " + ", ".join(sorted(inherited))]
+    return "\n".join(lines)
+
+
+def _rtl_session(node, spec: MaceSpec, task: Task, llm, tools, inherited: dict[str, str], run_id, iteration):
+    """An rtl task's agent call, with an :class:`~mace.tools.RtlEditTool`
+    when Ray is up. Returns the reply and the name of the staging file the
+    tool records into ("" without a tool). The inherited edits are applied
+    first, so the agent reads the design it will change."""
+    tag = hashlib.sha1(f"{run_id}:{iteration}:{task.id}".encode()).hexdigest()[:8]
+    staged = f"{tag}.json"
+    tool = None
+    if ray.is_initialized():
+        if inherited:
+            get(node.apply_edits.chia_remote(inherited))
+        tool = RtlEditTool(
+            f"rtl_{tag}", node.piton_root, os.path.join(node.piton_root, EDIT_STAGING_DIR, staged),
+            task_options=node.task_options,
+        )
+    try:
+        query = usage.prompt(llm, "task", rtl_prompt(spec, task, inherited), (*tools, tool) if tool else tools)
+    except Exception as e:
+        logger.warning("task %s: rtl agent call failed: %s", task.id, e)
+        query = QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
+    finally:
+        if tool is not None:
+            tool.stop()
+    return query, (staged if tool is not None else "")
 
 
 def open_nodes(piton_roots: tuple[str, ...]) -> list:
@@ -273,14 +355,18 @@ def integrate_parallel(
     try:
         root_dir = str(WORKLOADS_DIR) if asm_diag_root is None else asm_diag_root
         results: list[StepResult] = []
+        # Each passed task's RTL edits, its dependencies' included, for the
+        # tasks in later levels that depend on it.
+        applied: dict[str, dict[str, str]] = {}
         for level in topological_levels(tasks):
             level_results = _run_level(
                 nodes, spec, level, llm, tools, root_dir, run_id, iteration, on_task_progress,
-                options, deadline,
+                options, deadline, applied,
             )
             results.extend(level_results)
             if not all(r.passed for r in level_results):
                 break
+            applied.update({r.task.id: r.edits for r in level_results if r.edits})
         return tuple(results)
     finally:
         if owns_nodes:
@@ -299,6 +385,7 @@ def _run_level(
     on_task_progress=None,
     options: LoopOptions | None = None,
     deadline: float | None = None,
+    applied: dict[str, dict[str, str]] | None = None,
 ) -> list[StepResult]:
     """One level, batched to at most ``len(nodes)`` tasks in flight at once."""
     results: list[StepResult] = []
@@ -309,7 +396,7 @@ def _run_level(
         results.extend(
             _run_batch(
                 nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root, run_id, iteration,
-                on_task_progress, options, deadline,
+                on_task_progress, options, deadline, applied,
             )
         )
     return results
@@ -327,8 +414,19 @@ def _run_batch(
     on_task_progress=None,
     options: LoopOptions | None = None,
     deadline: float | None = None,
+    applied: dict[str, dict[str, str]] | None = None,
 ) -> list[StepResult]:
     """One (node, task) pair per entry.
+
+    A config, workload, or rtl task builds with the RTL edits of the tasks
+    it depends on (*applied*, see :func:`inherited_edits`). An rtl task's
+    agent records its own edits with an :class:`~mace.tools.RtlEditTool`.
+    The node applies all of them to the task's checkout before the build
+    and reverts them after the task's runs, however the task ends; the
+    build gets its own build_id through ``PitonConfig.source_edits``. An rtl
+    task whose agent recorded no edit fails with the reason
+    ``no_rtl_edit``, without a build. Its agent call is made whether or not
+    ``options.task_prompts`` is on, since that call is the edit.
 
     Each task gets its own PitonConfig (mace.loop._config_for_task) rather
     than one shared for the whole batch, since a task's own CACHES: line
@@ -388,9 +486,15 @@ def _run_batch(
     def _tag(task_id: str, phase: str) -> str | None:
         return tag_for(run_id, iteration, task_id, phase) if run_id is not None else None
 
-    def _run_one(node, config: object, task: Task) -> StepResult:
+    def _run_one(node, config: PitonConfig, task: Task) -> StepResult:
+        inherited = inherited_edits(task, applied or {})
+        rtl = task.kind == "rtl" and options.rtl_edits
+        staged = ""
         query = QueryResult(result="", returncode=0, stderr="", stream_result="", success=True)
-        if options.task_prompts:
+        if rtl:
+            _progress((task.id,), "prompting")
+            query, staged = _rtl_session(node, spec, task, llm, tools, inherited, run_id, iteration)
+        elif options.task_prompts:
             _progress((task.id,), "prompting")
             started = time.monotonic()
             try:
@@ -407,6 +511,27 @@ def _run_batch(
                 logger.warning("task %s: prompt failed, building without its reply: %s", task.id, e)
                 query = QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
 
+        edits: dict[str, str] | None = None
+        diff = ""
+        if inherited or staged:
+            applied_now = get(node.apply_edits.chia_remote(inherited, staged=staged))
+            edits, diff = applied_now["edits"], applied_now["diff"]
+        try:
+            if rtl and (edits or {}) == inherited:
+                result = StepResult(task=task, query=query, build=_no_edit_build(config), run=None, passed=False)
+            else:
+                if edits:
+                    config = dataclasses.replace(config, source_edits=edits_digest(edits))
+                result = _check(node, config, task, query)
+        finally:
+            if edits is not None:
+                get(node.revert_edits.chia_remote())
+        if edits:
+            result.edits, result.edits_diff = edits, diff
+        return result
+
+    def _check(node, config: PitonConfig, task: Task, query) -> StepResult:
+        """*task*'s build and gate runs on *config*."""
         build_timeout = timeout_before(deadline, BUILD_TIMEOUT_S)
         if build_timeout == 0:
             build = _not_built(config)
