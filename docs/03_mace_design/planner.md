@@ -13,7 +13,7 @@ On a replan, `build_prompt()` appends the triage feedback under the line `Feedba
 ## Directive Lines
 
 ```text
-TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|unit_test | <short instruction>
+TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|unit_test|rtl | <short instruction>
 CACHES: <task id> | <name>=<size>,<associativity> ...
 CONFIG_RTL: <task id> | <FLAG1> <FLAG2> ...
 ```
@@ -62,5 +62,7 @@ The orchestrator then logs the error, which quotes a reply with no `TASK:` lines
 | `config` | A configuration or RTL change | Build the task's configuration, run each gate workload |
 | `workload` | Running or fixing a gate workload | Same as `config` |
 | `unit_test` | One module's RTL path relative to the checkout root, such as `piton/design/chip/tile/pico/rtl/picorv32.v` | Scaffold a unit-test environment, adapt its testbench, build it |
+| `rtl` | What to change in the design's RTL, and why | Edit files under `piton/design/` through an edit tool, build, run each gate workload (see [Parallel Task Execution](task_execution.md)) |
 
 `config` and `workload` share one execution path; the label records intent.
+`LoopOptions(rtl_edits=False)` removes the `rtl` kind and its rule from the prompt.

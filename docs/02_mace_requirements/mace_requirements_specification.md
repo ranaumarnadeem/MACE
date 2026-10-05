@@ -39,7 +39,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-PLAN-5:** MACE shall produce each plan from one LLM call whose prompt states the core, the objective, the target mesh, and the gate workloads.
 - **REQ-PLAN-6:** MACE shall read each task from a line of the form `TASK: <id> | deps=<ids> | kind=<kind> | <instruction>`.
 - **REQ-PLAN-7:** MACE shall recognize a directive tag case-insensitively at the start of a line, including after a list marker such as `-`, `*`, or `1.`.
-- **REQ-PLAN-8:** MACE shall accept the task kinds `config`, `workload`, and `unit_test`, and no others.
+- **REQ-PLAN-8:** MACE shall accept the task kinds `config`, `workload`, `unit_test`, and `rtl`, and no others.
 - **REQ-PLAN-9:** MACE shall skip a malformed task line and keep the well-formed ones.
 - **REQ-PLAN-10:** MACE shall let a plan set the `l1i`, `l1d`, `l15`, and `l2` cache geometry of the task a line names, with lines of the form `CACHES: <task id> | <name>=<size>,<associativity> ...`, accepting only positive integers.
 - **REQ-PLAN-11:** MACE shall let a plan add RTL defines to the task a line names, with lines of the form `CONFIG_RTL: <task id> | <FLAG> ...`, accepting only upper-snake-case identifiers.
@@ -62,6 +62,9 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EXEC-11:** MACE shall build and run a `config` or `workload` task when its prompt call fails, and log the failure.
 - **REQ-EXEC-12:** MACE shall fail a `unit_test` task, without scaffolding or building, when its module path is absolute, resolves outside the checkout, is not a `.v`, `.sv`, or `.pyv` file, or does not exist.
 - **REQ-EXEC-13:** MACE shall fail an Ariane task whose L1D or L1I has more ways than its L1.5 without building it, and shall name the cache that breaks the rule in the failure.
+- **REQ-EXEC-14:** For an `rtl` task, MACE shall give the agent tools that read files under `piton/design/` and record text replacements in them, and shall refuse any other path.
+- **REQ-EXEC-15:** MACE shall apply a task's RTL edits, and those of every task it depends on, to the task's checkout before its build, and shall restore the edited files after its runs however the task ends.
+- **REQ-EXEC-16:** MACE shall fail an `rtl` task whose agent records no edit, without building it.
 
 ### Integration and Verification
 
@@ -77,7 +80,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-VER-10:** MACE shall end the run with status `passed` when every task of an iteration passes.
 - **REQ-VER-11:** MACE shall end the run with status `failed` when an iteration produces no task results.
 - **REQ-VER-12:** MACE shall reuse an earlier successful build on the same checkout only when its core, mesh, network, cache geometry, RTL defines, and flags match, and the checkout's commit, file edits, untracked files, Ariane submodule, and Verilator version are unchanged since that build.
-- **REQ-VER-13:** MACE shall record every run, iteration, and task result in a SQLite database, including the cache sizes and associativities and the RTL defines in each build's configuration.
+- **REQ-VER-13:** MACE shall record every run, iteration, and task result in a SQLite database, including the cache sizes and associativities, the RTL defines, and the RTL edits in each build's configuration.
 - **REQ-VER-14:** MACE shall report each iteration's results to an optional caller-supplied callback after recording them and before failure analysis.
 - **REQ-VER-15:** MACE shall report five metrics for a recorded run: successful tasks, iterations, failures recovered, execution time, and compute cost.
 - **REQ-VER-16:** When the run specification sets `max_cycle`, MACE shall pass it to every gate workload's simulation as the testbench's cycle limit.

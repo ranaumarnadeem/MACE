@@ -35,6 +35,7 @@ The optional `on_task_progress(task_ids, stage)` callback reports `prompting`, `
 
 A `unit_test` task skips this pipeline and runs locally through `mace.loop.run_mace_step()` on its slot's checkout.
 A batch's `unit_test` tasks run one after another before its remote tasks start.
+An `rtl` task replaces the first call with an edit session, described under RTL Tasks below.
 
 ## Per-Task Configuration
 
@@ -45,9 +46,31 @@ A batch's `unit_test` tasks run one after another before its remote tasks start.
 - `caches` takes the task's `CACHES:` override, and `PitonConfig` fills in the caches it leaves out from `DEFAULT_CACHES`;
 - `config_rtl` is the sorted union of the default `("MINIMAL_MONITORING",)` and the task's `CONFIG_RTL:` flags, which include those of the tasks it depends on (see [Planner](planner.md)).
 
-A task's configuration depends only on the spec, the task's own overrides, and its dependencies' RTL defines.
+- `source_edits` holds a hash of the RTL edits the build carries, described under RTL Tasks below, and is empty for a build without edits.
+
+A task's configuration depends only on the spec, the task's own overrides, and its dependencies' RTL defines and edits.
 Two tasks in one level can therefore build different cache geometries.
 On Ariane, [build()](../04_chia_openpiton/workspace_node.md) refuses a task whose L1D or L1I has more ways than its L1.5, so the task fails with the failure reason `way_rule`, and triage and the re-plan see which cache broke the rule.
+
+## RTL Tasks
+
+An `rtl` task changes the design's source.
+Its agent call runs locally through `usage.prompt()` with the prompt from `rtl_prompt()`: the run's inputs, the task's instruction, and the editing rules.
+The call runs whether or not `LoopOptions.task_prompts` is on, because it makes the edit.
+When Ray is initialized, the call gets a `mace.tools.RtlEditTool`, placed with the node's `task_options` and stopped after the call.
+Its functions `{name}_list`, `{name}_read`, `{name}_search`, and `{name}_replace` take paths relative to the checkout and refuse any path outside `piton/design/`, so the testbench and the monitors under `piton/verif/` cannot change.
+A replacement must match exactly one place in the file.
+The tool never writes the checkout: it keeps each changed file's full new content in a staging file under `build/.mace_edit_staging/`.
+
+Before the build, `node.apply_edits()` writes the edits into the task's checkout: first the edits of the tasks it depends on, then the task's own from the staging file.
+After the task's runs, `node.revert_edits()` restores every file, however the task ended.
+The build's `source_edits` gives an edited design its own model directory.
+A task of any kind builds with the edits of the tasks it depends on, directly or through other tasks: `integrate_parallel()` keeps each passed task's edits for the levels after it.
+An `rtl` task whose agent recorded no edit fails with the failure reason `no_rtl_edit`, without a build.
+The task's result carries the edits and their unified diff, which triage, the re-plan's feedback, and the `tasks.rtl_edits` column quote.
+
+`LoopOptions(rtl_edits=False)` leaves the `rtl` kind out of the planner's prompt, and an `rtl` task then runs as a `config` task.
+The serial `integrate()` and `run_mace_step()` give no task an edit tool.
 
 ## Unit-Test Tasks
 

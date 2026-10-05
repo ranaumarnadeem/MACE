@@ -77,12 +77,12 @@ A run that uses all its iterations without a pass ends with status `budget_excee
 The planner replies with footer lines: `TASK:` lines form the DAG, and `CACHES:` and `CONFIG_RTL:` lines change one task's build.
 
 ```text
-TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|unit_test | <short instruction>
+TASK: <id> | deps=<comma-separated task ids, or empty> | kind=config|workload|unit_test|rtl | <short instruction>
 CACHES: <task id> | <name>=<size>,<associativity> ...
 CONFIG_RTL: <task id> | <FLAG1> <FLAG2> ...
 ```
 
-Task LLM calls get no tools, except a testbench editor for `unit_test` tasks, so only these directives change a task's build.
+Task LLM calls get no tools, except a testbench editor for `unit_test` tasks and an RTL editor for `rtl` tasks. An `rtl` task can change files under `piton/design/`, never the testbench or monitors under `piton/verif/`; see [Parallel Task Execution](../03_mace_design/task_execution.md). Otherwise only these directives change a task's build.
 `CACHES:` accepts `l1i`, `l1d`, `l15`, and `l2`, with defaults `l1i=16384,4 l1d=8192,4 l15=8192,4 l2=65536,4`.
 
 ### CONFIG_RTL
