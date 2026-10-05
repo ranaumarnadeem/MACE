@@ -110,6 +110,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-BUD-10:** MACE shall record status `error` for a run that an exception ends, then re-raise the exception.
 - **REQ-BUD-11:** MACE shall cap each build's and simulation's timeout at the time left in the run's wall-clock limit, and shall not start a build or simulation after that limit has passed.
 - **REQ-BUD-12:** MACE shall record, for each LLM call, its phase, its input, output, and thinking tokens, its cost, its wall-clock time, whether it succeeded, and the text of its reply.
+- **REQ-BUD-13:** MACE shall stop every build and simulation it started when the process that started it exits.
 
 ### Deterministic Replay
 

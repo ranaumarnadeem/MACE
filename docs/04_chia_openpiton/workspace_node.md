@@ -182,6 +182,7 @@ The run directory name replaces `/` in the test name with `_`. For another `sys`
 | `regress` | 3600, per test |
 
 Every `sims` and `verilator --version` command runs under `bash -lc` in its own session. On timeout, the adapter kills the whole process group, keeps the partial output, returns `returncode=-1`, and appends `sims timed out after <N>s` to stderr. A launch failure also returns `-1`, without that marker. On `KeyboardInterrupt`, the adapter kills the process group and re-raises. The `git` probes run without a shell and return `""` on timeout.
+A SIGTERM or SIGKILL that ends the Python process reaches neither path, so each command also starts a watchdog, which checks every 2 s that the process that started it is alive and kills the command's process group once it has exited. Stopping a batch therefore stops its builds and simulations too.
 
 ## Environment
 
