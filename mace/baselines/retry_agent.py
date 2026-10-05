@@ -6,7 +6,8 @@ build-and-check path (mace.integrator.integrate_parallel with task prompts
 off), so its timeouts, pass check, and records match the loop's. After a
 failure the agent gets the raw evidence triage would have read
 (:func:`mace.triage.failure_evidence`) and proposes the next design, until a
-pass or the budget runs out.
+pass or the budget runs out. A design may be an ``rtl`` task, which edits
+the RTL through the same tool and path the loop's rtl tasks use.
 
 Against the full loop it lacks the task DAG, the second checkout, and the
 triage agent. Its prompt states the run's inputs with the planner's own
@@ -55,6 +56,12 @@ Respond with exactly one task line for the design to build this attempt, in
 exactly this format (a footer, not prose):
 
 TASK: design | deps= | kind=config | <short description of the design>
+
+Use kind=rtl instead when the design needs a change to the RTL source. You
+then get tools to read files under piton/design/ and replace text in them,
+and the changed design is built and every gate workload simulated. Say in
+the description what to change and why. Testbench and monitor files under
+piton/verif/ cannot change.
 
 Nothing else you write is parsed, but keep the rest brief.
 """
@@ -147,7 +154,7 @@ def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog) -> LoopR
                 if nodes is None:
                     nodes = open_nodes((piton_root,))
                 results = integrate_parallel(
-                    (piton_root,), spec, (design,), None, run_id=run_id, iteration=attempt,
+                    (piton_root,), spec, (design,), llm, run_id=run_id, iteration=attempt,
                     nodes=nodes, options=LoopOptions(task_prompts=False), deadline=deadline,
                 )
             attempt_calls = calls.take()
