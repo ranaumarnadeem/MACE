@@ -268,6 +268,9 @@ def _run_started_loop(
                     tasks = plan(spec, llm, tools=tools, feedback="\n".join(feedback_history))
                 except PlanningError as e:
                     logger.warning("run %s: %s", run_id, e)
+                    # The planner's call still cost tokens, and its reply
+                    # shows why no plan came of it.
+                    record_llm_calls(db, run_id, iteration, calls.take())
                     status = "planning_failed"
                     break
                 if plan_hook is not None:

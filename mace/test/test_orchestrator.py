@@ -282,6 +282,16 @@ class TestStatusTransitions:
         assert result.status == "planning_failed"
         assert result.iterations == ()
 
+    def test_a_failed_plan_still_records_the_planner_s_call(self, tmp_path):
+        reply = "TASK: t1 | deps= | workload | addi.S"  # no kind=, so no task parses
+        db = make_db(tmp_path)
+
+        result = run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[reply]), db=db)
+
+        assert result.status == "planning_failed"
+        rows = db.query("SELECT iteration, phase, reply FROM llm_calls WHERE run_id = ?", (result.run_id,))
+        assert [(r["iteration"], r["phase"], r["reply"]) for r in rows] == [(0, "plan", reply)]
+
     def test_exhausting_max_iterations_without_passing_is_budget_exceeded(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
             "mace.orchestrator.plan",
