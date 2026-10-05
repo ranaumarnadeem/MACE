@@ -13,11 +13,24 @@ timeout contract, and that nothing touches the filesystem before validating.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 import pytest
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonConfig
+
+
+def _alive(pid: int) -> bool:
+    """Whether *pid* is a running process (a zombie counts as gone)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().split(")")[-1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
 
 
 @pytest.fixture
@@ -200,6 +213,54 @@ class TestEnvironment:
         )
         assert rc == 0, err
         assert out.strip() == expected
+
+    def test_a_command_keeps_its_exit_code_under_the_watchdog(self, stub_piton_root):
+        from chia_openpiton.openpiton_workspace import _run
+
+        root = str(stub_piton_root)
+        assert _run("exit 3", root, "pico", root, 30)[2] == 3
+        assert _run("true", root, "pico", root, 30)[2] == 0
+
+    def test_the_watchdog_does_not_hold_the_output_open(self, stub_piton_root):
+        """_run returns when the command ends, not when the watchdog's next
+        poll would."""
+        from chia_openpiton.openpiton_workspace import _PARENT_POLL_SECONDS, _run
+
+        root = str(stub_piton_root)
+        out, _, rc, wall = _run("echo done", root, "pico", root, 30)
+        assert (out.strip(), rc) == ("done", 0)
+        assert wall < _PARENT_POLL_SECONDS
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX process groups")
+    def test_a_killed_parent_takes_the_command_s_tree_with_it(self, stub_piton_root, tmp_path):
+        """A SIGKILL to the process that called _run, as when a batch is
+        stopped, must not leave the command running in the checkout."""
+        from chia_openpiton.openpiton_workspace import _PARENT_POLL_SECONDS
+
+        root = str(stub_piton_root)
+        pidfile = tmp_path / "grandchild.pid"
+        command = f"sleep 300 & echo $! > {pidfile}; wait"
+        parent = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys; from chia_openpiton.openpiton_workspace import _run; "
+             "_run(sys.argv[1], sys.argv[2], 'pico', sys.argv[2], 600)", command, root],
+            cwd=str(Path(__file__).resolve().parents[2]),
+        )
+        try:
+            deadline = time.monotonic() + 30
+            while not (pidfile.exists() and pidfile.read_text().strip()):
+                assert time.monotonic() < deadline, "the command never started"
+                time.sleep(0.1)
+            grandchild = int(pidfile.read_text())
+            parent.kill()
+            parent.wait()
+
+            deadline = time.monotonic() + 3 * _PARENT_POLL_SECONDS + 5
+            while _alive(grandchild):
+                assert time.monotonic() < deadline, "the command outlived its parent"
+                time.sleep(0.2)
+        finally:
+            parent.kill()
 
     def test_pico_needs_no_riscv_toolchain(self):
         """pico reuses the installed riscv64-unknown-elf-gcc via a sims flag

@@ -71,6 +71,30 @@ _VERILATOR_VERSION_CACHE: dict[tuple[str, str], str] = {}
 # rather than trusting rc==-1 alone, so a launch failure isn't mislabeled.
 _TIMEOUT_MARKER = "sims timed out after"
 
+# How often, in seconds, a command's watchdog checks that the Python process
+# that started it is still alive (see _watched).
+_PARENT_POLL_SECONDS = 2
+
+
+def _watched(script: str, parent_pid: int) -> str:
+    """*script*, with a background watchdog that kills the script's whole
+    process group once *parent_pid* exits.
+
+    _run starts each command in its own session, so a SIGTERM or SIGKILL
+    that ends the Ray worker or driver never reaches the command's tree,
+    and sims, Verilator, and the simulation would run on in the checkout.
+    The watchdog's output goes to /dev/null so it never holds _run's pipes
+    open, and an EXIT trap stops it however the script ends, keeping the
+    script's exit code.
+    """
+    return (
+        f"( while kill -0 {parent_pid} 2>/dev/null; do sleep {_PARENT_POLL_SECONDS}; done; "
+        "kill -KILL -- -$$ ) </dev/null >/dev/null 2>&1 &\n"
+        "_watchdog=$!\n"
+        """trap 'kill "$_watchdog" 2>/dev/null' EXIT\n"""
+        f"{script}"
+    )
+
 
 def _find_model_binary(model_dir: str, sys: str) -> str:
     """The built Verilator binary under *model_dir*, or ``""`` if absent.
@@ -238,9 +262,11 @@ def _run(
     subprocess tree never receives the terminal's own SIGINT, so without this
     it would keep running, orphaned, after Python itself has already moved
     on. That case is re-raised, not swallowed -- deciding what to tell the
-    user belongs to the caller (see mace.cli.shell's own handling).
+    user belongs to the caller (see mace.cli.shell's own handling). When this
+    process dies some other way, a watchdog in the shell kills the tree (see
+    :func:`_watched`).
     """
-    full = _env_prefix(piton_root, core) + f"cd {shlex.quote(cwd)} && {command}"
+    full = _watched(_env_prefix(piton_root, core) + f"cd {shlex.quote(cwd)} && {command}", os.getpid())
     merged = {**os.environ, **(env or {})}
     started = time.time()
     logger.info("Running: %s (cwd=%s)", command, cwd)
