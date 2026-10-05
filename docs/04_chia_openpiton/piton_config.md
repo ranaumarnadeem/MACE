@@ -20,6 +20,7 @@
 | `ariane_rev` | `str` | `""` | Ariane submodule commit, set by `configure()` |
 | `verilator_version` | `str` | `""` | `verilator --version` text, set by `configure()` |
 | `diff` | `str` | `""` | Unstaged diff under `piton/verif/env/manycore`, set by `configure()` |
+| `source_edits` | `str` | `""` | Hash of the edits a caller applied with [apply_edits()](workspace_node.md) for this build |
 
 ## Constants
 
@@ -72,7 +73,7 @@ A Verilator build of a configuration that breaks the rule therefore compiles and
 
 ### key and build_id
 
-`key` hashes a JSON object, serialized with sorted keys, that holds `sys`, `core`, `x_tiles`, `y_tiles`, `network_config`, `config_rtl` (sorted), `caches` (sorted by name), `extra_flags` (in order), `source_rev`, `ariane_rev`, `verilator_version`, and `diff`. [build()](workspace_node.md) passes `build_id` to `sims` as `-build_id`. `sims` writes every model to `rel-0.1` by default, so without a per-configuration ID two configurations overwrite each other's model.
+`key` hashes a JSON object, serialized with sorted keys, that holds `sys`, `core`, `x_tiles`, `y_tiles`, `network_config`, `config_rtl` (sorted), `caches` (sorted by name), `extra_flags` (in order), `source_rev`, `ariane_rev`, `verilator_version`, and `diff`, plus `source_edits` when it is set, so a key recorded before that field existed stays the same. [build()](workspace_node.md) passes `build_id` to `sims` as `-build_id`. `sims` writes every model to `rel-0.1` by default, so without a per-configuration ID two configurations overwrite each other's model.
 
 `caches` always holds all four caches, so a mapping that names only some of them and the same mapping with the defaults written out share a key and a model directory.
 Earlier versions hashed a partial mapping as given.

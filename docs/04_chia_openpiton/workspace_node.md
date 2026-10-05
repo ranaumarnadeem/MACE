@@ -77,6 +77,10 @@ regress(piton_root: str, config: PitonConfig, tests: tuple[str, ...], group: str
 
 put_file(piton_root: str, relpath: str, content: bytes | str) -> str
 
+apply_edits(piton_root: str, edits: dict[str, str], staged: str = "") -> dict
+
+revert_edits(piton_root: str) -> list[str]
+
 collect(piton_root: str, base_dir: str, patterns: tuple[str, ...],
         max_bytes_per_file: int | None = None) -> PitonCollectResult
 
@@ -91,6 +95,8 @@ clean(piton_root: str, config: PitonConfig) -> bool
 | `run` | Runs one diag and judges it from the transcript |
 | `regress` | Calls `run` serially for each entry of `tests`. `success` holds when at least one test ran and none failed. It is a single-worker fallback; fan `run` out across workers for parallel regressions |
 | `put_file` | Writes `content` to `<piton_root>/<relpath>`, creates parent directories, and returns the path. A `relpath` that escapes the checkout raises `ValueError` |
+| `apply_edits` | Replaces the content of existing files: `edits` maps a path relative to the root to the file's full new content, and `staged` names a JSON file of more edits under `build/.mace_edit_staging/`, which wins for the same file and is deleted once read. It first reverts edits a previous call left applied, keeps each original under `build/.mace_edit_backup/`, and restores every file on any error. A path outside the checkout, or one that names no existing file, raises `ValueError`. Returns the merged edits and their unified diff |
+| `revert_edits` | Restores every file `apply_edits` changed and returns their paths; with nothing applied it does nothing |
 | `collect` | Globs `patterns` under `base_dir`, which is absolute or relative to the root; `**` is recursive. Skips matches outside `base_dir`, including symlinks whose target lies outside it. Files over `max_bytes_per_file` go to `skipped`; `0` skips every non-empty file, and `None` sets no cap |
 | `clean` | Removes the configuration's model directory and returns whether it existed. `sims -clean` removes only VCS output (`csrc`, `simv`, `simv.daidir`, `AxisWork`) and leaves `obj_dir` in place |
 

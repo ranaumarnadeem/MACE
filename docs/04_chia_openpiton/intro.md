@@ -9,7 +9,7 @@
 | Module | Contents |
 |---|---|
 | `state_def.py` | [PitonConfig](piton_config.md), the result dataclasses (`PitonBuildArtifact`, `PitonRunResult`, `PitonRegressResult`, `PitonCollectResult`), and the literal types `PitonCore`, `SimType`, `NetworkConfig`, and `Verdict` |
-| `openpiton_workspace.py` | [OpenPitonWorkspaceNode](workspace_node.md), with the members `configure`, `build`, `run`, `regress`, `put_file`, `collect`, `clean`, and the `sims` escape hatch |
+| `openpiton_workspace.py` | [OpenPitonWorkspaceNode](workspace_node.md), with the members `configure`, `build`, `run`, `regress`, `put_file`, `apply_edits`, `revert_edits`, `collect`, `clean`, and the `sims` escape hatch |
 | `parse.py` | [Transcript parsers](parsers.md): pure functions over `sim.log`, `status.log`, and `sims` output |
 | `tools.py` | [PitonToolServer](tool_server.md), the MCP tool server an LLM agent calls |
 
