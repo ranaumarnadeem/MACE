@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     programs TEXT,
     evidence TEXT,
     config_rtl TEXT,
+    rtl_edits TEXT,
     PRIMARY KEY (run_id, iteration, task_id)
 );
 
@@ -143,7 +144,7 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "runs": {"method": "TEXT", "task": "TEXT", "repeat": "INTEGER", "seed": "INTEGER", "meta": "TEXT"},
     "tasks": {
         "caches": "TEXT", "module": "TEXT", "build_s": "REAL", "run_s": "REAL", "programs": "TEXT", "evidence": "TEXT",
-        "config_rtl": "TEXT",
+        "config_rtl": "TEXT", "rtl_edits": "TEXT",
     },
     "llm_calls": {"reply": "TEXT"},
     "evaluations": {"simulated": "INTEGER NOT NULL DEFAULT 1", "rejected": "TEXT NOT NULL DEFAULT ''"},
@@ -368,8 +369,8 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
     return (
         "INSERT OR REPLACE INTO tasks "
         "(run_id, iteration, task_id, kind, spec, passed, build_success, run_verdict, wall_s, caches, module, "
-        "build_s, run_s, programs, evidence, config_rtl) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "build_s, run_s, programs, evidence, config_rtl, rtl_edits) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             iteration,
@@ -390,6 +391,7 @@ def _task_op(run_id: str, iteration: int, result: StepResult) -> tuple[str, tupl
             # keeps no other account of why a task failed.
             None if result.passed else failure_evidence(result),
             json.dumps(sorted(result.build.config.config_rtl)),
+            result.edits_diff or None,
         ),
     )
 

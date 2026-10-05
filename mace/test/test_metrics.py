@@ -186,6 +186,17 @@ class TestRecordIteration:
         row = db.query_one("SELECT config_rtl FROM tasks WHERE run_id = ? AND task_id = 'a'", (run_id,))
         assert json.loads(row["config_rtl"]) == ["CONFIG_DISABLE_BIST_CLEAR", "MINIMAL_MONITORING"]
 
+    def test_records_the_rtl_edits_diff_of_an_edited_build(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        edited, plain = make_result("a", True), make_result("b", True)
+        edited.edits, edited.edits_diff = {"piton/design/x.v": "new"}, "--- a/piton/design/x.v"
+
+        metrics.record_iteration(db, run_id, 0, (edited, plain), wall_s=1.0)
+
+        rows = db.query("SELECT task_id, rtl_edits FROM tasks WHERE run_id = ? ORDER BY task_id", (run_id,))
+        assert [(r["task_id"], r["rtl_edits"]) for r in rows] == [("a", "--- a/piton/design/x.v"), ("b", None)]
+
     def test_records_iteration_and_task_rows(self, tmp_path):
         db = open_test_db(tmp_path)
         run_id = metrics.start_run(db, make_spec())
