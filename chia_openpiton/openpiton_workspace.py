@@ -26,6 +26,7 @@ from __future__ import annotations
 import concurrent.futures
 import glob as _glob
 import hashlib
+import json
 import logging
 import os
 import shlex
@@ -349,6 +350,48 @@ def _resolve_under(base_dir: str, relpath: str) -> str:
     return path
 
 
+# Where apply_edits keeps the originals of the files it changed, and where an
+# edit tool stages the edits it records. Both sit under build/, which
+# OpenPiton's .gitignore lists, so neither changes the source fingerprint.
+EDIT_BACKUP_DIR = os.path.join("build", ".mace_edit_backup")
+EDIT_STAGING_DIR = os.path.join("build", ".mace_edit_staging")
+_EDIT_MANIFEST = "manifest.json"
+
+
+def _edit_target(root: str, relpath: str) -> str:
+    """The existing regular file *relpath* names inside *root*, following
+    symlinks; ValueError for anything else."""
+    path = _resolve_under(root, relpath)
+    real_root = os.path.realpath(root)
+    if not os.path.realpath(path).startswith(real_root + os.sep):
+        raise ValueError(f"edit path {relpath!r} resolves outside the checkout")
+    if not os.path.isfile(path):
+        raise ValueError(f"edit path {relpath!r} is not an existing file in the checkout")
+    return path
+
+
+def _revert_edits(root: str) -> list[str]:
+    """Restore every file a previous apply_edits changed in *root*; returns
+    their paths. A no-op when nothing is applied."""
+    import shutil
+
+    backup_dir = os.path.join(root, EDIT_BACKUP_DIR)
+    manifest_path = os.path.join(backup_dir, _EDIT_MANIFEST)
+    if not os.path.isfile(manifest_path):
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        return []
+    with open(manifest_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+    for relpath, name in manifest.items():
+        with open(os.path.join(backup_dir, name), "rb") as f:
+            original = f.read()
+        with open(os.path.join(root, relpath), "wb") as f:
+            f.write(original)
+    shutil.rmtree(backup_dir)
+    logger.info("restored %d edited files in %s", len(manifest), root)
+    return sorted(manifest)
+
+
 class _RootBoundChiaFn:
     """A placement-pinned ``@ChiaFunction`` member with ``piton_root`` bound.
 
@@ -401,6 +444,8 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         "run",
         "regress",
         "put_file",
+        "apply_edits",
+        "revert_edits",
         "collect",
         "clean",
     )
@@ -1096,6 +1141,74 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             f.write(data)
         logger.info("wrote %d bytes to %s", len(data), path)
         return path
+
+    @staticmethod
+    @ChiaFunction(resources={"openpiton": 1})
+    def apply_edits(piton_root: str, edits: dict[str, str], staged: str = "") -> dict:
+        """Write new contents into existing source files, keeping each original.
+
+        *edits* maps a path relative to the checkout to that file's full new
+        content. *staged* names a JSON file of more such edits under
+        ``build/.mace_edit_staging/``, where an edit tool records them; its
+        edits win over *edits* for the same file, and the file is removed
+        once read. Edits a previous call left applied are reverted first,
+        so an interrupted caller never leaves its edits under the next build.
+        Each path must name an existing regular file inside the checkout
+        (``ValueError``); on any error every file is restored.
+
+        Returns ``{"edits": <the merged edits>, "diff": <unified diff of the
+        changes>}``. Call :meth:`revert_edits` after the build and runs.
+        """
+        import difflib
+
+        root = _require_root(piton_root)
+        _revert_edits(root)
+        merged = dict(edits)
+        if staged:
+            staging_path = _resolve_under(os.path.join(root, EDIT_STAGING_DIR), staged)
+            if os.path.isfile(staging_path):
+                with open(staging_path, encoding="utf-8", errors="surrogateescape") as f:
+                    merged.update(json.load(f))
+                os.remove(staging_path)
+        backup_dir = os.path.join(root, EDIT_BACKUP_DIR)
+        os.makedirs(backup_dir, exist_ok=True)
+        manifest: dict[str, str] = {}
+        diffs: list[str] = []
+        try:
+            for index, relpath in enumerate(sorted(merged)):
+                path = _edit_target(root, relpath)
+                with open(path, "rb") as f:
+                    original = f.read()
+                name = f"{index}.orig"
+                with open(os.path.join(backup_dir, name), "wb") as f:
+                    f.write(original)
+                # Recorded before the file changes, so a crash between the
+                # two still leaves the original restorable.
+                manifest[relpath] = name
+                with open(os.path.join(backup_dir, _EDIT_MANIFEST), "w", encoding="utf-8") as f:
+                    json.dump(manifest, f)
+                new = merged[relpath]
+                with open(path, "wb") as f:
+                    f.write(new.encode("utf-8", "surrogateescape"))
+                diffs.extend(
+                    difflib.unified_diff(
+                        original.decode("utf-8", "surrogateescape").splitlines(keepends=True),
+                        new.splitlines(keepends=True),
+                        f"a/{relpath}",
+                        f"b/{relpath}",
+                    )
+                )
+        except Exception:
+            _revert_edits(root)
+            raise
+        logger.info("applied edits to %d files in %s", len(merged), root)
+        return {"edits": merged, "diff": "".join(diffs)}
+
+    @staticmethod
+    @ChiaFunction(resources={"openpiton": 1})
+    def revert_edits(piton_root: str) -> list[str]:
+        """Restore every file :meth:`apply_edits` changed; returns their paths."""
+        return _revert_edits(_require_root(piton_root))
 
     @staticmethod
     @ChiaFunction(resources={"openpiton": 1})

@@ -115,6 +115,10 @@ class PitonConfig:
     # Unified diff of file-level edits configure() wrote into the checkout
     # (e.g. a replacement device address map). "" when the config is flags-only.
     diff: str = ""
+    # Digest of the source edits a caller applied to the checkout for this
+    # build (see OpenPitonWorkspaceNode.apply_edits); "" for none. It changes
+    # the build_id, so an edited build never reuses an unedited model.
+    source_edits: str = ""
 
     def __post_init__(self) -> None:
         if self.core not in ("ariane", "sparc", "pico"):
@@ -178,6 +182,10 @@ class PitonConfig:
             "verilator_version": self.verilator_version,
             "diff": self.diff,
         }
+        # Only when set, so every build_id recorded before this field existed
+        # stays the same.
+        if self.source_edits:
+            identity["source_edits"] = self.source_edits
         blob = json.dumps(identity, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()
 

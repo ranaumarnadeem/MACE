@@ -12,6 +12,7 @@ timeout contract, and that nothing touches the filesystem before validating.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -852,6 +853,63 @@ class TestRunVerdicts:
         assert res.verdict == "pass"
         assert res.success is True
         assert len(res.sim_log_tail) <= 8000  # still shipped small, just parsed whole
+
+
+class TestSourceEdits:
+    @pytest.fixture
+    def rtl(self, stub_piton_root):
+        path = stub_piton_root / "piton" / "design" / "core.v"
+        path.parent.mkdir(parents=True)
+        path.write_text("module core;\nassign a = b;\nendmodule\n")
+        return path
+
+    def test_apply_writes_the_edit_and_revert_restores_it(self, node, rtl):
+        applied = node.apply_edits({"piton/design/core.v": "module core;\nassign a = c;\nendmodule\n"})
+
+        assert rtl.read_text() == "module core;\nassign a = c;\nendmodule\n"
+        assert "-assign a = b;" in applied["diff"] and "+assign a = c;" in applied["diff"]
+        assert node.revert_edits() == ["piton/design/core.v"]
+        assert rtl.read_text() == "module core;\nassign a = b;\nendmodule\n"
+
+    def test_a_staged_edit_overrides_a_passed_one_and_its_file_is_consumed(self, node, rtl, stub_piton_root):
+        from chia_openpiton.openpiton_workspace import EDIT_STAGING_DIR
+
+        staging = stub_piton_root / EDIT_STAGING_DIR
+        staging.mkdir(parents=True)
+        (staging / "t1.json").write_text(json.dumps({"piton/design/core.v": "staged\n"}))
+
+        applied = node.apply_edits({"piton/design/core.v": "passed\n"}, staged="t1.json")
+
+        assert rtl.read_text() == "staged\n"
+        assert applied["edits"] == {"piton/design/core.v": "staged\n"}
+        assert not (staging / "t1.json").exists()
+
+    def test_edits_a_crashed_caller_left_are_reverted_by_the_next_apply(self, node, rtl, stub_piton_root):
+        other = stub_piton_root / "piton" / "design" / "other.v"
+        other.write_text("other\n")
+        node.apply_edits({"piton/design/core.v": "first\n"})  # never reverted
+
+        node.apply_edits({"piton/design/other.v": "second\n"})
+
+        assert rtl.read_text() == "module core;\nassign a = b;\nendmodule\n"
+        assert other.read_text() == "second\n"
+
+    def test_a_bad_path_restores_every_file_and_raises(self, node, rtl):
+        with pytest.raises(ValueError, match="not an existing file"):
+            node.apply_edits({"piton/design/core.v": "changed\n", "piton/design/zz_missing.v": "x\n"})
+        assert rtl.read_text() == "module core;\nassign a = b;\nendmodule\n"
+
+    def test_a_path_outside_the_checkout_is_refused(self, node, rtl):
+        with pytest.raises(ValueError, match="escapes base dir"):
+            node.apply_edits({"../outside.v": "x\n"})
+
+    def test_revert_with_nothing_applied_is_a_no_op(self, node, rtl):
+        assert node.revert_edits() == []
+
+    def test_source_edits_change_the_build_id_only_when_set(self):
+        plain = PitonConfig(core="sparc")
+        assert PitonConfig(core="sparc", source_edits="").build_id == plain.build_id
+        assert PitonConfig(core="sparc", source_edits="abc").build_id != plain.build_id
 
 
 class TestWorkspaceFiles:
