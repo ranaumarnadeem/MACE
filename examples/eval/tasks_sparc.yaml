@@ -1,0 +1,92 @@
+# MACE evaluation suite for OpenSPARC T1, in the format of tasks.yaml.
+#
+# T1 stalls under the Verilator 5.020 the other tasks run under, and passes
+# under 5.052 (see docs/05_mace_cores/sparc.md), so these tasks live in their
+# own file: run them with --suite examples/eval/tasks_sparc.yaml and
+# VERILATOR_ROOT naming a 5.052 install. The workloads are OpenPiton's own
+# SPARC assembly diags. The multi-tile ones take the finish masks and thread
+# counts OpenPiton's princeton diag list gives them; the 4-tile diags run two
+# threads on each tile.
+
+version: 1
+
+defaults:
+  budget:
+    max_iterations: 3
+    max_wall_s: 3600
+    max_usd: 20.0
+
+tasks:
+  - id: sparc-1x1-princeton
+    core: sparc
+    mesh: [1, 1]
+    workloads: [princeton-test-test.s]
+    objective: Verify the princeton-test-test.s gate workload passes on a 1x1 sparc mesh.
+    verified: false
+    expert: {}
+
+  - id: sparc-1x1-uart
+    core: sparc
+    mesh: [1, 1]
+    workloads: [uart-hello-world.s]
+    objective: Verify the uart-hello-world.s gate workload passes on a 1x1 sparc mesh.
+    verified: false
+    expert: {}
+
+  - id: sparc-2x1-exu-add
+    core: sparc
+    mesh: [2, 1]
+    workloads: [exu_add.s]
+    workload_args:
+      exu_add.s:
+        finish_mask: "33"
+        run_args: [-midas_args=-DTHREAD_COUNT=4, -midas_args=-DTHREAD_STRIDE=1]
+    objective: Verify the exu_add.s gate workload passes on a 2x1 sparc mesh.
+    verified: false
+    expert: {}
+
+  - id: sparc-2x1-isameline
+    core: sparc
+    mesh: [2, 1]
+    workloads: [mt_Isameline.s]
+    workload_args:
+      mt_Isameline.s: {finish_mask: "33"}
+    objective: Verify the mt_Isameline.s gate workload passes on a 2x1 sparc mesh.
+    verified: false
+    expert: {}
+
+  - id: sparc-4x1-mutex
+    core: sparc
+    mesh: [4, 1]
+    workloads: [tso_mutex1.s]
+    workload_args:
+      tso_mutex1.s:
+        finish_mask: "3333"
+        run_args: [-midas_args=-DTHREAD_COUNT=8]
+    objective: Verify the tso_mutex1.s gate workload passes on a 4x1 sparc mesh.
+    verified: false
+    expert: {}
+
+  - id: sparc-4x1-prod-cons
+    core: sparc
+    mesh: [4, 1]
+    workloads: [tso_prod_cons2.s]
+    workload_args:
+      tso_prod_cons2.s:
+        finish_mask: "3333"
+        run_args: [-midas_args=-DTHREAD_COUNT=8]
+    objective: Verify the tso_prod_cons2.s gate workload passes on a 4x1 sparc mesh.
+    verified: false
+    expert: {}
+
+  - id: sparc-2x2-mutex
+    core: sparc
+    mesh: [2, 2]
+    workloads: [tso_mutex1.s]
+    workload_args:
+      tso_mutex1.s:
+        finish_mask: "3333"
+        run_args: [-midas_args=-DTHREAD_COUNT=8]
+    objective: Verify the tso_mutex1.s gate workload passes on a 2x2 sparc mesh.
+    verified: false
+    expert: {}
