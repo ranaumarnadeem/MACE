@@ -1,7 +1,9 @@
-"""mace.tools -- the agent-facing MCP tool for adapting a scaffolded
-unit-test testbench (the "small edit" step mace.loop._run_unit_test_step
-hands off to an LLM: reconciling a create_env.py-scaffolded testbench's
-dummy DUT port connections against a target module's real ports).
+"""mace.tools -- the agent-facing MCP tools that edit files: one for
+adapting a scaffolded unit-test testbench (the "small edit" step
+mace.loop._run_unit_test_step hands off to an LLM: reconciling a
+create_env.py-scaffolded testbench's dummy DUT port connections against a
+target module's real ports), and RtlEditTool for an rtl task's changes to
+the design under piton/design/.
 
 Deliberately NOT a general BashTool. The project owner's own scoping for
 this step was narrow ("edit access to the scaffolded _top.v file", not the
