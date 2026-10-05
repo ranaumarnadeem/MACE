@@ -799,3 +799,17 @@ class TestRtlEdits:
         assert [r.passed for r in results] == [True, True]
         assert node.apply_edits.calls == [({}, "t.json"), (self.EDIT, "")]
         assert results[1].edits == self.EDIT
+
+
+class TestWorkloadArgsReachTheRun:
+    def test_each_run_gets_its_program_s_finish_mask_and_run_args(self, monkeypatch):
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        node = _FakeRemoteNode("/root_a")
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+        spec = make_spec(workloads=("tso_mutex1.s",), workload_args=(("tso_mutex1.s", "3333", ("-midas_args=-DTHREAD_COUNT=8",)),))
+
+        _run_batch([node], spec, [task("a", spec="tso_mutex1.s")], llm, (), str(WORKLOADS_DIR), None, 0)
+
+        (kwargs,) = node.run.calls
+        assert kwargs["finish_mask"] == "3333"
+        assert kwargs["extra_run_args"] == ("-midas_args=-DTHREAD_COUNT=8",)

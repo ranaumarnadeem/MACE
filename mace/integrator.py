@@ -560,6 +560,7 @@ def _run_batch(
             # The first program keeps the tag it always had, so a replay of
             # an older run still finds its runs.
             phase = "run" if program == spec.workloads[0] else f"run:{program}"
+            finish_mask, run_args = spec.run_options(program)
             return get(
                 node.run.chia_remote(
                     config,
@@ -567,6 +568,8 @@ def _run_batch(
                     asm_diag_root=asm_diag_root,
                     rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
                     max_cycle=spec.max_cycle,
+                    finish_mask=finish_mask,
+                    extra_run_args=run_args,
                     timeout_seconds=run_timeout,
                     _chia_tag=_tag(task.id, phase),
                 )

@@ -35,6 +35,15 @@ and the area budget as a ratio of the default caches' area. ::
         l1d_size: [4096, 8192, 16384]
         l15_size: [8192, 16384]
 
+``workload_args`` gives a gate program the finish mask and extra ``sims``
+run arguments its run needs, as OpenSPARC T1's multi-thread diags do. A
+``finish_mask`` left out keeps the mesh's one-per-tile default. ::
+
+    workload_args:
+      tso_mutex1.s:
+        finish_mask: "3333"
+        run_args: [-midas_args=-DTHREAD_COUNT=8]
+
 ``networks`` in the space lists the interconnects a search may choose, the
 mesh alone by default. ``xbar_config`` needs a mesh with one row of tiles:
 OpenPiton's crossbar has one port per column, so a second row would connect
@@ -62,7 +71,7 @@ from mace.spec import Budget, MaceSpec, Task
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _TASK_KEYS = frozenset(
     ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout", "max_cycle",
-     "codesign")
+     "codesign", "workload_args")
 )
 _CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
 
@@ -107,6 +116,7 @@ class SuiteTask:
     expert_caches: dict[str, tuple[int, int]] = field(default_factory=dict)
     expert_config_rtl: tuple[str, ...] = ()
     codesign: CodesignConfig | None = None
+    workload_args: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
 
     @property
     def kind(self) -> str:
@@ -123,6 +133,7 @@ class SuiteTask:
             budget=self.budget,
             rtl_timeout=self.rtl_timeout,
             max_cycle=self.max_cycle,
+            workload_args=self.workload_args,
         )
 
     def expert_task(self) -> Task:
@@ -229,6 +240,24 @@ def _budget(raw: dict, where: str, base: Budget | None = None) -> Budget:
         raise SuiteError(f"{where}: {e}") from e
 
 
+def _workload_args(raw: object, task_id: str) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    """A task's ``workload_args`` mapping, program -> {finish_mask, run_args},
+    as MaceSpec.workload_args entries; MaceSpec checks the values."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict):
+        raise SuiteError(f"task {task_id}: workload_args must map each program to finish_mask and run_args")
+    entries = []
+    for program, options in raw.items():
+        if not isinstance(options, dict) or set(options) - {"finish_mask", "run_args"}:
+            raise SuiteError(f"task {task_id}: workload_args for {program!r} takes only finish_mask and run_args")
+        run_args = options.get("run_args") or []
+        if not isinstance(run_args, list):
+            raise SuiteError(f"task {task_id}: run_args for {program!r} must be a list")
+        entries.append((program, str(options.get("finish_mask", "")), tuple(run_args)))
+    return tuple(entries)
+
+
 def _task(entry: object, base_budget: Budget) -> SuiteTask:
     if not isinstance(entry, dict):
         raise SuiteError(f"each task must be a mapping, got {entry!r}")
@@ -266,6 +295,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             expert_caches=caches,
             expert_config_rtl=tuple(expert.get("config_rtl") or ()),
             codesign=_codesign(entry.get("codesign"), task_id, entry.get("core", "ariane"), (mesh[0], mesh[1])),
+            workload_args=_workload_args(entry.get("workload_args"), task_id),
         )
         spec = task.spec()
         expert_cfg = task.expert_task()

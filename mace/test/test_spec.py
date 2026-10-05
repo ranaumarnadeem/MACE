@@ -291,3 +291,21 @@ class TestTaskNetwork:
     def test_rejects_anything_else(self):
         with pytest.raises(ValueError, match="network"):
             Task(id="t", deps=(), kind="config", spec="s", network="torus")
+
+
+class TestWorkloadArgs:
+    def test_run_options_returns_a_program_s_mask_and_args(self):
+        spec = make_spec(workload_args=(("hello_world.c", "3333", ("-midas_args=-DTHREAD_COUNT=8",)),))
+        assert spec.run_options("hello_world.c") == ("3333", ("-midas_args=-DTHREAD_COUNT=8",))
+
+    def test_a_program_without_options_keeps_the_defaults(self):
+        assert make_spec().run_options("hello_world.c") == (None, ())
+        assert make_spec(workload_args=(("hello_world.c", "", ()),)).run_options("hello_world.c") == (None, ())
+
+    @pytest.mark.parametrize(
+        "entry",
+        [("other.c", "", ()), ("hello_world.c", "33x", ()), ("hello_world.c", "", ("THREAD_COUNT=8",))],
+    )
+    def test_bad_entries_are_refused(self, entry):
+        with pytest.raises(ValueError):
+            make_spec(workload_args=(entry,))

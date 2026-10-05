@@ -80,8 +80,27 @@ class MaceSpec:
     # at max cycles; None keeps OpenPiton's limit, 1,500,000 under Verilator.
     # A run stops at the lower of the two limits.
     max_cycle: int | None = None
+    # The finish mask and extra sims run arguments some gate programs need,
+    # as (program, finish_mask, run_args) entries; a finish_mask of "" keeps
+    # the mesh's one-per-tile default. OpenSPARC T1's multi-thread diags
+    # name their thread count this way (-midas_args=-DTHREAD_COUNT=8).
+    workload_args: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+
+    def run_options(self, program: str) -> tuple[str | None, tuple[str, ...]]:
+        """(finish_mask or None, extra run args) for gate *program*."""
+        for name, mask, args in self.workload_args:
+            if name == program:
+                return (mask or None, tuple(args))
+        return None, ()
 
     def __post_init__(self) -> None:
+        for name, mask, args in self.workload_args:
+            if name not in self.workloads:
+                raise ValueError(f"workload_args names {name!r}, which is not a gate workload")
+            if not isinstance(mask, str) or not re.fullmatch(r"[0-9a-fA-F]*", mask):
+                raise ValueError(f"finish mask for {name!r} must be hex digits, got {mask!r}")
+            if not all(isinstance(a, str) and a.startswith("-") for a in args):
+                raise ValueError(f"run args for {name!r} must be sims options starting with '-', got {args!r}")
         for name in ("rtl_timeout", "max_cycle"):
             value = getattr(self, name)
             if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):

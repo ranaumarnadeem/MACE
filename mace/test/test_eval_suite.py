@@ -177,3 +177,19 @@ class TestCodesignGeometries:
         text = CODESIGN.replace("l1d: {sizes: [4096, 8192], assocs: [2, 4]}", "l1d: {sizes: [4096, 8192], assocs: [2, 3]}")
         with pytest.raises(SuiteError, match="whole number"):
             load_suite(write(tmp_path, text))
+
+
+class TestWorkloadArgs:
+    def test_a_program_s_finish_mask_and_run_args_reach_the_spec(self, tmp_path):
+        text = MINIMAL.replace(
+            "    verified: true\n",
+            "    verified: true\n    workload_args:\n      addi.S:\n        finish_mask: \"3333\"\n"
+            "        run_args: [-midas_args=-DTHREAD_COUNT=8]\n",
+        )
+        (task,) = load_suite(write(tmp_path, text))
+        assert task.spec().run_options("addi.S") == ("3333", ("-midas_args=-DTHREAD_COUNT=8",))
+
+    def test_an_unknown_option_is_refused(self, tmp_path):
+        text = MINIMAL.replace("    verified: true\n", "    verified: true\n    workload_args:\n      addi.S: {threads: 8}\n")
+        with pytest.raises(SuiteError, match="finish_mask and run_args"):
+            load_suite(write(tmp_path, text))
