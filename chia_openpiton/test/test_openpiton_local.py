@@ -435,6 +435,7 @@ class TestBuildResult:
         assert art.returncode == -1
         assert art.success is False
         assert "timed out" in art.stderr
+        assert art.failure_reason == "build_timeout"
 
     def test_keyboard_interrupt_kills_the_process_group_and_propagates(self, node, cfg, monkeypatch):
         """Ctrl-C during a build must not leave sims/Verilator running

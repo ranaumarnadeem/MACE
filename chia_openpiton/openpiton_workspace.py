@@ -884,7 +884,12 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         binary = _find_model_binary(model_dir, config.sys)
         built = bool(binary)
         success = rc == 0 and built
-        reason = "" if success else (parse.build_failure_reason(stdout, stderr) or "no_model_binary")
+        if success:
+            reason = ""
+        elif rc == -1 and _TIMEOUT_MARKER in stderr:
+            reason = "build_timeout"
+        else:
+            reason = parse.build_failure_reason(stdout, stderr) or "no_model_binary"
         if rc == 0 and not built:
             logger.error("sims exited 0 but no model binary was produced under %s", model_dir)
         if success:

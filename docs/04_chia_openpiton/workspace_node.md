@@ -125,7 +125,7 @@ It returns the resulting `PitonConfig`, whose construction raises `ValueError` o
 sims <config.sims_flags()> -build_id=<config.build_id> -<sim_type>_build [-<sim_type>_build_args=<arg> ...]
 ```
 
-`success` requires exit status 0 and the model binary. A failed build carries a [build_failure_reason](parsers.md) tag, or `no_model_binary` when no tag matches, as when `sims` exits 0 without a binary.
+`success` requires exit status 0 and the model binary. A failed build carries the tag `build_timeout` when its timeout stopped it, else a [build_failure_reason](parsers.md) tag, or `no_model_binary` when no tag matches, as when `sims` exits 0 without a binary.
 
 ### Build cache
 
