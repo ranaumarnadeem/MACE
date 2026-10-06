@@ -53,7 +53,7 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has an RTL error under piton/design/ that its
       build reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
     source_fault:
@@ -71,7 +71,7 @@ tasks:
       Verify the accu_test.c gate workload passes on a 2x2 mesh. The design in
       this checkout has an RTL error under piton/design/ that its build
       reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     expert: {}
     source_fault:
       - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_dcache_ctrl.sv

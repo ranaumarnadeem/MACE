@@ -112,7 +112,13 @@ Only a method that can edit RTL passes: `mace_rtl` and `retry_agent_rtl`.
 `mace`, `one_shot`, and `retry_agent` change only the build configuration and are the controls.
 The `expert` reference fails by design on these tasks, and its failure is the check that the fault breaks the build.
 A task passes when its gate workload passes, so a fault must sit on a signal the workload needs: a first PicoRV32 fault, a misspelled wire read only by the optional coprocessor interface, was repaired by declaring the wire, and the workload still passed.
-The Ariane fault in `wt_l15_adapter.sv` passed the check on the laptop: its build stops at line 255 with `Member 'l15_inval_icache_invalid' not found in structure`.
+All three tasks passed the check on the laptop, each build stopping at the planted line:
+
+| Task | File and line | Error |
+|---|---|---|
+| `ariane-2x2-hello-rtlfault` | `wt_l15_adapter.sv:255` | `Member 'l15_inval_icache_invalid' not found in structure` |
+| `pico-2x2-addi-rtlfault` | `picorv32.v:391` | `Can't find definition of variable: 'mem_readyx'` |
+| `ariane-2x2-accu-rtlfault` | `wt_dcache_ctrl.sv:84` | `Can't find definition of variable: 'address_offs_q'` |
 
 ## Co-design searches
 
