@@ -165,6 +165,7 @@ def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog, rtl_edit
                 results = integrate_parallel(
                     (piton_root,), spec, (design,), llm, run_id=run_id, iteration=attempt,
                     nodes=nodes, options=LoopOptions(task_prompts=False, rtl_edits=rtl_edits), deadline=deadline,
+                    rtl_context="\n\n".join(history),
                 )
             attempt_calls = calls.take()
             iterations.append(results)

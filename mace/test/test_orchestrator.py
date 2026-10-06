@@ -917,3 +917,28 @@ class TestTriageHearsTheObjective:
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
         run_mace_loop(("/fake",), make_spec(objective="needs CONFIG_DISABLE_BIST_CLEAR"), FakeLLM([]), make_db(tmp_path))
         assert seen["objective"] == "needs CONFIG_DISABLE_BIST_CLEAR"
+
+
+class TestRtlContext:
+    def test_a_replan_hands_the_failure_feedback_and_evidence_to_integrate(self, tmp_path, monkeypatch):
+        contexts = []
+
+        def recording_integrate(
+            piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None,
+            nodes=None, rtl_context="", **kwargs,
+        ):
+            contexts.append(rtl_context)
+            return (step_result("t1", passed=iteration == 1),)
+
+        plan_task = (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
+        monkeypatch.setattr("mace.orchestrator.plan", fake_plan([plan_task, plan_task]))
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", recording_integrate)
+        monkeypatch.setattr("mace.orchestrator.triage", lambda *a, **k: Triage(diagnosis="rtl_suspect", fix="fix x.v"))
+
+        run_mace_loop(
+            ("/fake/root",), make_spec(budget=Budget(max_iterations=2)), FakeLLM(responses=[]), make_db(tmp_path)
+        )
+
+        assert contexts[0] == ""
+        assert "diagnosis=rtl_suspect, suggested fix=fix x.v" in contexts[1]
+        assert "The last failed task's own evidence:" in contexts[1]

@@ -111,8 +111,11 @@ RTL_RULE = """\
 - kind "rtl" is a change to the design's RTL source. Its agent gets tools to
   read files under piton/design/ and replace text in them; the changed
   design is built and every gate workload simulated. Say in the instruction
-  what to change and why. A task that depends on an rtl task builds with
-  its changes. Testbench and monitor files under piton/verif/ cannot change.
+  which file to change, what is wrong in it, and how. A task that depends on
+  an rtl task builds with its changes. Testbench and monitor files under
+  piton/verif/ cannot change. Plan an rtl task only when an earlier attempt's
+  feedback or evidence names the file and the error; before any attempt has
+  run, plan the workload so its build reports the problem.
 """
 
 

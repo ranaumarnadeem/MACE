@@ -85,6 +85,16 @@ def _start_triage_tool_server(run_id: str, piton_root: str, failed: StepResult) 
         return None
 
 
+def _rtl_context(feedback_history: list[str], last_evidence: str) -> str:
+    """What an rtl task's agent is told earlier attempts reported: every
+    failure's feedback, then the last failed task's own evidence (its build
+    errors name the file and line to change)."""
+    parts = list(feedback_history)
+    if last_evidence:
+        parts.append("The last failed task's own evidence:\n" + last_evidence[:3000])
+    return "\n".join(parts)
+
+
 def run_mace_loop(
     piton_roots: tuple[str, ...],
     spec: MaceSpec,
@@ -220,6 +230,7 @@ def _run_started_loop(
     iterations: list[tuple] = []
     diagnoses: list[tuple[str, Triage] | None] = []
     had_a_failure = False
+    last_evidence = ""
     status = "budget_exceeded"
 
     # Built on first use, inside the loop below (not here): a run that
@@ -284,6 +295,7 @@ def _run_started_loop(
                     piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
                     on_task_progress=on_task_progress, nodes=nodes, options=options,
                     deadline=started + spec.budget.max_wall_s,
+                    rtl_context=_rtl_context(feedback_history, last_evidence),
                 )
                 iter_wall_s = time.monotonic() - iter_started
                 iter_calls = calls.take()
@@ -309,6 +321,7 @@ def _run_started_loop(
                     break
 
                 had_a_failure = True
+                last_evidence = failure_evidence(failed)
                 if options.triage == "llm":
                     triage_tools = tools
                     if ray.is_initialized():

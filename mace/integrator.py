@@ -103,8 +103,10 @@ def inherited_edits(task: Task, applied: dict[str, dict[str, str]]) -> dict[str,
     return merged
 
 
-def rtl_prompt(spec: MaceSpec, task: Task, inherited: dict[str, str]) -> str:
-    """What an rtl task's agent is told."""
+def rtl_prompt(spec: MaceSpec, task: Task, inherited: dict[str, str], context: str = "") -> str:
+    """What an rtl task's agent is told. *context* is what earlier attempts
+    in the run reported: the failure feedback and the last failed task's own
+    evidence, such as a build error with its file and line."""
     lines = [
         f"You are changing the RTL of OpenPiton/{spec.core} for one task of a MACE run.",
         "",
@@ -115,17 +117,23 @@ def rtl_prompt(spec: MaceSpec, task: Task, inherited: dict[str, str]) -> str:
         f"Task {task.id}: {task.spec}",
         "",
         "Find and read the relevant files under piton/design/ with the tools, then record the change "
-        "with the replace tool. Make the smallest change that does what the task says. Files under "
+        "with the replace tool. Make the smallest change that does what the task says, and no other. "
+        "If the task and the report below do not tell you what is wrong and where, record no edit and say "
+        "what is missing: an edit made on a guess hides the real problem. Files under "
         "piton/verif/, such as the testbench and the monitors, cannot change. After you finish, the "
         "design is built and every gate workload simulated; you cannot run anything yourself. End with "
         "one line saying what you changed and why.",
     ]
+    if context.strip():
+        lines += ["", "What the earlier attempts in this run reported:", context.strip()]
     if inherited:
         lines += ["", "Edits from the tasks this one depends on are already applied to: " + ", ".join(sorted(inherited))]
     return "\n".join(lines)
 
 
-def _rtl_session(node, spec: MaceSpec, task: Task, llm, tools, inherited: dict[str, str], run_id, iteration):
+def _rtl_session(
+    node, spec: MaceSpec, task: Task, llm, tools, inherited: dict[str, str], run_id, iteration, context: str = ""
+):
     """An rtl task's agent call, with an :class:`~mace.tools.RtlEditTool`
     when Ray is up. Returns the reply and the name of the staging file the
     tool records into ("" without a tool). The inherited edits are applied
@@ -141,7 +149,7 @@ def _rtl_session(node, spec: MaceSpec, task: Task, llm, tools, inherited: dict[s
             task_options=node.task_options,
         )
     try:
-        query = usage.prompt(llm, "task", rtl_prompt(spec, task, inherited), (*tools, tool) if tool else tools)
+        query = usage.prompt(llm, "task", rtl_prompt(spec, task, inherited, context), (*tools, tool) if tool else tools)
     except Exception as e:
         logger.warning("task %s: rtl agent call failed: %s", task.id, e)
         query = QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
@@ -286,6 +294,7 @@ def integrate_parallel(
     nodes: list | None = None,
     options: LoopOptions | None = None,
     deadline: float | None = None,
+    rtl_context: str = "",
 ) -> tuple[StepResult, ...]:
     """Apply *tasks* across *piton_roots* in parallel, one level at a time.
 
@@ -361,7 +370,7 @@ def integrate_parallel(
         for level in topological_levels(tasks):
             level_results = _run_level(
                 nodes, spec, level, llm, tools, root_dir, run_id, iteration, on_task_progress,
-                options, deadline, applied,
+                options, deadline, applied, rtl_context,
             )
             results.extend(level_results)
             if not all(r.passed for r in level_results):
@@ -386,6 +395,7 @@ def _run_level(
     options: LoopOptions | None = None,
     deadline: float | None = None,
     applied: dict[str, dict[str, str]] | None = None,
+    rtl_context: str = "",
 ) -> list[StepResult]:
     """One level, batched to at most ``len(nodes)`` tasks in flight at once."""
     results: list[StepResult] = []
@@ -396,7 +406,7 @@ def _run_level(
         results.extend(
             _run_batch(
                 nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root, run_id, iteration,
-                on_task_progress, options, deadline, applied,
+                on_task_progress, options, deadline, applied, rtl_context,
             )
         )
     return results
@@ -415,6 +425,7 @@ def _run_batch(
     options: LoopOptions | None = None,
     deadline: float | None = None,
     applied: dict[str, dict[str, str]] | None = None,
+    rtl_context: str = "",
 ) -> list[StepResult]:
     """One (node, task) pair per entry.
 
@@ -426,7 +437,8 @@ def _run_batch(
     build gets its own build_id through ``PitonConfig.source_edits``. An rtl
     task whose agent recorded no edit fails with the reason
     ``no_rtl_edit``, without a build. Its agent call is made whether or not
-    ``options.task_prompts`` is on, since that call is the edit.
+    ``options.task_prompts`` is on, since that call is the edit, and its
+    prompt carries *rtl_context*, what earlier attempts reported.
 
     Each task gets its own PitonConfig (mace.loop._config_for_task) rather
     than one shared for the whole batch, since a task's own CACHES: line
@@ -493,7 +505,9 @@ def _run_batch(
         query = QueryResult(result="", returncode=0, stderr="", stream_result="", success=True)
         if rtl:
             _progress((task.id,), "prompting")
-            query, staged = _rtl_session(node, spec, task, llm, tools, inherited, run_id, iteration)
+            query, staged = _rtl_session(
+                node, spec, task, llm, tools, inherited, run_id, iteration, rtl_context
+            )
         elif options.task_prompts:
             _progress((task.id,), "prompting")
             started = time.monotonic()

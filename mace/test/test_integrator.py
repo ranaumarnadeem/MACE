@@ -704,7 +704,7 @@ class TestRtlEdits:
     EDIT = {"piton/design/chip/x.v": "module x; endmodule\n"}
 
     def _session(self, monkeypatch, staged="t.json"):
-        def fake_session(node, spec, task, llm, tools, inherited, run_id, iteration):
+        def fake_session(node, spec, task, llm, tools, inherited, run_id, iteration, context=""):
             return FakeLLM(responses=["changed x.v"]).prompt("edit"), staged
 
         monkeypatch.setattr("mace.integrator._rtl_session", fake_session)
@@ -814,3 +814,41 @@ class TestWorkloadArgsReachTheRun:
         (kwargs,) = node.run.calls
         assert kwargs["finish_mask"] == "3333"
         assert kwargs["extra_run_args"] == ("-midas_args=-DTHREAD_COUNT=8",)
+
+
+class TestRtlPrompt:
+    def test_it_carries_what_earlier_attempts_reported(self):
+        from mace.integrator import rtl_prompt
+
+        prompt = rtl_prompt(make_spec(), task("r", kind="rtl", spec="fix it"), {}, context="%Error: x.v:9: no such wire")
+        assert "What the earlier attempts in this run reported:\n%Error: x.v:9: no such wire" in prompt
+
+    def test_it_says_not_to_guess_and_not_to_touch_verif(self):
+        from mace.integrator import rtl_prompt
+
+        prompt = " ".join(rtl_prompt(make_spec(), task("r", kind="rtl", spec="fix it"), {}).split())
+        assert "record no edit and say what is missing" in prompt
+        assert "piton/verif/" in prompt
+
+    def test_without_a_report_there_is_no_report_section(self):
+        from mace.integrator import rtl_prompt
+
+        assert "earlier attempts" not in rtl_prompt(make_spec(), task("r", kind="rtl", spec="x"), {})
+
+    def test_the_context_reaches_the_agent_through_the_batch(self, monkeypatch):
+        from mace.spec import LoopOptions
+
+        seen = []
+
+        def fake_session(node, spec, task, llm, tools, inherited, run_id, iteration, context=""):
+            seen.append(context)
+            return FakeLLM(responses=["x"]).prompt("x"), ""
+
+        monkeypatch.setattr("mace.integrator._rtl_session", fake_session)
+        monkeypatch.setattr("mace.integrator.get", _fake_get)
+        llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
+        _run_batch(
+            [_EditingNode("/root_a")], make_spec(), [task("r", kind="rtl", spec="x")], llm, (), str(WORKLOADS_DIR),
+            None, 0, options=LoopOptions(rtl_edits=True), rtl_context="build said: bad wire",
+        )
+        assert seen == ["build said: bad wire"]
