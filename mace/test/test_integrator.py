@@ -716,7 +716,7 @@ class TestRtlEdits:
         llm = type("FakeLLM", (), {"prompt": _FakePromptAttr({})})()
         return _run_batch(
             [node] * len(tasks), make_spec(), tasks, llm, (), str(WORKLOADS_DIR), None, 0,
-            options=options or LoopOptions(), applied=applied,
+            options=options or LoopOptions(rtl_edits=True), applied=applied,
         )
 
     def test_an_rtl_task_without_an_edit_fails_without_a_build(self, monkeypatch):
@@ -785,6 +785,7 @@ class TestRtlEdits:
 
     def test_integrate_parallel_hands_a_passed_task_s_edits_to_its_dependents(self, monkeypatch):
         from mace.integrator import integrate_parallel
+        from mace.spec import LoopOptions
 
         self._session(monkeypatch)
         monkeypatch.setattr("mace.integrator.get", _fake_get)
@@ -793,7 +794,7 @@ class TestRtlEdits:
 
         results = integrate_parallel(
             ("/root_a",), make_spec(), (task("r", kind="rtl", spec="fix"), task("w", deps=("r",))), llm,
-            nodes=[node],
+            nodes=[node], options=LoopOptions(rtl_edits=True),
         )
 
         assert [r.passed for r in results] == [True, True]
