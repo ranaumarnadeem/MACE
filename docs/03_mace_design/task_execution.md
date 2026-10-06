@@ -66,7 +66,7 @@ Before the build, `node.apply_edits()` writes the edits into the task's checkout
 After the task's runs, `node.revert_edits()` restores every file, however the task ended.
 The build's `source_edits` gives an edited design its own model directory.
 A task of any kind builds with the edits of the tasks it depends on, directly or through other tasks: `integrate_parallel()` keeps each passed task's edits for the levels after it.
-An `rtl` task whose agent recorded no edit fails with the failure reason `no_rtl_edit`, without a build.
+An `rtl` task whose agent recorded no edit of its own still builds and runs the design as it stands, so a failure carries the real build error with its file and line. The task's result has `edit_recorded` false, and the failure evidence says so and quotes the agent's closing words.
 The task's result carries the edits and their unified diff, which triage, the re-plan's feedback, and the `tasks.rtl_edits` column quote.
 
 Both the planner's offer of the `rtl` kind and the edit tool need `LoopOptions(rtl_edits=True)`, which is off by default; see [Planner](planner.md). With it off, an `rtl` task runs as a `config` task.
