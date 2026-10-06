@@ -62,7 +62,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EXEC-11:** MACE shall build and run a `config` or `workload` task when its prompt call fails, and log the failure.
 - **REQ-EXEC-12:** MACE shall fail a `unit_test` task, without scaffolding or building, when its module path is absolute, resolves outside the checkout, is not a `.v`, `.sv`, or `.pyv` file, or does not exist.
 - **REQ-EXEC-13:** MACE shall fail an Ariane task whose L1D or L1I has more ways than its L1.5 without building it, and shall name the cache that breaks the rule in the failure.
-- **REQ-EXEC-14:** For an `rtl` task, MACE shall give the agent tools that read files under `piton/design/` and record text replacements in them, and shall refuse any other path.
+- **REQ-EXEC-14:** When the run enables RTL edits, MACE shall offer the `rtl` task kind in the plan's prompt and, for an `rtl` task, give the agent tools that read files under `piton/design/` and record text replacements in them, and shall refuse any other path.
 - **REQ-EXEC-15:** MACE shall apply a task's RTL edits, and those of every task it depends on, to the task's checkout before its build, and shall restore the edited files after its runs however the task ends.
 - **REQ-EXEC-16:** MACE shall fail an `rtl` task whose agent records no edit, without building it.
 

@@ -1,0 +1,494 @@
+<title>MACE Paper Brief</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  :root {
+    --paper: #F3F4EF;
+    --paper-raised: #FBFBF8;
+    --ink: #1B211E;
+    --ink-soft: #4B554F;
+    --ink-faint: #7C877F;
+    --line: #D7DBD1;
+    --line-soft: #E6E9E1;
+    --accent: #0E7C74;
+    --accent-ink: #084A45;
+    --accent-soft: #E1F0ED;
+    --warm: #A85E0A;
+    --warm-soft: #F5E9D6;
+    --code-bg: #1B211E;
+    --code-ink: #E7ECE6;
+    --shadow: 0 1px 2px rgba(27,33,30,0.06), 0 4px 14px rgba(27,33,30,0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #141815;
+      --paper-raised: #1B211E;
+      --ink: #E9ECE7;
+      --ink-soft: #AEB8AF;
+      --ink-faint: #7C877F;
+      --line: #2C332E;
+      --line-soft: #232A25;
+      --accent: #4FBFB3;
+      --accent-ink: #BEEAE3;
+      --accent-soft: #1C2E2B;
+      --warm: #E0A24C;
+      --warm-soft: #332615;
+      --code-bg: #0E1210;
+      --code-ink: #DCE6DF;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 18px rgba(0,0,0,0.25);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #141815;
+    --paper-raised: #1B211E;
+    --ink: #E9ECE7;
+    --ink-soft: #AEB8AF;
+    --ink-faint: #7C877F;
+    --line: #2C332E;
+    --line-soft: #232A25;
+    --accent: #4FBFB3;
+    --accent-ink: #BEEAE3;
+    --accent-soft: #1C2E2B;
+    --warm: #E0A24C;
+    --warm-soft: #332615;
+    --code-bg: #0E1210;
+    --code-ink: #DCE6DF;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 18px rgba(0,0,0,0.25);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 20px;
+  }
+
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding-block: 48px 80px;
+  }
+
+  h1, h2, h3, .mono {
+    font-family: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 600; }
+
+  code, .path {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 0.88em;
+    background: var(--line-soft);
+    color: var(--accent-ink);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    word-break: break-word;
+  }
+
+  /* ---------------- Masthead ---------------- */
+
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+
+  .kicker {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-size: 30px;
+    line-height: 1.15;
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+
+  .dek {
+    color: var(--ink-soft);
+    font-size: 16px;
+    max-width: 58ch;
+    margin: 0 0 22px;
+  }
+
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+
+  .meta-strip b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---------------- Sections ---------------- */
+
+  section { margin-bottom: 44px; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .section-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--ink-faint);
+  }
+
+  h2 {
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .section-intro {
+    color: var(--ink-soft);
+    margin: 0 0 20px;
+    max-width: 62ch;
+  }
+
+  /* ---------------- Capability cards ---------------- */
+
+  .cap {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow);
+  }
+
+  .cap-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+
+  .cap-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--ink);
+  }
+
+  .tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+
+  .tag-new { background: var(--accent-soft); color: var(--accent-ink); }
+
+  .cap-desc { color: var(--ink-soft); margin: 6px 0 12px; font-size: 14.5px; }
+
+  .proof {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 5px 5px 0;
+    padding: 9px 12px;
+    margin-bottom: 10px;
+    font-size: 13.5px;
+  }
+
+  .proof-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    flex-shrink: 0;
+  }
+
+  .proof-val { color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  .cap-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  /* ---------------- Checklist ---------------- */
+
+  .task {
+    display: flex;
+    gap: 12px;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .task:last-child { border-bottom: none; }
+
+  .task-mark {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1.5px solid var(--warm);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .task-body b { display: block; font-size: 14.5px; margin-bottom: 3px; }
+  .task-body span { color: var(--ink-soft); font-size: 13.5px; }
+
+  /* ---------------- Reference table ---------------- */
+
+  .ref-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .ref-table th {
+    text-align: left;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+    padding: 0 10px 8px 0;
+    border-bottom: 1.5px solid var(--ink);
+  }
+
+  .ref-table td {
+    padding: 10px 10px 10px 0;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+  }
+
+  .ref-table tr:last-child td { border-bottom: none; }
+
+  .ref-what { font-weight: 500; white-space: nowrap; }
+  .ref-table-wrap { overflow-x: auto; }
+
+  /* ---------------- Repro block ---------------- */
+
+  .repro {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 8px;
+    padding: 16px 18px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+    margin-top: 6px;
+  }
+
+  .repro .c { color: #7C877F; }
+
+  /* ---------------- Footer ---------------- */
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-faint);
+    font-size: 13px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  footer .warm { color: var(--warm); font-weight: 500; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 25px; }
+    .cap-head { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+
+<div class="page">
+
+  <div class="masthead">
+    <p class="kicker">MACE &middot; internal brief</p>
+    <h1>What the paper's missing</h1>
+    <p class="dek">
+      Three real, working capabilities shipped since the write-up was last touched — none of them
+      are in the paper yet. This is the handoff: what's new, what needs writing, and exactly where
+      the real numbers and commands live so you can check anything here yourself before it goes in.
+    </p>
+    <div class="meta-strip">
+      <span><b>Paper last edited</b> 2026-09-13</span>
+      <span><b>Brief date</b> 2026-09-15</span>
+      <span><b>Deadline</b> 2026-09-20 AoE</span>
+      <span><b>Paper file</b> <code>paper/mace_paper.tex</code></span>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-head"><span class="section-num">01</span><h2>What's new</h2></div>
+    <p class="section-intro">
+      Three commits' worth of real capability, each proven against actual hardware or a live LLM
+      backend — not a mock, not a unit test standing in for a real run.
+    </p>
+
+    <div class="cap">
+      <div class="cap-head">
+        <span class="cap-title">The <code>mace</code> CLI</span>
+        <span class="tag tag-new">new</span>
+      </div>
+      <p class="cap-desc">
+        A real interactive shell, modeled on Yosys/OpenROAD's own command style —
+        <code>read_verilog</code>, <code>top_module</code>, <code>read_spec</code>,
+        <code>set_core</code>, then <code>run</code>. State accumulates across commands the way a
+        real EDA tool session does. Rich-rendered output: styled pass/fail, bordered panels for
+        verification logs, a real command-reference table.
+      </p>
+      <div class="proof">
+        <span class="proof-label">try it</span>
+        <span class="proof-val">mace shell --piton-root &lt;path&gt; --api &lt;.env&gt;</span>
+      </div>
+      <div class="cap-files">
+        <code class="path">mace/cli/shell.py</code>
+        <code class="path">mace/cli/session.py</code>
+      </div>
+    </div>
+
+    <div class="cap">
+      <div class="cap-head">
+        <span class="cap-title">Vertex / Gemini backend</span>
+        <span class="tag tag-new">new</span>
+      </div>
+      <p class="cap-desc">
+        A second real LLM backend end to end, not just OpenCode — Google Vertex AI's Gemini models,
+        authenticated via Application Default Credentials (no API key file at all, since ADC was
+        already set up on this machine from earlier cluster work). Confirmed
+        <code>gemini-2.5-flash</code> is what actually works on our project/region;
+        <code>gemini-2.0-flash-001</code> 404s.
+      </p>
+      <div class="proof">
+        <span class="proof-label">real run</span>
+        <span class="proof-val">run_id f0ed1fe44745 &middot; status=passed &middot; 1x1 Ariane + barrier_atomic.c</span>
+      </div>
+      <div class="cap-files">
+        <code class="path">mace/llm.py</code>
+        <code class="path">chia.models.vertex.VertexGeminiLLM</code>
+      </div>
+    </div>
+
+    <div class="cap">
+      <div class="cap-head">
+        <span class="cap-title">Verilator code coverage</span>
+        <span class="tag tag-new">new</span>
+      </div>
+      <p class="cap-desc">
+        Real line-coverage instrumentation, wired the whole way from a testbench patch to a live
+        <code>run&nbsp;-coverage</code> command. Needed a genuine fix to OpenPiton's own hand-written
+        testbench (it never called Verilator's coverage-write API), plus routing around a broken
+        <code>verilator_coverage</code> install this project's own build environment resolves to
+        first — both real, both documented in the script below.
+      </p>
+      <div class="proof">
+        <span class="proof-label">real number</span>
+        <span class="proof-val">36.00% (8787/24311) &middot; 1x1 Ariane + barrier_atomic.c, via the shell</span>
+      </div>
+      <div class="cap-files">
+        <code class="path">scripts/local_coverage_1x1_build_test.py</code>
+        <code class="path">scripts/patch_openpiton.sh</code>
+        <code class="path">chia_openpiton/parse.py</code>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">02</span><h2>What the paper needs</h2></div>
+    <p class="section-intro">
+      Not prescribing your wording — just flagging where each capability plugs in. Pick what's
+      worth the space given we're 5 days out.
+    </p>
+
+    <div class="task">
+      <div class="task-mark"></div>
+      <div class="task-body">
+        <b>Mention the CLI as the real interface</b>
+        <span>The intro / system description currently describes the loop but not how someone
+          actually drives it. One or two sentences plus the command example above is enough.</span>
+      </div>
+    </div>
+    <div class="task">
+      <div class="task-mark"></div>
+      <div class="task-body">
+        <b>Add Vertex as evidence of backend portability</b>
+        <span>Strengthens the "not tied to one LLM vendor" claim — worth a line in the evaluation
+          or architecture section, with the real run_id above.</span>
+      </div>
+    </div>
+    <div class="task">
+      <div class="task-mark"></div>
+      <div class="task-body">
+        <b>Add coverage as a new verification axis</b>
+        <span>Pass/fail was the only signal before. A real 36.00% figure is worth a sentence in
+          the evaluation table or a short new paragraph — your call on which fits better.</span>
+      </div>
+    </div>
+    <div class="task">
+      <div class="task-mark"></div>
+      <div class="task-body">
+        <b>Full read-through against current state</b>
+        <span>Standing item since the last status note — worth doing once the above lands, not
+          before.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">03</span><h2>Reference</h2></div>
+    <p class="section-intro">Real paths and identifiers — check any claim above directly before it goes in the paper.</p>
+
+    <div class="ref-table-wrap">
+      <table class="ref-table">
+        <tr><th>What</th><th>Where</th></tr>
+        <tr><td class="ref-what">CLI source</td><td><code class="path">mace/cli/shell.py</code></td></tr>
+        <tr><td class="ref-what">CLI docs</td><td><code class="path">docs/TECHNICAL_GUIDE.md</code> &sect;12</td></tr>
+        <tr><td class="ref-what">Coverage proof script</td><td><code class="path">scripts/local_coverage_1x1_build_test.py</code></td></tr>
+        <tr><td class="ref-what">Coverage patch</td><td><code class="path">scripts/patch_openpiton.sh</code>, fix 5</td></tr>
+        <tr><td class="ref-what">Vertex run (no coverage)</td><td><code class="path">f0ed1fe44745</code></td></tr>
+        <tr><td class="ref-what">Vertex + coverage run</td><td><code class="path">cb172af95c6b</code></td></tr>
+        <tr><td class="ref-what">Metrics DB reader</td><td><code class="path">mace.metrics.summary()</code></td></tr>
+        <tr><td class="ref-what">Full commit list</td><td><code class="path">git log --oneline 0a58ac8..HEAD</code></td></tr>
+      </table>
+    </div>
+
+    <div class="repro"><span class="c"># reproduce the coverage number yourself</span><br>
+cd MACE<br>
+source ~/miniconda3/etc/profile.d/conda.sh &amp;&amp; conda activate chia_env<br>
+bash scripts/patch_openpiton.sh /path/to/openpiton<br>
+python3 scripts/local_coverage_1x1_build_test.py</div>
+  </section>
+
+  <footer>
+    Questions on any number here → check the file/commit it points to first, it's all real and on <code>main</code>.
+    <span class="warm">Nothing above is written into the paper yet.</span>
+  </footer>
+
+</div>

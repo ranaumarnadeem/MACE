@@ -69,7 +69,7 @@ A task of any kind builds with the edits of the tasks it depends on, directly or
 An `rtl` task whose agent recorded no edit fails with the failure reason `no_rtl_edit`, without a build.
 The task's result carries the edits and their unified diff, which triage, the re-plan's feedback, and the `tasks.rtl_edits` column quote.
 
-`LoopOptions(rtl_edits=False)` leaves the `rtl` kind out of the planner's prompt, and an `rtl` task then runs as a `config` task.
+Both the planner's offer of the `rtl` kind and the edit tool need `LoopOptions(rtl_edits=True)`, which is off by default; see [Planner](planner.md). With it off, an `rtl` task runs as a `config` task.
 The serial `integrate()` and `run_mace_step()` give no task an edit tool.
 
 ## Unit-Test Tasks

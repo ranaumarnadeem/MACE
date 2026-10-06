@@ -65,4 +65,4 @@ The orchestrator then logs the error, which quotes a reply with no `TASK:` lines
 | `rtl` | What to change in the design's RTL, and why | Edit files under `piton/design/` through an edit tool, build, run each gate workload (see [Parallel Task Execution](task_execution.md)) |
 
 `config` and `workload` share one execution path; the label records intent.
-`LoopOptions(rtl_edits=False)` removes the `rtl` kind and its rule from the prompt.
+The prompt offers the `rtl` kind only under `LoopOptions(rtl_edits=True)`. Offered on tasks that pass at their defaults, it made the planner write RTL tasks about files that do not exist, so the default leaves it out; without it, an `rtl` line still parses and runs as a `config` task.

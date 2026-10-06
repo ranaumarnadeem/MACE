@@ -82,7 +82,7 @@ CACHES: <task id> | <name>=<size>,<associativity> ...
 CONFIG_RTL: <task id> | <FLAG1> <FLAG2> ...
 ```
 
-Task LLM calls get no tools, except a testbench editor for `unit_test` tasks and an RTL editor for `rtl` tasks. An `rtl` task can change files under `piton/design/`, never the testbench or monitors under `piton/verif/`; see [Parallel Task Execution](../03_mace_design/task_execution.md). Otherwise only these directives change a task's build.
+Task LLM calls get no tools, except a testbench editor for `unit_test` tasks and, with `LoopOptions(rtl_edits=True)`, an RTL editor for `rtl` tasks. An `rtl` task can change files under `piton/design/`, never the testbench or monitors under `piton/verif/`; see [Parallel Task Execution](../03_mace_design/task_execution.md). Otherwise only these directives change a task's build.
 `CACHES:` accepts `l1i`, `l1d`, `l15`, and `l2`, with defaults `l1i=16384,4 l1d=8192,4 l15=8192,4 l2=65536,4`.
 
 ### CONFIG_RTL

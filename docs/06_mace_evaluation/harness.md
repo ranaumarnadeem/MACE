@@ -27,12 +27,13 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `mace` | MACE | The full loop. |
 | `expert` | B0, expert reference | The expert configuration, built and checked once through the loop's own build-and-check path, with no LLM. It sets a floor on machine time. |
 | `one_shot` | B1, one-shot | The loop with a one-iteration budget, no triage, and no post-mortem, so its plan comes from the planner's own prompt. Its runs also serve as the no-re-plan ablation. |
-| `retry_agent` | B2, retry agent | One agent proposes one design per attempt on one checkout; after a failure it gets the failure's raw evidence, the text triage would have read. A design may be an `rtl` task, with the loop's edit tool. |
+| `retry_agent` | B2, retry agent | One agent proposes one design per attempt on one checkout; after a failure it gets the failure's raw evidence, the text triage would have read. |
 | `no_triage` | A1 | The loop with `LoopOptions(triage="raw")`. |
 | `one_checkout` | A2 | The loop on the first checkout only. |
 | `build_check` | A3 | The loop with `LoopOptions(check="build")`. After a passed run, the harness simulates each design it accepted and records the verdicts in the `resimulations` table; a design that fails is a false accept. |
 | `no_reuse` | A5 | The loop with `LoopOptions(reuse_builds=False)`. |
-| `no_rtl_edits` | A6 | The loop with `LoopOptions(rtl_edits=False)`, which changes only the build configuration. |
+| `mace_rtl` | Opt-in | The loop with `LoopOptions(rtl_edits=True)`: its planner may offer `rtl` tasks, whose agents edit the design's RTL. Meant for source-fault tasks. |
+| `retry_agent_rtl` | Opt-in | `retry_agent` whose design may be an `rtl` task, with the loop's edit tool. |
 | `codesign_mace` | C0 | A co-design search whose designs come from the LLM proposer. |
 | `codesign_random` | C1 | A co-design search over uniform random designs, seeded by the repeat. |
 | `codesign_grid` | C2 | A co-design search over the task's fixed grid, in order. |
@@ -64,7 +65,7 @@ python examples/eval_batch.py --piton-root ~/openpiton --dry-run
 MAKEFLAGS=-j1 python examples/eval_batch.py --piton-root ~/openpiton --methods expert,codesign_random,codesign_grid,codesign_bayes
 export GOOGLE_CLOUD_PROJECT=<your-gcp-project> MAKEFLAGS=-j1
 python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-b --repeats 3
-python examples/eval_batch.py --piton-root ~/openpiton --methods no_triage,one_checkout,build_check,no_reuse,no_rtl_edits \
+python examples/eval_batch.py --piton-root ~/openpiton --methods no_triage,one_checkout,build_check,no_reuse \
     --tasks ariane-2x2-barrier,pico-2x2-addi
 ```
 
@@ -96,6 +97,20 @@ PATCH_SKIP="11" bash scripts/patch_openpiton.sh ~/openpiton-no11
 python examples/eval_batch.py --piton-root ~/openpiton-no11 --methods expert,mace --tasks ariane-2x2-barrier \
     --label reverted_fix=11 --db-path runs/reverted_fix_11.db
 ```
+
+## Source faults
+
+A suite task with a `source_fault` plants a bug in the design: text replacements in files under `piton/design/`, each an `old` snippet that occurs once and its `new` text (see `mace/eval/source_faults.py`).
+Every job on the task runs on checkouts that carry the fault.
+`faulted()` writes it into each checkout before the job and restores the files after, however the job ends, and a backup an interrupted job left behind is restored before the next fault is applied.
+The backup sits apart from the RTL edit tool's, so an `rtl` task's edits and the fault never undo each other.
+The run's `meta` lists the files the fault changed.
+
+`examples/eval/tasks_rtl.yaml` holds two such tasks, one on Ariane and one on PicoRV32, each a misspelled or undeclared name that makes the Verilator build fail with an error that names the file and line.
+Only a method that can edit RTL passes: `mace_rtl` and `retry_agent_rtl`.
+`mace`, `one_shot`, and `retry_agent` change only the build configuration and are the controls.
+The `expert` reference fails by design on these tasks, and its failure is the check that the fault breaks the build.
+A task stays `verified: false` until that check has run.
 
 ## Co-design searches
 
