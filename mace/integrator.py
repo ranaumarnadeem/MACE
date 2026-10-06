@@ -75,18 +75,6 @@ def _not_run(test: str) -> PitonRunResult:
     )
 
 
-NO_RTL_EDIT = "no_rtl_edit"
-
-
-def _no_edit_build(config: PitonConfig) -> PitonBuildArtifact:
-    """The build an rtl task gets when its agent recorded no edit."""
-    return PitonBuildArtifact(
-        success=False, returncode=-1, config=config, sim_type="vlt", model_dir="",
-        binary_path="", wall_time_s=0.0, failure_reason=NO_RTL_EDIT,
-        errors=("the rtl task's agent recorded no edit",),
-    )
-
-
 def edits_digest(edits: dict[str, str]) -> str:
     """A short hash of *edits*, for ``PitonConfig.source_edits``."""
     blob = json.dumps(edits, sort_keys=True).encode("utf-8", "surrogateescape")
@@ -435,8 +423,8 @@ def _run_batch(
     The node applies all of them to the task's checkout before the build
     and reverts them after the task's runs, however the task ends; the
     build gets its own build_id through ``PitonConfig.source_edits``. An rtl
-    task whose agent recorded no edit fails with the reason
-    ``no_rtl_edit``, without a build. Its agent call is made whether or not
+    task whose agent recorded no edit builds the design as it stands, and its
+    result says so (``StepResult.edit_recorded``). Its agent call is made whether or not
     ``options.task_prompts`` is on, since that call is the edit, and its
     prompt carries *rtl_context*, what earlier attempts reported.
 
@@ -531,17 +519,17 @@ def _run_batch(
             applied_now = get(node.apply_edits.chia_remote(inherited, staged=staged))
             edits, diff = applied_now["edits"], applied_now["diff"]
         try:
-            if rtl and (edits or {}) == inherited:
-                result = StepResult(task=task, query=query, build=_no_edit_build(config), run=None, passed=False)
-            else:
-                if edits:
-                    config = dataclasses.replace(config, source_edits=edits_digest(edits))
-                result = _check(node, config, task, query)
+            if edits:
+                config = dataclasses.replace(config, source_edits=edits_digest(edits))
+            result = _check(node, config, task, query)
         finally:
             if edits is not None:
                 get(node.revert_edits.chia_remote())
         if edits:
             result.edits, result.edits_diff = edits, diff
+        # An rtl task whose agent recorded nothing new still builds and runs
+        # the design as it stands, so a failure carries the real build error.
+        result.edit_recorded = not rtl or (edits or {}) != inherited
         return result
 
     def _check(node, config: PitonConfig, task: Task, query) -> StepResult:

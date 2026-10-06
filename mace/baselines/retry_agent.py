@@ -67,8 +67,10 @@ _RTL_RULE = """
 Use kind=rtl instead when the design needs a change to the RTL source. You
 then get tools to read files under piton/design/ and replace text in them,
 and the changed design is built and every gate workload simulated. Say in
-the description what to change and why. Testbench and monitor files under
-piton/verif/ cannot change.
+the description which file to change, what is wrong in it, and how.
+Testbench and monitor files under piton/verif/ cannot change. Use kind=rtl
+only when an earlier attempt's report names the file and the error; on the
+first attempt, use kind=config so the build reports the problem.
 """
 
 

@@ -59,6 +59,8 @@ def changes_from_defaults(config: PitonConfig) -> str:
 
 # How much of an RTL edit's diff a prompt quotes.
 EDIT_DIFF_CHARS = 3000
+# How much of an rtl agent's closing words a prompt quotes.
+EDIT_REPLY_CHARS = 600
 
 
 def edits_feedback(result: StepResult) -> str:
@@ -87,6 +89,9 @@ def failure_evidence(result: StepResult) -> str:
     ]
     if result.edits_diff:
         context_parts.append(f"RTL edits the build carried:\n{result.edits_diff[:EDIT_DIFF_CHARS]}")
+    if not result.edit_recorded:
+        said = (result.query.result or "").strip()[:EDIT_REPLY_CHARS] if result.query is not None else ""
+        context_parts.append(f"This rtl task's agent recorded no edit, so the design was built as it stood. It said: {said}")
     if not build.success:
         context_parts.append(f"Build failure reason: {build.failure_reason}")
         if build.errors:

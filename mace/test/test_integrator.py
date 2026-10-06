@@ -719,14 +719,15 @@ class TestRtlEdits:
             options=options or LoopOptions(rtl_edits=True), applied=applied,
         )
 
-    def test_an_rtl_task_without_an_edit_fails_without_a_build(self, monkeypatch):
+    def test_an_rtl_task_without_an_edit_builds_the_design_as_it_stands(self, monkeypatch):
         node = _EditingNode("/root_a")
         [result] = self._batch(monkeypatch, node, [task("r", kind="rtl", spec="fix the adapter")])
 
-        assert result.passed is False
-        assert result.build.failure_reason == "no_rtl_edit"
-        assert node.build.calls == []
+        assert result.edit_recorded is False
+        assert len(node.build.calls) == 1
+        assert result.build.config.source_edits == ""
         assert node.apply_edits.calls == []
+        assert result.edits is None
 
     def test_an_rtl_task_builds_with_its_edits_under_its_own_build_id_then_reverts(self, monkeypatch):
         from mace.integrator import edits_digest
@@ -742,14 +743,25 @@ class TestRtlEdits:
         assert node.apply_edits.calls == [({}, "t.json")]
         assert node.revert_edits.calls == 1
 
-    def test_an_rtl_task_whose_agent_staged_nothing_fails_and_reverts(self, monkeypatch):
+    def test_an_rtl_task_whose_agent_staged_nothing_builds_unchanged_and_reverts(self, monkeypatch):
         self._session(monkeypatch)
         node = _EditingNode("/root_a")  # the staged file holds no edits
         [result] = self._batch(monkeypatch, node, [task("r", kind="rtl", spec="fix the adapter")])
 
-        assert result.build.failure_reason == "no_rtl_edit"
-        assert node.build.calls == []
+        assert result.edit_recorded is False
+        assert len(node.build.calls) == 1
         assert node.revert_edits.calls == 1
+
+    def test_an_rtl_task_with_an_edit_says_it_recorded_one(self, monkeypatch):
+        self._session(monkeypatch)
+        node = _EditingNode("/root_a", staged_edits={"t.json": self.EDIT})
+        [result] = self._batch(monkeypatch, node, [task("r", kind="rtl", spec="fix the adapter")])
+        assert result.edit_recorded is True
+
+    def test_a_dependent_that_only_inherits_edits_is_not_an_rtl_task_without_one(self, monkeypatch):
+        node = _EditingNode("/root_a")
+        [result] = self._batch(monkeypatch, node, [task("w", deps=("r",))], applied={"r": self.EDIT})
+        assert result.edit_recorded is True
 
     def test_a_task_builds_with_the_edits_of_the_tasks_it_depends_on(self, monkeypatch):
         node = _EditingNode("/root_a")

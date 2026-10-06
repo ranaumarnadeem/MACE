@@ -209,3 +209,22 @@ class TestRtlEditsInTheEvidence:
         result = make_failed_result()
         assert "RTL edits" not in failure_evidence(result)
         assert edits_feedback(result) == ""
+
+
+class TestAnRtlTaskThatRecordedNoEdit:
+    def test_the_evidence_says_so_and_quotes_what_the_agent_said(self):
+        from mace.triage import failure_evidence
+
+        result = make_failed_result()
+        result.edit_recorded = False
+        result.query = FakeLLM(responses=["I could not find piton/design/pico_mesh.v"]).prompt("x")
+
+        text = failure_evidence(result)
+
+        assert "recorded no edit, so the design was built as it stood" in text
+        assert "I could not find piton/design/pico_mesh.v" in text
+
+    def test_a_task_that_recorded_one_adds_no_such_line(self):
+        from mace.triage import failure_evidence
+
+        assert "recorded no edit" not in failure_evidence(make_failed_result())

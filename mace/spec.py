@@ -263,6 +263,8 @@ class StepResult:
 
     ``edits`` and ``edits_diff`` describe the RTL edits applied for the
     build (see mace.integrator); ``None`` and ``""`` when there were none.
+    ``edit_recorded`` is False for an rtl task whose agent recorded no edit
+    of its own: the task still built the design as it stood.
     """
 
     task: Task
@@ -275,6 +277,8 @@ class StepResult:
     # dependencies' (path -> full new content), and their unified diff.
     edits: dict[str, str] | None = None
     edits_diff: str = ""
+    # False for an rtl task whose agent recorded no edit of its own.
+    edit_recorded: bool = True
 
 
 @dataclass(frozen=True)
