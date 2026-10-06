@@ -11,6 +11,11 @@
 # breaks the build: the build stops with an error that names the file and
 # line. A task is `verified: true` once its expert has failed that way.
 #
+# A fault must not be one that declaring the missing name repairs: a first
+# PicoRV32 fault, a misspelled wire that only the optional coprocessor
+# interface reads, was "fixed" by declaring it, and the gate workload still
+# passed. The faults here sit on signals the gate workloads need.
+#
 # Run it with:
 #   examples/eval_batch.py --suite examples/eval/tasks_rtl.yaml --include-unverified \
 #       --methods mace,mace_rtl,one_shot,retry_agent,retry_agent_rtl
@@ -48,13 +53,13 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has an RTL error under piton/design/ that its
       build reports, and the workload cannot pass until the error is fixed.
-    verified: true
+    verified: false
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
     source_fault:
       - path: piton/design/chip/tile/pico/rtl/picorv32.v
-        old: "assign pcpi_rs1 = reg_op1;"
-        new: "assign pcpi_rs1 = reg_op1x;"
+        old: "assign mem_xfer = (mem_valid && mem_ready) ||"
+        new: "assign mem_xfer = (mem_valid && mem_readyx) ||"
 
   # Added after the prompts were tuned on the two tasks above, so no prompt
   # change has seen it: the held-out task.

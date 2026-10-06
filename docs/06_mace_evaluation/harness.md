@@ -111,7 +111,8 @@ The `ariane-2x2-accu-rtlfault` task was added after the `rtl` prompts were tuned
 Only a method that can edit RTL passes: `mace_rtl` and `retry_agent_rtl`.
 `mace`, `one_shot`, and `retry_agent` change only the build configuration and are the controls.
 The `expert` reference fails by design on these tasks, and its failure is the check that the fault breaks the build.
-The first two passed that check on the laptop: the Ariane build stops at `wt_l15_adapter.sv:255` with `Member 'l15_inval_icache_invalid' not found in structure`, and the PicoRV32 build at `picorv32.v:191` with `Can't find definition of variable: 'reg_op1x'`.
+A task passes when its gate workload passes, so a fault must sit on a signal the workload needs: a first PicoRV32 fault, a misspelled wire read only by the optional coprocessor interface, was repaired by declaring the wire, and the workload still passed.
+The Ariane fault in `wt_l15_adapter.sv` passed the check on the laptop: its build stops at line 255 with `Member 'l15_inval_icache_invalid' not found in structure`.
 
 ## Co-design searches
 
