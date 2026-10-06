@@ -1,0 +1,56 @@
+# MACE evaluation suite of bugs planted in the design, in the format of
+# tasks.yaml.
+#
+# Each task carries a `source_fault`: a text replacement in the design's RTL
+# that every job on the task runs under (see mace/eval/source_faults.py).
+# The build reports the error with the file and line, and the gate workload
+# cannot pass until the design is repaired, so only a method that can edit
+# RTL (mace_rtl, retry_agent_rtl) can pass. mace, one_shot, and retry_agent
+# change only the build configuration and are the controls. The expert
+# reference fails by design here; its failure is the check that the fault
+# breaks the build. A task stays `verified: false` until that check has run.
+#
+# Run it with:
+#   examples/eval_batch.py --suite examples/eval/tasks_rtl.yaml --include-unverified \
+#       --methods mace,mace_rtl,one_shot,retry_agent,retry_agent_rtl
+
+version: 1
+
+defaults:
+  budget:
+    max_iterations: 3
+    max_wall_s: 3600
+    max_usd: 20.0
+
+tasks:
+  - id: ariane-2x2-hello-rtlfault
+    core: ariane
+    mesh: [2, 2]
+    workloads: [hello_world.c]
+    objective: >-
+      Verify the hello_world.c gate workload passes on a 2x2 mesh. The design
+      in this checkout has an RTL error under piton/design/ that its build
+      reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    expert: {}
+    source_fault:
+      - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_l15_adapter.sv
+        old: "icache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_icache_inval;"
+        new: "icache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_icache_invalid;"
+
+  - id: pico-2x2-addi-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [addi.S]
+    objective: >-
+      Verify the addi.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "assign pcpi_rs1 = reg_op1;"
+        new: "assign pcpi_rs1 = reg_op1x;"

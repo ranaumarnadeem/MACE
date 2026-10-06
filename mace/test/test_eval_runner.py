@@ -114,7 +114,7 @@ class TestRunJob:
             ("one_checkout", "run_mace_loop", ("/a",), LoopOptions()),
             ("no_triage", "run_mace_loop", ("/a", "/b"), LoopOptions(triage="raw")),
             ("no_reuse", "run_mace_loop", ("/a", "/b"), LoopOptions(reuse_builds=False)),
-            ("no_rtl_edits", "run_mace_loop", ("/a", "/b"), LoopOptions(rtl_edits=False)),
+            ("mace_rtl", "run_mace_loop", ("/a", "/b"), LoopOptions(rtl_edits=True)),
             ("build_check", "run_mace_loop", ("/a", "/b"), LoopOptions(check="build")),
         ],
     )
@@ -137,6 +137,38 @@ class TestRunJob:
         assert retry[0] == "run_retry_agent" and retry[1][0] == "/a"
         assert expert[0] == "run_expert" and expert[1][0] == ("/a",)
         assert expert[1][2].id == "expert"
+
+    def test_the_rtl_retry_agent_edits_rtl_on_one_checkout(self, tmp_path, calls):
+        self._run(tmp_path, "retry_agent_rtl")
+        ((name, args, kwargs),) = calls
+        assert name == "run_retry_agent" and args[0] == "/a" and kwargs["rtl_edits"] is True
+
+    def test_a_task_with_a_source_fault_runs_every_checkout_under_it(self, tmp_path, calls, monkeypatch):
+        from mace.eval.source_faults import SourceEdit
+
+        seen = []
+
+        class Held:
+            def __enter__(self):
+                seen.append("applied")
+
+            def __exit__(self, *exc):
+                seen.append("restored")
+
+        monkeypatch.setattr(runner, "faulted", lambda roots, edits: (seen.append((roots, edits)), Held())[1])
+        fault = (SourceEdit("piton/design/x.v", "a", "b"),)
+        env = make_env(tmp_path)
+
+        runner.run_job(runner.Job(suite_task(source_fault=fault), "mace", 0), env)
+
+        assert seen[0] == (("/a", "/b"), fault)
+        assert seen[1:] == ["applied", "restored"]
+        assert calls[0][2]["labels"].meta["source_fault"] == ["piton/design/x.v"]
+
+    def test_a_task_without_a_fault_applies_nothing(self, tmp_path, calls, monkeypatch):
+        monkeypatch.setattr(runner, "faulted", lambda *a: pytest.fail("no fault to apply"))
+        self._run(tmp_path, "mace")
+        assert "source_fault" not in calls[0][2]["labels"].meta
 
     def test_task_prompts_off_reaches_the_loop(self, tmp_path, calls):
         env = make_env(tmp_path)

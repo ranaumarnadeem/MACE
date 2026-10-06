@@ -193,3 +193,33 @@ class TestWorkloadArgs:
         text = MINIMAL.replace("    verified: true\n", "    verified: true\n    workload_args:\n      addi.S: {threads: 8}\n")
         with pytest.raises(SuiteError, match="finish_mask and run_args"):
             load_suite(write(tmp_path, text))
+
+
+class TestSourceFault:
+    FAULT = (
+        "    source_fault:\n      - path: piton/design/chip/tile/pico/rtl/picorv32.v\n"
+        "        old: \"assign pcpi_rs1 = reg_op1;\"\n        new: \"assign pcpi_rs1 = reg_op1x;\"\n"
+    )
+
+    def test_a_fault_reaches_the_task(self, tmp_path):
+        text = MINIMAL.replace("    verified: true\n", "    verified: true\n" + self.FAULT)
+        (task,) = load_suite(write(tmp_path, text))
+        (edit,) = task.source_fault
+        assert (edit.path, edit.new) == ("piton/design/chip/tile/pico/rtl/picorv32.v", "assign pcpi_rs1 = reg_op1x;")
+
+    def test_a_path_outside_the_design_is_refused(self, tmp_path):
+        text = MINIMAL.replace("    verified: true\n", "    verified: true\n" + self.FAULT.replace("piton/design/", "piton/verif/"))
+        with pytest.raises(SuiteError, match="piton/design/"):
+            load_suite(write(tmp_path, text))
+
+    def test_an_entry_with_a_missing_key_is_refused(self, tmp_path):
+        text = MINIMAL.replace(
+            "    verified: true\n", "    verified: true\n    source_fault:\n      - {path: piton/design/x.v, old: a}\n"
+        )
+        with pytest.raises(SuiteError, match="path, old, and new"):
+            load_suite(write(tmp_path, text))
+
+    def test_the_rtl_suite_loads_with_both_tasks_as_candidates(self):
+        tasks = load_suite(SUITE.parent / "tasks_rtl.yaml")
+        assert [t.id for t in tasks] == ["ariane-2x2-hello-rtlfault", "pico-2x2-addi-rtlfault"]
+        assert all(t.source_fault and not t.verified for t in tasks)

@@ -35,6 +35,7 @@ from mace.codesign.area import area_notes, design_area
 from mace.codesign.run import run_codesign
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
 from mace.eval.faults import FAULTS, first_plan_breaker
+from mace.eval.source_faults import faulted
 from mace.eval.suite import SuiteTask
 from mace.loop import run_gate_programs
 from mace.metrics import RunLabels, record_resimulation
@@ -53,7 +54,8 @@ METHODS: dict[str, str] = {
     "one_checkout": "A2: the full loop on one checkout.",
     "build_check": "A3: a task passes on its build; accepted designs are simulated afterwards.",
     "no_reuse": "A5: every task rebuilds, even a configuration already built.",
-    "no_rtl_edits": "A6: the loop without rtl tasks; it changes only the build configuration.",
+    "mace_rtl": "The loop with rtl tasks: its agents may also edit the design's RTL.",
+    "retry_agent_rtl": "B2 with rtl designs: the retry agent may also edit the design's RTL.",
     "codesign_mace": "C0: MACE's LLM proposer picks each round's designs.",
     "codesign_random": "C1: uniform random designs, seeded by the repeat.",
     "codesign_grid": "C2: the task's fixed grid, in order.",
@@ -222,14 +224,23 @@ def _probe(fn):
 
 
 def run_job(job: Job, env: RunEnv):
-    """Run *job* on an empty build cache, and record it."""
-    one_root = job.method in ("one_checkout", "retry_agent", "expert") or job.method in FAULTCHECK_METHODS
+    """Run *job* on an empty build cache, and record it. A task with a
+    ``source_fault`` runs on checkouts that carry the fault, restored after."""
+    if job.task.source_fault:
+        with faulted(env.piton_roots, job.task.source_fault):
+            return _run_job(job, env)
+    return _run_job(job, env)
+
+
+def _run_job(job: Job, env: RunEnv):
+    one_root = job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert") or job.method in FAULTCHECK_METHODS
     roots = env.piton_roots[:1] if one_root else env.piton_roots
     labels = RunLabels(
         method=job.method,
         task=job.task.id,
         repeat=job.repeat,
-        meta={**env.meta, "piton_roots": list(roots), "task_prompts": env.task_prompts},
+        meta={**env.meta, "piton_roots": list(roots), "task_prompts": env.task_prompts,
+              **({"source_fault": [e.path for e in job.task.source_fault]} if job.task.source_fault else {})},
     )
     if env.clear_cache:
         for root in env.piton_roots:
@@ -265,11 +276,12 @@ def run_job(job: Job, env: RunEnv):
             roots, spec, env.llm, env.db, labels=labels,
             options=dataclasses.replace(options, reuse_builds=False),
         )
-    if method == "no_rtl_edits":
+    if method == "mace_rtl":
         return run_mace_loop(
-            roots, spec, env.llm, env.db, labels=labels,
-            options=dataclasses.replace(options, rtl_edits=False),
+            roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, rtl_edits=True)
         )
+    if method == "retry_agent_rtl":
+        return run_retry_agent(roots[0], spec, env.llm, env.db, labels=labels, rtl_edits=True)
     if method == "build_check":
         result = run_mace_loop(
             roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, check="build")

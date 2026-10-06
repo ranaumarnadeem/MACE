@@ -44,6 +44,16 @@ run arguments its run needs, as OpenSPARC T1's multi-thread diags do. A
         finish_mask: "3333"
         run_args: [-midas_args=-DTHREAD_COUNT=8]
 
+``source_fault`` plants a bug in the design: text replacements, each with a
+``path`` under ``piton/design/``, an ``old`` snippet that occurs once in the
+file, and the ``new`` text. Every job on the task runs on checkouts that
+carry it (see ``mace.eval.source_faults``). ::
+
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "assign pcpi_rs1 = reg_op1;"
+        new: "assign pcpi_rs1 = reg_op1x;"
+
 ``networks`` in the space lists the interconnects a search may choose, the
 mesh alone by default. ``xbar_config`` needs a mesh with one row of tiles:
 OpenPiton's crossbar has one port per column, so a second row would connect
@@ -66,12 +76,13 @@ from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.baselines.expert import expert_task
 from mace.codesign.area import cache_arrays
 from mace.codesign.space import DEFAULT_NETWORK, Design, DesignSpace
+from mace.eval.source_faults import SourceEdit
 from mace.spec import Budget, MaceSpec, Task
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _TASK_KEYS = frozenset(
     ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout", "max_cycle",
-     "codesign", "workload_args")
+     "codesign", "workload_args", "source_fault")
 )
 _CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
 
@@ -117,6 +128,9 @@ class SuiteTask:
     expert_config_rtl: tuple[str, ...] = ()
     codesign: CodesignConfig | None = None
     workload_args: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    # RTL text replacements every job on this task runs under (see
+    # mace.eval.source_faults); empty for a task on the unmodified design.
+    source_fault: tuple[SourceEdit, ...] = ()
 
     @property
     def kind(self) -> str:
@@ -258,6 +272,25 @@ def _workload_args(raw: object, task_id: str) -> tuple[tuple[str, str, tuple[str
     return tuple(entries)
 
 
+def _source_fault(raw: object, task_id: str) -> tuple[SourceEdit, ...]:
+    """A task's ``source_fault`` list of {path, old, new} replacements."""
+    if raw is None:
+        return ()
+    if not (isinstance(raw, list) and raw):
+        raise SuiteError(f"task {task_id}: source_fault must be a non-empty list of path, old, and new entries")
+    edits = []
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"path", "old", "new"} or not all(
+            isinstance(v, str) for v in item.values()
+        ):
+            raise SuiteError(f"task {task_id}: each source_fault entry takes the strings path, old, and new")
+        try:
+            edits.append(SourceEdit(item["path"], item["old"], item["new"]))
+        except ValueError as e:
+            raise SuiteError(f"task {task_id}: {e}") from e
+    return tuple(edits)
+
+
 def _task(entry: object, base_budget: Budget) -> SuiteTask:
     if not isinstance(entry, dict):
         raise SuiteError(f"each task must be a mapping, got {entry!r}")
@@ -296,6 +329,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             expert_config_rtl=tuple(expert.get("config_rtl") or ()),
             codesign=_codesign(entry.get("codesign"), task_id, entry.get("core", "ariane"), (mesh[0], mesh[1])),
             workload_args=_workload_args(entry.get("workload_args"), task_id),
+            source_fault=_source_fault(entry.get("source_fault"), task_id),
         )
         spec = task.spec()
         expert_cfg = task.expert_task()
