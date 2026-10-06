@@ -61,6 +61,19 @@ class TestApplyAndRestore:
         restore(root)
         assert read(root) == ORIGINAL
 
+    def test_rtl_edits_an_interrupted_task_left_are_undone_before_the_fault(self, root):
+        from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
+
+        apply(root, FAULT)
+        OpenPitonWorkspaceNode.apply_edits(root, {PATH: "module core;\n  assign a = bbb;\nendmodule\n"})  # never reverted
+
+        assert restore(root) == [PATH]
+
+        assert read(root) == ORIGINAL
+        # A leftover edit backup would write the faulted text back when the next task reverts.
+        assert OpenPitonWorkspaceNode.revert_edits(root) == []
+        assert read(root) == ORIGINAL
+
     def test_restore_with_nothing_applied_is_a_no_op(self, root):
         assert restore(root) == []
 

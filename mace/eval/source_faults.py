@@ -9,7 +9,7 @@ RTL from those that cannot (see ``LoopOptions.rtl_edits``).
 The originals live in ``build/.mace_fault_backup`` of each checkout, apart
 from the RTL edit tool's own backup, so an ``rtl`` task's edits and this
 fault never undo each other. A backup an interrupted job left behind is
-restored before the next fault is applied.
+restored before the next fault is applied, after any RTL edits the job left.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+from chia_openpiton.openpiton_workspace import _revert_edits
 
 FAULT_BACKUP_DIR = os.path.join("build", ".mace_fault_backup")
 _MANIFEST = "manifest.json"
@@ -44,7 +46,13 @@ class SourceEdit:
 
 
 def restore(root: str) -> list[str]:
-    """Restore the files a fault changed in *root*; returns their paths."""
+    """Restore the files a fault changed in *root*; returns their paths.
+
+    RTL edits an interrupted task left applied are undone first: they were
+    applied after the fault, so their backup holds the faulted text, and
+    undoing them after the fault's restore would put the fault back.
+    """
+    _revert_edits(root)
     backup_dir = Path(root) / FAULT_BACKUP_DIR
     manifest_path = backup_dir / _MANIFEST
     if not manifest_path.is_file():
