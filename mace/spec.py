@@ -151,9 +151,11 @@ class LoopOptions:
       reply changes nothing that is built.
     - ``post_mortem``: ``False`` skips the post-mortem of a run that ends
       without passing.
-    - ``rtl_edits``: ``False`` leaves the ``rtl`` task kind out of the
-      planner's prompt and gives no task an RTL edit tool, so the loop
-      changes only the build configuration.
+    - ``rtl_edits``: ``True`` offers the ``rtl`` task kind in the planner's
+      prompt and gives each ``rtl`` task an RTL edit tool. The default,
+      ``False``, changes only the build configuration: offered on tasks
+      that pass at their defaults, the kind made the planner invent RTL
+      bugs in files that do not exist.
     """
 
     triage: str = "llm"
@@ -161,7 +163,7 @@ class LoopOptions:
     reuse_builds: bool = True
     task_prompts: bool = True
     post_mortem: bool = True
-    rtl_edits: bool = True
+    rtl_edits: bool = False
 
     def __post_init__(self) -> None:
         if self.triage not in TRIAGE_MODES:

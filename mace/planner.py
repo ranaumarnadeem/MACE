@@ -106,8 +106,7 @@ class PlanningError(Exception):
     """The Planner's response produced no usable task DAG."""
 
 
-# The rtl kind's rule, left out of the prompt when LoopOptions.rtl_edits is
-# off.
+# The rtl kind's rule, in the prompt only when LoopOptions.rtl_edits is on.
 RTL_RULE = """\
 - kind "rtl" is a change to the design's RTL source. Its agent gets tools to
   read files under piton/design/ and replace text in them; the changed
@@ -117,8 +116,8 @@ RTL_RULE = """\
 """
 
 
-def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = True) -> str:
-    """The planner's prompt; *rtl_edits* False leaves out the rtl kind."""
+def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = False) -> str:
+    """The planner's prompt; *rtl_edits* True adds the rtl kind."""
     rules = _TASK_RULES.format(
         kinds="config|workload|unit_test|rtl" if rtl_edits else "config|workload|unit_test",
         rtl_rule=RTL_RULE if rtl_edits else "",
@@ -132,7 +131,7 @@ def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = True) -> 
     return prompt
 
 
-def plan(spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = True) -> tuple[Task, ...]:
+def plan(spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = False) -> tuple[Task, ...]:
     """One LLM call, turned into a validated task DAG.
 
     ``feedback`` (from mace.triage.triage, via mace.loop's replan-on-failure
@@ -140,8 +139,8 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = Tr
     first attempt.
 
     Each task also gets its dependencies' RTL defines (see
-    :func:`inherit_config_rtl`). *rtl_edits* False leaves the ``rtl`` kind
-    out of the prompt (see :class:`~mace.spec.LoopOptions`).
+    :func:`inherit_config_rtl`). *rtl_edits* True adds the ``rtl`` kind to
+    the prompt (see :class:`~mace.spec.LoopOptions`).
 
     Raises:
         PlanningError: no ``TASK:`` lines, or the ones that parsed don't

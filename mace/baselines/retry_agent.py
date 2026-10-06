@@ -6,8 +6,9 @@ build-and-check path (mace.integrator.integrate_parallel with task prompts
 off), so its timeouts, pass check, and records match the loop's. After a
 failure the agent gets the raw evidence triage would have read
 (:func:`mace.triage.failure_evidence`) and proposes the next design, until a
-pass or the budget runs out. A design may be an ``rtl`` task, which edits
-the RTL through the same tool and path the loop's rtl tasks use.
+pass or the budget runs out. With ``rtl_edits``, a design may be an ``rtl``
+task, which edits the RTL through the same tool and path the loop's rtl
+tasks use.
 
 Against the full loop it lacks the task DAG, the second checkout, and the
 triage agent. Its prompt states the run's inputs with the planner's own
@@ -55,26 +56,30 @@ _DESIGN_RULES = """\
 Respond with exactly one task line for the design to build this attempt, in
 exactly this format (a footer, not prose):
 
-TASK: design | deps= | kind=config | <short description of the design>
+TASK: design | deps= | kind={kind} | <short description of the design>
+{rtl_rule}
+Nothing else you write is parsed, but keep the rest brief.
+"""
 
+
+# Added to the design rules when the agent may edit RTL.
+_RTL_RULE = """
 Use kind=rtl instead when the design needs a change to the RTL source. You
 then get tools to read files under piton/design/ and replace text in them,
 and the changed design is built and every gate workload simulated. Say in
 the description what to change and why. Testbench and monitor files under
 piton/verif/ cannot change.
-
-Nothing else you write is parsed, but keep the rest brief.
 """
 
 
-def build_prompt(spec: MaceSpec, history: list[str]) -> str:
+def build_prompt(spec: MaceSpec, history: list[str], rtl_edits: bool = False) -> str:
     """The agent's prompt: the run's inputs, the design format, and every
     earlier attempt's outcome, oldest first."""
     prompt = (
         _HEADER.format(core=spec.core, attempts=spec.budget.max_iterations)
         + render_inputs(spec)
         + "\n"
-        + _DESIGN_RULES
+        + _DESIGN_RULES.format(kind="config|rtl" if rtl_edits else "config", rtl_rule=_RTL_RULE if rtl_edits else "")
         + "\n"
         + OVERRIDE_RULES
     )
@@ -108,8 +113,12 @@ def run_retry_agent(
     llm,
     db: SQLiteNode,
     labels: RunLabels | None = None,
+    rtl_edits: bool = False,
 ) -> LoopResult:
     """Up to ``spec.budget.max_iterations`` attempts on *piton_root*.
+
+    With *rtl_edits*, a design may be an ``rtl`` task, which edits the RTL
+    through the loop's own edit tool.
 
     Stops on the same wall-clock and cost limits the loop checks, before
     each attempt. A reply that names no design uses up its attempt, and
@@ -120,13 +129,13 @@ def run_retry_agent(
     calls = usage.UsageLog()
     try:
         with usage.recording(calls):
-            return _attempts(run_id, piton_root, spec, llm, db, calls)
+            return _attempts(run_id, piton_root, spec, llm, db, calls, rtl_edits)
     except BaseException:
         finish_run(db, run_id, "error")
         raise
 
 
-def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog) -> LoopResult:
+def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog, rtl_edits: bool = False) -> LoopResult:
     try:
         verify_checksums()
     except ValueError:
@@ -147,7 +156,7 @@ def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog) -> LoopR
             if calls.total_usd() > spec.budget.max_usd:
                 break
             attempt_started = time.monotonic()
-            query = usage.prompt(llm, PHASE, build_prompt(spec, history))
+            query = usage.prompt(llm, PHASE, build_prompt(spec, history, rtl_edits))
             design = parse_design(query.result)
             results: tuple[StepResult, ...] = ()
             if design is not None:
@@ -155,7 +164,7 @@ def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog) -> LoopR
                     nodes = open_nodes((piton_root,))
                 results = integrate_parallel(
                     (piton_root,), spec, (design,), llm, run_id=run_id, iteration=attempt,
-                    nodes=nodes, options=LoopOptions(task_prompts=False), deadline=deadline,
+                    nodes=nodes, options=LoopOptions(task_prompts=False, rtl_edits=rtl_edits), deadline=deadline,
                 )
             attempt_calls = calls.take()
             iterations.append(results)
