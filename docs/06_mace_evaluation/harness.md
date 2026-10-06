@@ -106,11 +106,12 @@ Every job on the task runs on checkouts that carry the fault.
 The backup sits apart from the RTL edit tool's, so an `rtl` task's edits and the fault never undo each other.
 The run's `meta` lists the files the fault changed.
 
-`examples/eval/tasks_rtl.yaml` holds two such tasks, one on Ariane and one on PicoRV32, each a misspelled or undeclared name that makes the Verilator build fail with an error that names the file and line.
+`examples/eval/tasks_rtl.yaml` holds three such tasks, two on Ariane and one on PicoRV32, each a misspelled or undeclared name that makes the Verilator build fail with an error that names the file and line.
+The `ariane-2x2-accu-rtlfault` task was added after the `rtl` prompts were tuned on the other two, so no prompt change has seen it.
 Only a method that can edit RTL passes: `mace_rtl` and `retry_agent_rtl`.
 `mace`, `one_shot`, and `retry_agent` change only the build configuration and are the controls.
 The `expert` reference fails by design on these tasks, and its failure is the check that the fault breaks the build.
-A task stays `verified: false` until that check has run.
+The first two passed that check on the laptop: the Ariane build stops at `wt_l15_adapter.sv:255` with `Member 'l15_inval_icache_invalid' not found in structure`, and the PicoRV32 build at `picorv32.v:191` with `Can't find definition of variable: 'reg_op1x'`.
 
 ## Co-design searches
 

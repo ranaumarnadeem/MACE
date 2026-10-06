@@ -219,7 +219,9 @@ class TestSourceFault:
         with pytest.raises(SuiteError, match="path, old, and new"):
             load_suite(write(tmp_path, text))
 
-    def test_the_rtl_suite_loads_with_both_tasks_as_candidates(self):
+    def test_the_rtl_suite_loads_with_a_fault_on_every_task(self):
         tasks = load_suite(SUITE.parent / "tasks_rtl.yaml")
-        assert [t.id for t in tasks] == ["ariane-2x2-hello-rtlfault", "pico-2x2-addi-rtlfault"]
-        assert all(t.source_fault and not t.verified for t in tasks)
+        assert [t.id for t in tasks] == [
+            "ariane-2x2-hello-rtlfault", "pico-2x2-addi-rtlfault", "ariane-2x2-accu-rtlfault",
+        ]
+        assert all(t.source_fault for t in tasks)

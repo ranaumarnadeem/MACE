@@ -8,7 +8,8 @@
 # RTL (mace_rtl, retry_agent_rtl) can pass. mace, one_shot, and retry_agent
 # change only the build configuration and are the controls. The expert
 # reference fails by design here; its failure is the check that the fault
-# breaks the build. A task stays `verified: false` until that check has run.
+# breaks the build: the build stops with an error that names the file and
+# line. A task is `verified: true` once its expert has failed that way.
 #
 # Run it with:
 #   examples/eval_batch.py --suite examples/eval/tasks_rtl.yaml --include-unverified \
@@ -31,7 +32,7 @@ tasks:
       Verify the hello_world.c gate workload passes on a 2x2 mesh. The design
       in this checkout has an RTL error under piton/design/ that its build
       reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     expert: {}
     source_fault:
       - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_l15_adapter.sv
@@ -47,10 +48,27 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has an RTL error under piton/design/ that its
       build reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
     source_fault:
       - path: piton/design/chip/tile/pico/rtl/picorv32.v
         old: "assign pcpi_rs1 = reg_op1;"
         new: "assign pcpi_rs1 = reg_op1x;"
+
+  # Added after the prompts were tuned on the two tasks above, so no prompt
+  # change has seen it: the held-out task.
+  - id: ariane-2x2-accu-rtlfault
+    core: ariane
+    mesh: [2, 2]
+    workloads: [accu_test.c]
+    objective: >-
+      Verify the accu_test.c gate workload passes on a 2x2 mesh. The design in
+      this checkout has an RTL error under piton/design/ that its build
+      reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    expert: {}
+    source_fault:
+      - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_dcache_ctrl.sv
+        old: "{address_tag_q, address_idx_q, address_off_q};"
+        new: "{address_tag_q, address_idx_q, address_offs_q};"
