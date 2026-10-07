@@ -19,6 +19,7 @@ import json
 import statistics
 from collections import defaultdict
 
+from mace.llm import DEFAULT_VERTEX_MODEL
 from mace.metrics import DBReader
 
 NUMBERS = (
@@ -27,13 +28,20 @@ NUMBERS = (
 )
 
 
+def method_label(method: str, model: str | None) -> str:
+    """*method*, with ``@<model>`` added when the run used a model other
+    than the default, so each model's runs get their own rows."""
+    return method if not model or model == DEFAULT_VERTEX_MODEL else f"{method}@{model}"
+
+
 def _replaced(runs: list[dict]) -> set[str]:
     """The ids of the runs that a later run of the same task, method, and
-    repeat replaced; *runs* come in start order. The batch runner runs a job
-    again when its run did not finish, such as one a stopped batch left
-    ``running``, and the earlier run stays in the database."""
-    latest = {(run["task"], run["method"], run["repeat"]): run["run_id"] for run in runs}
-    return {run["run_id"] for run in runs if latest[(run["task"], run["method"], run["repeat"])] != run["run_id"]}
+    repeat replaced; *runs* come in start order and carry their ``label``.
+    The batch runner runs a job again when its run did not finish, such as
+    one a stopped batch left ``running``, and the earlier run stays in the
+    database."""
+    latest = {(run["task"], run["label"], run["repeat"]): run["run_id"] for run in runs}
+    return {run["run_id"] for run in runs if latest[(run["task"], run["label"], run["repeat"])] != run["run_id"]}
 
 
 def run_rows(db) -> list[dict]:
@@ -43,6 +51,10 @@ def run_rows(db) -> list[dict]:
         "WHERE task IS NOT NULL AND repeat IS NOT NULL ORDER BY started_at",
         (),
     )
+    for run in runs:
+        meta = json.loads(run["meta"]) if run["meta"] else {}
+        run["model"] = meta.get("model")
+        run["label"] = method_label(run["method"], run["model"])
     replaced = _replaced(runs)
     rows = []
     for run in runs:
@@ -56,12 +68,11 @@ def run_rows(db) -> list[dict]:
         resims = db.query("SELECT task_id, passed FROM resimulations WHERE run_id = ?", (run_id,))
         rejected = {r["task_id"] for r in resims if not r["passed"]}
         simulated = {r["task_id"] for r in resims}
-        meta = json.loads(run["meta"]) if run["meta"] else {}
         rows.append(
             {
                 "run_id": run_id,
                 "task": run["task"],
-                "method": run["method"],
+                "method": run["label"],
                 "repeat": run["repeat"],
                 "status": run["status"],
                 "replaced": run_id in replaced,
@@ -78,7 +89,7 @@ def run_rows(db) -> list[dict]:
                 "usd": calls["usd"],
                 "accepted_designs": len(simulated) if simulated else None,
                 "false_accepts": len(rejected) if simulated else None,
-                "model": meta.get("model"),
+                "model": run["model"],
             }
         )
     return rows
@@ -247,6 +258,8 @@ def codesign_rows(db) -> list[dict]:
         "WHERE task IS NOT NULL AND method LIKE 'codesign_%' ORDER BY started_at",
         (),
     )
+    for run in runs:
+        run["label"] = run["method"]
     replaced = _replaced(runs)
     rows = []
     for run in runs:

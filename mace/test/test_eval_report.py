@@ -31,9 +31,9 @@ def step(task_id, passed, build_s, run_s, programs=("a.c",)):
                       build=build, run=runs[-1], passed=passed, runs=runs)
 
 
-def add_run(db, task, method, repeat, status, wall, steps=(), calls=(), resims=()):
+def add_run(db, task, method, repeat, status, wall, steps=(), calls=(), resims=(), model="gemini-2.5-flash"):
     spec = MaceSpec(workloads=("a.c",), objective="o")
-    run_id = metrics.start_run(db, spec, labels=metrics.RunLabels(method=method, task=task, repeat=repeat, meta={"model": "m"}))
+    run_id = metrics.start_run(db, spec, labels=metrics.RunLabels(method=method, task=task, repeat=repeat, meta={"model": model}))
     for i, results in enumerate(steps):
         metrics.record_iteration(db, run_id, i, results, wall_s=1.0)
     metrics.record_llm_calls(db, run_id, 0, tuple(calls))
@@ -70,7 +70,7 @@ class TestRunRows:
         assert (first["builds"], first["fresh_builds"], first["simulations"]) == (2, 1, 2)
         assert (first["llm_calls"], first["input_tokens"], first["thinking_tokens"]) == (2, 10, 4)
         assert first["usd"] == pytest.approx(0.03)
-        assert first["model"] == "m"
+        assert first["model"] == "gemini-2.5-flash"
         assert first["false_accepts"] is None
 
     def test_counts_every_program_run(self, db):
@@ -190,6 +190,13 @@ class TestReplacedRuns:
         t1_mace = next(r for r in report.summarize(rows) if (r["task"], r["method"]) == ("t1", "mace"))
         assert (t1_mace["runs"], t1_mace["passed"]) == (2, 2)
         assert {r["method"]: r["runs"] for r in report.method_totals(rows)}["mace"] == 3
+
+    def test_another_model_s_run_of_the_same_job_gets_its_own_row_and_replaces_nothing(self, db):
+        other = add_run(db, "t1", "mace", 0, "passed", 70.0, model="gemini-3.8-flash")
+        rows = report.run_rows(db)
+        assert next(r for r in rows if r["run_id"] == other)["method"] == "mace@gemini-3.8-flash"
+        assert not any(r["replaced"] for r in rows)
+        assert {r["method"] for r in report.method_totals(rows)} >= {"mace", "mace@gemini-3.8-flash"}
 
     def test_an_unfinished_run_with_no_later_run_stays(self, db):
         stale = add_run(db, "t3", "mace", 0, "running", 10.0)
