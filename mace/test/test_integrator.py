@@ -404,6 +404,7 @@ class _FakeRemoteNode:
         self.piton_root = piton_root
         self.build = _FakeBuildAttr(build_delay)
         self.run = _FakeRunAttr()
+        self.revert_edits = _FakeRevertAttr()
 
 
 class TestRunBatchRemotePipelining:
@@ -782,6 +783,18 @@ class TestRtlEdits:
         with pytest.raises(RuntimeError, match="worker died"):
             self._batch(monkeypatch, node, [task("w", deps=("r",))], applied={"r": self.EDIT})
         assert node.revert_edits.calls == 1
+
+    def test_a_task_without_edits_reverts_any_a_killed_task_left_before_building(self, monkeypatch):
+        node = _EditingNode("/root_a")
+        order = []
+        node.revert_edits.chia_remote = lambda: (order.append("revert"), _FakeRef([]))[1]
+        build = node.build.chia_remote
+        node.build.chia_remote = lambda *a, **k: (order.append("build"), build(*a, **k))[1]
+
+        self._batch(monkeypatch, node, [task("w")])
+
+        assert order == ["revert", "build"]
+        assert node.apply_edits.calls == []
 
     def test_without_rtl_edits_an_rtl_task_runs_like_a_config_task(self, monkeypatch):
         from mace.spec import LoopOptions

@@ -518,6 +518,9 @@ def _run_batch(
         if inherited or staged:
             applied_now = get(node.apply_edits.chia_remote(inherited, staged=staged))
             edits, diff = applied_now["edits"], applied_now["diff"]
+        else:
+            # Edits a killed task left applied would otherwise be built here.
+            get(node.revert_edits.chia_remote())
         try:
             if edits:
                 config = dataclasses.replace(config, source_edits=edits_digest(edits))
