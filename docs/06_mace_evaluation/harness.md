@@ -9,7 +9,9 @@ The evaluation harness runs every method on every task of a suite, records each 
 ## Task suite
 
 `examples/eval/tasks.yaml` lists the tasks, and `mace.eval.suite.load_suite()` reads and checks it.
+`examples/eval/tasks_sparc.yaml` holds the OpenSPARC T1 tasks, which need Verilator 5.052; run them with `--suite` and a `VERILATOR_ROOT` that points at 5.052.
 Each task names a core, a mesh, the gate workloads, the objective every method gets, a budget, and optional `rtl_timeout` and `max_cycle` limits for every simulation; [Running the Loop](../01_mace_user/Running_the_Loop.md) describes both.
+An optional `workload_args` block maps a program to its own `finish_mask`, a quoted string of hex digits, and extra `run_args`.
 Its `expert` block holds the known passing configuration: cache overrides and extra RTL defines on top of the defaults.
 
 `verified: true` marks a task whose expert configuration has passed.
@@ -157,9 +159,9 @@ python examples/eval_report.py vm1.db vm2.db --out runs/eval.md --csv runs/eval.
 
 The report reads each database with `DBReader` and starts no Ray instance.
 Within one database, a run that a later run of the same task, method, and repeat replaced, such as one a stopped batch left `running`, is left out of the tables, and the report gives their number.
-For bring-up methods it writes one row per task and method, with passes out of runs, the median and interquartile range of time to pass, and medians of machine time, builds, simulations, LLM calls, thinking tokens, and dollars.
+For bring-up methods it writes one row per task and method, with passes out of runs, the median and interquartile range of time to pass, and medians of machine time, builds, simulations, LLM calls, thinking tokens, and dollars, and for `build_check` the false accepts.
 Time to pass is the wall time of passed runs, and machine time sums build and simulation time.
-A second table sums each method across tasks.
+A second table gives each method's tasks, runs, and passes, its median time to pass and machine time, and its total dollars across tasks.
 A third compares each method with `mace` task by task, over the tasks where both passed at least once, with an exact two-sided Wilcoxon signed-rank test on time to pass.
 
 For co-design searches it writes one row per task and method: the median best feasible finish, the best finish any search of the task found, how many searches came within 5% of it and the median simulations they needed, the share of feasible designs, and how many proposals were rejected before a build.
