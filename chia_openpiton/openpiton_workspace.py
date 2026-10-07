@@ -3,7 +3,7 @@
 Modelled on :class:`chia.esp.esp_workspace.EspWorkspaceNode`. One instance = one
 OpenPiton checkout on one worker, with every member pinned to a single
 placement-group bundle: ``sims`` keeps its state on disk (the model directory
-under ``$PITON_ROOT/build/manycore/<build_id>/``, the run directory beside it),
+under ``$PITON_ROOT/build/manycore/<build_id>/``, its run directories under ``runs/`` inside it),
 so configure -> build -> run must land on the same machine.
 
 **One checkout per concurrent build, not one per worker.** OpenPiton's template
@@ -553,7 +553,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         Args:
             piton_root: OpenPiton checkout root on the worker.
             x_tiles, y_tiles: Mesh dimensions; sims caps each axis at 256.
-            core: ``"ariane"`` (RISC-V) or ``"sparc"``.
+            core: ``"ariane"`` (RISC-V), ``"sparc"``, or ``"pico"``.
             network_config: ``"2dmesh_config"`` or ``"xbar_config"``. Always
                 passed explicitly -- leaving it unset makes sims default to the
                 string ``"2d_mesh"``, which pyhplib does not recognise.

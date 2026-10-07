@@ -1,6 +1,6 @@
 """Tier-0 tests for scripts/patch_openpiton.sh's RTL/testbench fixes: 6 and
-7 (PicoRV32's first Verilator PASS) and 10-12 (the three multi-tile Ariane
-bugs behind the 2x2/4x4 passes).
+7 (PicoRV32's first Verilator PASS) and 10-13 (the multi-tile Ariane bugs
+behind the 2x2/4x4 passes).
 
 These are real, exact-match text-block replacements applied to real
 OpenPiton source files by a Python heredoc inside the shell script -- never
