@@ -2,7 +2,7 @@
 
 # Integration and Verification
 
-`mace/integrator.py` writes no prompt of its own: it sends each `config` or `workload` task's instruction to the LLM as written.
+`mace/integrator.py` sends each `config` or `workload` task's instruction to the LLM as written, and writes the prompt for an `rtl` task with `rtl_prompt()`.
 It decides the order in which tasks run and whether an iteration continues.
 
 ## Dependency Order
@@ -10,8 +10,9 @@ It decides the order in which tasks run and whether an iteration continues.
 `topological_levels()` groups the tasks into levels, keeping their relative order within a level, and raises `ValueError` on a duplicate id, an unknown dependency, or a cycle.
 `integrate_parallel()` runs the levels in order and stops after the first level that holds a failed task, so no later task builds on a tree that failed verification.
 
-The integrator applies no diffs of its own.
 A task changes the design through its build configuration, which carries its `CACHES:` and `CONFIG_RTL:` overrides, and through any tools the caller gives the agent.
+For an `rtl` task and the tasks that depend on it, the integrator also applies RTL edits before the build and reverts them after the runs (see [Parallel Task Execution](task_execution.md)).
+A task that carries no edits first reverts any that a killed task left applied.
 A `unit_test` task also scaffolds its environment and edits its testbench (see [Parallel Task Execution](task_execution.md)).
 The drivers in the repository, `examples/mace_end_to_end.py` and the `mace` shell, pass no tools to `run_mace_loop()`.
 
@@ -23,13 +24,15 @@ When an earlier successful build with the same build ID left its binary and a `.
 
 `_config_for_task()` constructs its `PitonConfig` directly rather than through `configure()`, so the source-revision, Verilator-version, and diff fields stay empty.
 A loop task's build ID therefore covers its configuration only.
-A source edit leaves the build ID unchanged but changes the fingerprint, so the next build of that configuration rebuilds the model (see [OpenPitonWorkspaceNode](../04_chia_openpiton/workspace_node.md)).
+An edit made outside an `rtl` task leaves the build ID unchanged but changes the fingerprint, so the next build of that configuration rebuilds the model (see [OpenPitonWorkspaceNode](../04_chia_openpiton/workspace_node.md)).
+An `rtl` task's edits set `PitonConfig.source_edits`, so its build gets its own build ID.
 
 ## Run
 
-For a `config` or `workload` task, `run()` simulates each entry of `MaceSpec.workloads` in order, each in a new directory under the model's `runs/`, and stops at the first that does not pass.
+For a `config`, `workload`, or `rtl` task, `run()` simulates each entry of `MaceSpec.workloads` in order, each in a new directory under the model's `runs/`, and stops at the first that does not pass.
 It passes the spec's [simulation limits](../01_mace_user/Running_the_Loop.md) and an `-asm_diag_root` pointing at `mace/workloads/`, which sims searches in addition to the checkout's own diags.
 The finish mask holds one `1` per tile, so a multi-tile run passes only when every tile reaches the good trap.
+A program listed in `MaceSpec.workload_args` uses its own finish mask and extra `sims` options instead, as OpenSPARC T1's multi-thread diags need.
 The planner prompt lists every gate workload.
 
 ## Verdict

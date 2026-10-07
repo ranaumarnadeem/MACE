@@ -45,7 +45,7 @@ Each stage maps to the modules below.
 
 ## Control Flow
 
-`run_mace_loop(piton_roots, spec, llm, db, tools=(), on_iteration=None, on_task_progress=None, labels=None, options=None)` records the run as `running` and checks the C programs in `mace/workloads/` against `CHECKSUMS`.
+`run_mace_loop(piton_roots, spec, llm, db, tools=(), on_iteration=None, on_task_progress=None, labels=None, options=None, plan_hook=None)` records the run as `running` and checks the C programs in `mace/workloads/` against `CHECKSUMS`.
 Each iteration then checks the wall-clock and USD limits, calls `plan()` with the feedback gathered so far, and hands the task DAG to `integrate_parallel()`.
 The orchestrator opens one `OpenPitonWorkspaceNode` per checkout when the first iteration reaches execution, reuses the nodes in later iterations, and closes them after the loop.
 
@@ -56,6 +56,8 @@ Budget limits end the run with `budget_exceeded` (see [Budgets and Replay](budge
 
 `mace/loop.py` also holds `run_mace_step()`, which runs a single task without the planner.
 `integrate()` in `mace/integrator.py` applies tasks serially on one checkout, and the orchestrator does not call it.
+
+`plan_hook`, when given, replaces each iteration's planned tasks with what it returns; the seeded-failure runs use it to break the first plan.
 
 `labels`, a `mace.metrics.RunLabels`, records which method, suite task, repeat, and seed a run was, with its environment as JSON; see [Results and Metrics](../01_mace_user/Results_and_Metrics.md).
 
@@ -71,6 +73,7 @@ The defaults are the full loop.
 | `reuse_builds` | `True` | `False`: every build passes `clean=True`, so no earlier model is reused. |
 | `task_prompts` | `True` | `False`: tasks make no LLM call of their own. That call's reply changes nothing that is built. |
 | `post_mortem` | `True` | `False`: a run that ends without passing gets no post-mortem. |
+| `rtl_edits` | `False` | `True`: the planner's prompt offers the `rtl` kind, and each `rtl` task's agent gets an `RtlEditTool`; see [Parallel Task Execution](task_execution.md). |
 
 ## Package Boundary
 

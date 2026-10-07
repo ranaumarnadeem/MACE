@@ -22,7 +22,7 @@ Levels run in order (see [Integration and Verification](integrator.md)).
 A level with more tasks than checkouts runs in batches of `len(piton_roots)`, one after another.
 The i-th task of a batch runs on the i-th checkout.
 
-Within a batch, each `config` or `workload` task runs on its own thread as three CHIA remote calls, each resolved with `get()` before the next:
+Within a batch, each `config`, `workload`, or `rtl` task runs on its own thread as three CHIA remote calls, each resolved with `get()` before the next:
 
 - `llm.prompt.chia_remote()` with the task's instruction and the caller's tools;
 - `node.build.chia_remote()` with the task's configuration;
@@ -44,8 +44,8 @@ An `rtl` task replaces the first call with an edit session, described under RTL 
 - `core`, `x_tiles`, and `y_tiles` come from the spec;
 - `extra_flags` holds `-vlt_build_args=--coverage-line` when `spec.coverage` is set;
 - `caches` takes the task's `CACHES:` override, and `PitonConfig` fills in the caches it leaves out from `DEFAULT_CACHES`;
-- `config_rtl` is the sorted union of the default `("MINIMAL_MONITORING",)` and the task's `CONFIG_RTL:` flags, which include those of the tasks it depends on (see [Planner](planner.md)).
-
+- `config_rtl` is the sorted union of the default `("MINIMAL_MONITORING",)` and the task's `CONFIG_RTL:` flags, which include those of the tasks it depends on (see [Planner](planner.md));
+- `network_config` takes the task's `network`, which only co-design searches set;
 - `source_edits` holds a hash of the RTL edits the build carries, described under RTL Tasks below, and is empty for a build without edits.
 
 A task's configuration depends only on the spec, the task's own overrides, and its dependencies' RTL defines and edits.
@@ -64,13 +64,14 @@ The tool never writes the checkout: it keeps each changed file's full new conten
 
 Before the build, `node.apply_edits()` writes the edits into the task's checkout: first the edits of the tasks it depends on, then the task's own from the staging file.
 After the task's runs, `node.revert_edits()` restores every file, however the task ended.
+A task with no edits calls `node.revert_edits()` before its build, so edits a killed task left are never built.
 The build's `source_edits` gives an edited design its own model directory.
 A task of any kind builds with the edits of the tasks it depends on, directly or through other tasks: `integrate_parallel()` keeps each passed task's edits for the levels after it.
-An `rtl` task whose agent recorded no edit of its own still builds and runs the design as it stands, so a failure carries the real build error with its file and line. The task's result has `edit_recorded` false, and the failure evidence says so and quotes the agent's closing words.
+An `rtl` task whose agent recorded no edit of its own still builds and runs the design as it stands, so a failure carries the build error with its file and line. The task's result has `edit_recorded` false, and the failure evidence says so and quotes the agent's closing words.
 The task's result carries the edits and their unified diff, which triage, the re-plan's feedback, and the `tasks.rtl_edits` column quote.
 
 Both the planner's offer of the `rtl` kind and the edit tool need `LoopOptions(rtl_edits=True)`, which is off by default; see [Planner](planner.md). With it off, an `rtl` task runs as a `config` task.
-The serial `integrate()` and `run_mace_step()` give no task an edit tool.
+The serial `integrate()` and `run_mace_step()` give no task an `RtlEditTool`.
 
 ## Unit-Test Tasks
 

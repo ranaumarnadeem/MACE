@@ -32,10 +32,10 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 
 ### Planning
 
-- **REQ-PLAN-1:** MACE shall accept a run specification that names a core, a target mesh, one or more gate workloads, an objective, a budget, and a coverage flag.
+- **REQ-PLAN-1:** MACE shall accept a run specification that names a core, a target mesh, one or more gate workloads, an objective, a budget, and a coverage flag, and optionally an RTL timeout, a cycle limit, and per-workload finish masks and run options.
 - **REQ-PLAN-2:** MACE shall accept the cores `ariane`, `sparc`, and `pico`, with `ariane` as the default.
 - **REQ-PLAN-3:** MACE shall accept a target mesh of 1 to 256 tiles on each axis, with 1x1 as the default.
-- **REQ-PLAN-4:** MACE shall reject a run specification with an unknown core, a target mesh that is not a pair of integers from 1 to 256, an empty workload list, a workload name that is not a non-empty string, an empty objective, a non-boolean coverage flag, or a budget of the wrong type.
+- **REQ-PLAN-4:** MACE shall reject a run specification with an unknown core, a target mesh that is not a pair of integers from 1 to 256, an empty workload list, a workload name that is not a non-empty string, an empty objective, a non-boolean coverage flag, a budget of the wrong type, an RTL timeout or cycle limit that is not a positive integer, or per-workload options that name a program outside the gate workloads, give a finish mask that is not hex digits, or give a run option that does not start with `-`.
 - **REQ-PLAN-5:** MACE shall produce each plan from one LLM call whose prompt states the core, the objective, the target mesh, and the gate workloads.
 - **REQ-PLAN-6:** MACE shall read each task from a line of the form `TASK: <id> | deps=<ids> | kind=<kind> | <instruction>`.
 - **REQ-PLAN-7:** MACE shall recognize a directive tag case-insensitively at the start of a line, including after a list marker such as `-`, `*`, or `1.`.
@@ -53,7 +53,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EXEC-2:** MACE shall run at most one task on an OpenPiton checkout at a time, running each level in batches of at most one task per checkout.
 - **REQ-EXEC-3:** MACE shall run the `config` and `workload` tasks of a batch concurrently.
 - **REQ-EXEC-4:** MACE shall dispatch all remote builds and runs for one checkout to the same Ray worker.
-- **REQ-EXEC-5:** MACE shall give every `config` and `workload` task its own build configuration, formed only from the run's core and mesh, the task's cache overrides, and the RTL defines of the task and of every task it depends on, added to the default defines.
+- **REQ-EXEC-5:** MACE shall give every `config` and `workload` task its own build configuration, formed only from the run's core and mesh, the task's cache overrides and network, the RTL defines of the task and of every task it depends on, added to the default defines, and a hash of any RTL edits the build carries.
 - **REQ-EXEC-6:** When the run specification requests coverage, MACE shall build every `config` and `workload` task with Verilator line coverage.
 - **REQ-EXEC-7:** MACE shall pass the tools the caller supplies to the loop to every LLM call it makes: planning, task execution, diagnosis, and post-mortem.
 - **REQ-EXEC-8:** For a `unit_test` task, MACE shall scaffold an OpenPiton unit-test environment for the RTL module the task names, give the agent the module's port list, and ask it to reconcile the scaffolded testbench with the module.
@@ -65,6 +65,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EXEC-14:** When the run enables RTL edits, MACE shall offer the `rtl` task kind in the plan's prompt and, for an `rtl` task, give the agent tools that read files under `piton/design/` and record text replacements in them, and shall refuse any other path.
 - **REQ-EXEC-15:** MACE shall apply a task's RTL edits, and those of every task it depends on, to the task's checkout before its build, and shall restore the edited files after its runs however the task ends.
 - **REQ-EXEC-16:** MACE shall build and run the design as it stands for an `rtl` task whose agent records no edit, and shall tell triage that the agent recorded none.
+- **REQ-EXEC-17:** Before building a task that carries no RTL edits, MACE shall restore any edited files an interrupted task left on its checkout.
 
 ### Integration and Verification
 
@@ -74,7 +75,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-VER-4:** MACE shall not classify a transcript that contains a failure or max-cycles marker as `pass`, even when it also contains a PASS line.
 - **REQ-VER-5:** MACE shall mark a `config` or `workload` task passed only when its build succeeds and every gate workload's verdict is `pass`, with no simulation process timing out or failing to launch.
 - **REQ-VER-6:** MACE shall mark a `unit_test` task passed when its unit-test environment builds.
-- **REQ-VER-7:** MACE shall require every tile of the mesh to reach the good trap for a simulation to pass.
+- **REQ-VER-7:** MACE shall require every tile of the mesh to reach the good trap for a simulation to pass, unless the run specification gives that workload its own finish mask.
 - **REQ-VER-8:** MACE shall simulate gate workloads with an RTL timeout of 1,000,000 cycles, or with the run specification's `rtl_timeout` when it sets one.
 - **REQ-VER-9:** MACE shall stop an iteration after the first level that contains a failed task.
 - **REQ-VER-10:** MACE shall end the run with status `passed` when every task of an iteration passes.
@@ -135,6 +136,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-EVAL-9:** The harness shall record with each run its method, suite task, repeat, seed, and environment: MACE's commit, each checkout's source fingerprint and Verilator version, the model, and the host.
 - **REQ-EVAL-10:** A seeded-fault run shall change only its first plan's `config` and `workload` tasks, and shall record the fault's name with the run.
 - **REQ-EVAL-11:** A fault check shall build and check the task's expert configuration with the fault applied, call no LLM, and record the fault's name with the run. A fault shall run only on tasks whose core and mesh it breaks.
+- **REQ-EVAL-12:** A job for a task with a source fault shall run on checkouts that carry the fault, and the harness shall restore the faulted files after the job however it ends. Every other job shall first restore any fault or RTL edits an interrupted job left.
 
 ## Platform Requirements
 

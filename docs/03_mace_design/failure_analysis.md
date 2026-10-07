@@ -13,6 +13,8 @@ The prompt gives the task's id, kind, and instruction, the build outcome, the ru
 A line of changes from the defaults picks out the plan's own choices among them: the RTL defines it adds, each cache whose geometry differs, and a crossbar interconnect (`changes_from_defaults()`).
 A failed build adds the failure reason, its error lines (see [PitonBuildArtifact](../04_chia_openpiton/workspace_node.md)), and the last 1500 characters of its stderr, or of its stdout when stderr is empty, as `sims` leaves it.
 A failed run adds the last 1500 characters of the simulation log and up to 8000 characters of the status log.
+When the build carried RTL edits, the prompt then adds their diff, up to 3000 characters, and the feedback line below adds it too.
+For an `rtl` task whose agent recorded no edit, the prompt says so and quotes up to 600 characters of the agent's reply.
 The prompt asks for two directive lines:
 
 ```text
@@ -59,7 +61,7 @@ If the run then passes, `mark_all_recovered()` marks all of its failures recover
 A replanned DAG can use new task ids, so recovery is tracked per run.
 
 A tier-1 test, `mace/test/cluster/orchestrator_e2e_test.py`, exercises the detect, diagnose, and replan cycle with a stub `sims` that fails its first run and passes after that.
-No passing 2x2 or 4x4 run has needed the cycle.
+[Results](../06_mace_evaluation/results.md) reports which runs needed the cycle, including the seeded-failure runs.
 
 ## Post-Mortem
 

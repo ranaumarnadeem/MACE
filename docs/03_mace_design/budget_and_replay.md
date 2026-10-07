@@ -46,11 +46,13 @@ A changed file, a file missing from `CHECKSUMS`, or a listed file that no longer
 
 ## Deterministic Replay
 
-`integrate_parallel()` tags each remote call of a `config` or `workload` task with `mace.replay.tag_for()`:
+`integrate_parallel()` tags each remote call of a `config`, `workload`, or `rtl` task with `mace.replay.tag_for()`:
 
 ```python
-f"{run_id}/iter{iteration}/{task_id}/{phase}"  # phase: "prompt", "build", or "run"
+f"{run_id}/iter{iteration}/{task_id}/{phase}"  # phase: "prompt", "build", "run", or "run:<workload>"
 ```
+
+The first gate workload's run takes the phase `run`, and each later one `run:<workload>`.
 
 `run_mace_loop()` passes its run ID and iteration number, so the remote calls of every run are tagged.
 Tags take effect once a caller enables CHIA's cache and bypass.
@@ -65,4 +67,4 @@ The drivers in the repository call neither function.
 
 Replay reproduces decisions: the LLM's `QueryResult` and the build and run artifacts that decide whether each task passed.
 CHIA's cache holds return values only, so replay does not re-apply edits an agent made through its tools.
-Planner, triage, and post-mortem calls and `unit_test` tasks run locally and carry no tag.
+Planner, triage, and post-mortem calls, an `rtl` task's agent call, and `unit_test` tasks run locally and carry no tag.

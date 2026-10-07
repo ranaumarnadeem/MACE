@@ -8,7 +8,7 @@ The [MACE Requirements Specification](../02_mace_requirements/mace_requirements_
 
 ## Design Goals
 
-- **Verilator decides.** A `config` or `workload` task passes only on the verdict `pass`, and a `unit_test` task only on a successful Verilator build. A simulation's exit code cannot make a task pass, and the agent's report does not count.
+- **Verilator decides.** A `config`, `workload`, or `rtl` task passes only on the verdict `pass`, and a `unit_test` task only on a successful Verilator build. A simulation's exit code cannot make a task pass, and the agent's report does not count.
 - **The oracle stays fixed.** The C programs in `mace/workloads/` are checksummed, and a run stops before its first LLM call if they no longer match.
 - **One checkout per concurrent task.** Parallel tasks never share a checkout (see [Parallel Task Execution](task_execution.md)).
 - **Plain-text decisions.** Agents answer in prose that carries directive lines such as `TASK:`. The parsers drop malformed lines, and the loop decides what to do when a directive is missing.
@@ -20,8 +20,8 @@ The [MACE Requirements Specification](../02_mace_requirements/mace_requirements_
 ## Terms
 
 - **objective**: The English statement of what a run should achieve (`MaceSpec.objective`). The planner turns it into tasks. `MaceSpec.target_mesh` sets the mesh size of every build.
-- **MaceSpec**: The input to one run (`mace/spec.py`): `workloads`, `objective`, `core` (`ariane`, `sparc`, or `pico`; default `ariane`), `target_mesh` (default `(1, 1)`, 1 to 256 tiles per axis), `budget`, `coverage` (default `False`), `rtl_timeout` (default `None`, which uses `RECOMMENDED_RTL_TIMEOUT`), and `max_cycle` (default `None`, which keeps OpenPiton's cycle limit).
-- **task**: One node of the planner's DAG (`mace.spec.Task`), with an `id`, `deps`, a `kind` (`config`, `workload`, or `unit_test`), an instruction (`spec`), and optional `caches` and `config_rtl` overrides.
+- **MaceSpec**: The input to one run (`mace/spec.py`): `workloads`, `objective`, `core` (`ariane`, `sparc`, or `pico`; default `ariane`), `target_mesh` (default `(1, 1)`, 1 to 256 tiles per axis), `budget`, `coverage` (default `False`), `rtl_timeout` (default `None`, which uses `RECOMMENDED_RTL_TIMEOUT`), `max_cycle` (default `None`, which keeps OpenPiton's cycle limit), and `workload_args` (default `()`, per-program finish masks and run options).
+- **task**: One node of the planner's DAG (`mace.spec.Task`), with an `id`, `deps`, a `kind` (`config`, `workload`, `unit_test`, or `rtl`), an instruction (`spec`), and optional `caches`, `config_rtl`, and `network` overrides.
 - **level**: A group of tasks whose dependencies all lie in earlier groups. Tasks in one level can run in parallel.
 - **gate workload**: A program in `MaceSpec.workloads`. The loop simulates each one in order, and a `config` or `workload` task passes only when all of them pass. It can be a C program in `mace/workloads/` or an OpenPiton test such as `addi.S`.
 - **verdict**: The outcome parsed from a run's `sim.log`: `pass`, `fail`, `timeout`, `maxcycles`, or `None` when no verdict line appears.

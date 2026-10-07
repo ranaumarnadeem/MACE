@@ -2,7 +2,7 @@
 
 # Planner
 
-`mace.planner.plan(spec, llm, tools=(), feedback="")` turns a `MaceSpec` into a task DAG with one LLM call.
+`mace.planner.plan(spec, llm, tools=(), feedback="", rtl_edits=False)` turns a `MaceSpec` into a task DAG with one LLM call.
 It sends the prompt from `build_prompt()`, parses the response with `mace.agents.parse_tasks()`, and checks the result with `mace.integrator.topological_levels()`.
 
 ## Prompt
