@@ -268,7 +268,11 @@ def _workload_args(raw: object, task_id: str) -> tuple[tuple[str, str, tuple[str
         run_args = options.get("run_args") or []
         if not isinstance(run_args, list):
             raise SuiteError(f"task {task_id}: run_args for {program!r} must be a list")
-        entries.append((program, str(options.get("finish_mask", "")), tuple(run_args)))
+        mask = options.get("finish_mask", "")
+        # YAML reads an unquoted 0011 as octal 9 and 0x33 as 51, both valid hex masks for the wrong harts.
+        if not isinstance(mask, str):
+            raise SuiteError(f"task {task_id}: finish_mask for {program!r} must be a quoted string, got {mask!r}")
+        entries.append((program, mask, tuple(run_args)))
     return tuple(entries)
 
 

@@ -189,6 +189,14 @@ class TestWorkloadArgs:
         (task,) = load_suite(write(tmp_path, text))
         assert task.spec().run_options("addi.S") == ("3333", ("-midas_args=-DTHREAD_COUNT=8",))
 
+    @pytest.mark.parametrize("mask", ["0011", "0x33", "3333"])
+    def test_an_unquoted_finish_mask_is_refused(self, tmp_path, mask):
+        text = MINIMAL.replace(
+            "    verified: true\n", f"    verified: true\n    workload_args:\n      addi.S:\n        finish_mask: {mask}\n"
+        )
+        with pytest.raises(SuiteError, match="quoted string"):
+            load_suite(write(tmp_path, text))
+
     def test_an_unknown_option_is_refused(self, tmp_path):
         text = MINIMAL.replace("    verified: true\n", "    verified: true\n    workload_args:\n      addi.S: {threads: 8}\n")
         with pytest.raises(SuiteError, match="finish_mask and run_args"):
