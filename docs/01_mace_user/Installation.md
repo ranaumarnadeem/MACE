@@ -27,6 +27,8 @@ The shell provides:
 The host needs one more program the shell cannot provide: csh at `/bin/csh`.
 OpenPiton's `bw_cpp`, which `sims` runs to read its configuration, starts with `#!/bin/csh`.
 On Ubuntu or Debian, `sudo apt install tcsh` installs it, and the shell warns on entry when it is missing.
+OpenSPARC T1 also needs the host's 32-bit loader: OpenPiton's SPARC assembler, `piton/tools/Linux/x86_64/g_as,2.13.5`, is a 32-bit x86 program, and without `/lib/ld-linux.so.2` every T1 diag fails with `midas compilation error`.
+On Ubuntu or Debian, `sudo apt install libc6-i386` installs the loader.
 
 On first entry the shell creates and activates `.venv`, then installs CHIA's v1.0.1 release from PyPI and MACE, editable with its test and eval extras. The `eval` extra adds Optuna, which the co-design Bayesian search uses.
 This needs network access and takes a few minutes.
@@ -67,7 +69,7 @@ CHIA's PyPI distribution is named `chialoops`, and its 1.0.1 wheel holds the sam
 To edit CHIA, clone that tag with `git clone --branch v1.0.1 https://github.com/ucb-bar/chia.git` and install the clone with `pip install -e /path/to/chia` in place of the `chialoops` line.
 To run the co-design Bayesian search, install the `eval` extra as well: `pip install -e ".[test,eval]"`.
 
-Install the toolchain yourself: Verilator, a `riscv64-unknown-elf` GCC that covers `rv64imafdc`/`lp64d`, `dtc` and `python3` for the RV64 boot ROM, and csh at `/bin/csh` for OpenPiton's `bw_cpp`.
+Install the toolchain yourself: Verilator, a `riscv64-unknown-elf` GCC that covers `rv64imafdc`/`lp64d`, `dtc` and `python3` for the RV64 boot ROM, and csh at `/bin/csh` for OpenPiton's `bw_cpp`, and for OpenSPARC T1 the 32-bit loader described above.
 Set `RISCV` to the toolchain's install directory.
 For Ariane builds the adapter puts `$RISCV/bin` first on `PATH`, and uses `$HOME/scratch/riscv_install` when `RISCV` is unset.
 PicoRV32 builds get no such `PATH` entry: they assemble for `rv32ima`/`ilp32` with the `riscv64-unknown-elf-gcc` that `PATH` finds after `piton_settings.bash` puts `/usr/bin` first.

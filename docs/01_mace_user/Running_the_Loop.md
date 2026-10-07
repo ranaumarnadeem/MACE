@@ -17,6 +17,7 @@ A frozen `MaceSpec` from `mace/spec.py` describes a loop run.
 | `coverage` | `False` | Adds Verilator line coverage to every `config` and `workload` build; see [Code Coverage](Code_Coverage.md). |
 | `rtl_timeout` | `None` | OpenPiton's `TIMEOUT` limit, which caps a gate workload's simulation at this many cycles; `None` uses `RECOMMENDED_RTL_TIMEOUT` (1,000,000). Larger meshes need more. |
 | `max_cycle` | `None` | The most cycles a gate workload's simulation may take before it ends with verdict `maxcycles`; `None` keeps OpenPiton's limit. |
+| `workload_args` | `()` | `(program, finish_mask, run_args)` entries that give a gate workload its own finish mask, in hex digits, and extra `sims` run options starting with `-`, as OpenSPARC T1's multi-thread diags need. |
 
 `target_mesh` sets `x_tiles` and `y_tiles` for every `config` and `workload` build.
 The planner sees the mesh in its prompt but cannot change it.
@@ -65,7 +66,7 @@ No command-line flag sets either field: build the spec in Python, or set them on
 |---|---|---|
 | `max_iterations` | `10` | Plan, execute, and triage cycles. |
 | `max_usd` | `20.0` | Summed cost in USD of the run's planner, task, and triage calls. |
-| `max_wall_s` | `3600` | Elapsed seconds since the run started. |
+| `max_wall_s` | `3600` | Wall-clock seconds since the checksum check. |
 
 The caps are independent and must be positive.
 The loop checks them before each iteration, so a started iteration always finishes.

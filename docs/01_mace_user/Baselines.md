@@ -101,7 +101,6 @@ For 2x2 and 4x4 comparisons, run the two scripts directly with matching flags.
 
 ## Seeded-failure runs
 
-No run in [Results](../06_mace_evaluation/results.md) needed a replan.
 `examples/recovery_seeded.py` breaks the loop's first plan, so the detect, diagnose, and replan cycle runs against Verilator builds and simulations:
 
 ```bash
@@ -112,7 +111,8 @@ python examples/recovery_seeded.py --piton-root ~/openpiton --core ariane --mesh
 
 - `--fault build` adds `PITON_FPGA_SYNTH`, a define for FPGA synthesis, to every config and workload task in the first plan. The Verilator build then fails with `%Error-PINNOTFOUND`.
 - `--fault sim` removes `CONFIG_DISABLE_BIST_CLEAR` from the first plan. It needs `--core pico`, whose simulation then fails.
+- `--fault` also takes any fault name from `mace/eval/faults.py`, such as `crossbar` or `l1d_eight_way`.
 
 Later plans are left alone.
-The script replaces `mace.orchestrator.plan` for each run, prints each iteration's results and diagnoses, and records the runs in `runs/recovery_seeded.db`.
+The script passes each run a `plan_hook` that breaks the first plan, prints each iteration's results and diagnoses, and records the runs in `runs/recovery_seeded.db`.
 `--objective` sets the objective. Pass the one from the run being compared: the PicoRV32 runs in Results named `CONFIG_DISABLE_BIST_CLEAR` in theirs.

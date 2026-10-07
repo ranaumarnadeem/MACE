@@ -10,7 +10,7 @@ The planner, task execution, triage, and post-mortem see only an `LLMCallBase`, 
 
 | Backend | CHIA class | Credential | Default model | Cost reported |
 |---|---|---|---|---|
-| `vertex` | `mace.vertex.UsageVertexLLM`, a subclass of `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash` | No |
+| `vertex` | `mace.vertex.UsageVertexLLM`, a subclass of `chia.models.vertex.VertexGeminiLLM` | Google Application Default Credentials and `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-flash` | Yes |
 | `opencode` | `chia.models.opencode.OpenCodeLLM` | `OPENCODE_API_KEY` | the class's own | Yes |
 | `claude` | `chia.models.claude.ClaudeCodeLLM` | `ANTHROPIC_API_KEY` | the class's own | No |
 | `antigravity` | `chia.models.antigravity.AntigravityLLM` | `ANTIGRAVITY_API_KEY` | the class's own | Yes |

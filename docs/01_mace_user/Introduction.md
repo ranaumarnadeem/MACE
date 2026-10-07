@@ -34,7 +34,7 @@ The shell and `examples/mace_end_to_end.py` are two front ends to the same loop.
 
 MACE supports three OpenPiton cores: Ariane (CVA6, RV64), OpenSPARC T1, and PicoRV32.
 The loop passes 2x2 and 4x4 meshes of Ariane on `barrier_atomic.c` and of PicoRV32 on `addi.S`.
-OpenSPARC T1 builds under Verilator 5.020 but does not run.
+OpenSPARC T1 builds under Verilator 5.020 but does not run; it runs under Verilator 5.052.
 See [Ariane](../05_mace_cores/ariane.md), [OpenSPARC T1](../05_mace_cores/sparc.md), and [PicoRV32](../05_mace_cores/pico.md).
 
 ## Baselines
