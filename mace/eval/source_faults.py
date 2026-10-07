@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from chia_openpiton.openpiton_workspace import _revert_edits
+from chia_openpiton.openpiton_workspace import _revert_edits, _write_json_atomic
 
 FAULT_BACKUP_DIR = os.path.join("build", ".mace_fault_backup")
 _MANIFEST = "manifest.json"
@@ -84,11 +84,13 @@ def apply(root: str, edits: tuple[SourceEdit, ...]) -> None:
                 raise ValueError(
                     f"fault text occurs {text.count(edit.old)} times in {edit.path} of {root!r}; it must occur once"
                 )
-            name = f"{index}.orig"
-            (backup_dir / name).write_bytes(original)
-            # Recorded before the file changes, so a crash still leaves it restorable.
-            manifest[edit.path] = name
-            (backup_dir / _MANIFEST).write_text(json.dumps(manifest), encoding="utf-8")
+            # A file's first edit keeps the original; a later edit to it would back up faulted text.
+            if edit.path not in manifest:
+                name = f"{index}.orig"
+                (backup_dir / name).write_bytes(original)
+                # Recorded before the file changes, so a crash still leaves it restorable.
+                manifest[edit.path] = name
+                _write_json_atomic(str(backup_dir / _MANIFEST), manifest)
             path.write_bytes(text.replace(edit.old, edit.new, 1).encode("utf-8", "surrogateescape"))
     except Exception:
         restore(root)

@@ -74,6 +74,12 @@ class TestApplyAndRestore:
         assert OpenPitonWorkspaceNode.revert_edits(root) == []
         assert read(root) == ORIGINAL
 
+    def test_two_edits_in_one_file_restore_the_original(self, root):
+        apply(root, (SourceEdit(PATH, "assign a = b;", "assign a = bb;"), SourceEdit(PATH, "module core;", "module kore;")))
+        assert read(root) == "module kore;\n  assign a = bb;\nendmodule\n"
+        restore(root)
+        assert read(root) == ORIGINAL
+
     def test_restore_with_nothing_applied_is_a_no_op(self, root):
         assert restore(root) == []
 
