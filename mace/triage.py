@@ -87,11 +87,6 @@ def failure_evidence(result: StepResult) -> str:
         f"Build flags: {' '.join(build.config.sims_flags())}",
         f"Changes from the defaults: {changes_from_defaults(build.config)}",
     ]
-    if result.edits_diff:
-        context_parts.append(f"RTL edits the build carried:\n{result.edits_diff[:EDIT_DIFF_CHARS]}")
-    if not result.edit_recorded:
-        said = (result.query.result or "").strip()[:EDIT_REPLY_CHARS] if result.query is not None else ""
-        context_parts.append(f"This rtl task's agent recorded no edit, so the design was built as it stood. It said: {said}")
     if not build.success:
         context_parts.append(f"Build failure reason: {build.failure_reason}")
         if build.errors:
@@ -102,6 +97,12 @@ def failure_evidence(result: StepResult) -> str:
     elif run is not None:
         context_parts.append(f"Sim log (tail):\n{run.sim_log_tail[-1500:]}")
         context_parts.append(f"Status log:\n{run.status_log}")
+    # After the errors, so a cut to the evidence's head keeps the file and line.
+    if result.edits_diff:
+        context_parts.append(f"RTL edits the build carried:\n{result.edits_diff[:EDIT_DIFF_CHARS]}")
+    if not result.edit_recorded:
+        said = (result.query.result or "").strip()[:EDIT_REPLY_CHARS] if result.query is not None else ""
+        context_parts.append(f"This rtl task's agent recorded no edit, so the design was built as it stood. It said: {said}")
     return "\n\n".join(context_parts)
 
 

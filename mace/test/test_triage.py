@@ -203,6 +203,14 @@ class TestRtlEditsInTheEvidence:
         assert "RTL edits the build carried:\n--- a/piton/design/x.v" in failure_evidence(result)
         assert edits_feedback(result).startswith("\nThe RTL edits it was built with:\n--- a/piton/design/x.v")
 
+    def test_the_failure_comes_before_the_diff(self):
+        from mace.triage import failure_evidence
+
+        result = make_failed_result()
+        result.edits_diff = "+x\n" * 2000
+        text = failure_evidence(result)
+        assert text.index("Sim log (tail):") < text.index("RTL edits the build carried:")
+
     def test_no_edits_add_nothing(self):
         from mace.triage import edits_feedback, failure_evidence
 
