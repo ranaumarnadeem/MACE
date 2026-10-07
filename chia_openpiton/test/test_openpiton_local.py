@@ -903,6 +903,20 @@ class TestSourceEdits:
         with pytest.raises(ValueError, match="escapes base dir"):
             node.apply_edits({"../outside.v": "x\n"})
 
+    def test_two_paths_to_one_file_are_refused_and_the_file_restored(self, node, rtl):
+        with pytest.raises(ValueError, match="name the same file"):
+            node.apply_edits({"piton/design/core.v": "one\n", "piton/design/./core.v": "two\n"})
+        assert rtl.read_text() == "module core;\nassign a = b;\nendmodule\n"
+        assert node.revert_edits() == []
+
+    def test_the_manifest_is_never_left_half_written(self, node, rtl, stub_piton_root):
+        from chia_openpiton.openpiton_workspace import EDIT_BACKUP_DIR
+
+        node.apply_edits({"piton/design/core.v": "changed\n"})
+        backup = stub_piton_root / EDIT_BACKUP_DIR
+        assert json.loads((backup / "manifest.json").read_text()) == {"piton/design/core.v": "0.orig"}
+        assert not (backup / "manifest.json.tmp").exists()
+
     def test_revert_with_nothing_applied_is_a_no_op(self, node, rtl):
         assert node.revert_edits() == []
 

@@ -370,6 +370,15 @@ def _edit_target(root: str, relpath: str) -> str:
     return path
 
 
+def _write_json_atomic(path: str, data) -> None:
+    """Write *data* as JSON to *path* through a temporary file, so a crash
+    leaves either the old file or the new one, never a partial one."""
+    partial = path + ".tmp"
+    with open(partial, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.replace(partial, path)
+
+
 def _revert_edits(root: str) -> list[str]:
     """Restore every file a previous apply_edits changed in *root*; returns
     their paths. A no-op when nothing is applied."""
@@ -1153,8 +1162,9 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         edits win over *edits* for the same file, and the file is removed
         once read. Edits a previous call left applied are reverted first,
         so an interrupted caller never leaves its edits under the next build.
-        Each path must name an existing regular file inside the checkout
-        (``ValueError``); on any error every file is restored.
+        Each path must name an existing regular file inside the checkout,
+        and no two paths the same file (``ValueError``); on any error every
+        file is restored.
 
         Returns ``{"edits": <the merged edits>, "diff": <unified diff of the
         changes>}``. Call :meth:`revert_edits` after the build and runs.
@@ -1173,10 +1183,16 @@ class OpenPitonWorkspaceNode(ColocatedNode):
         backup_dir = os.path.join(root, EDIT_BACKUP_DIR)
         os.makedirs(backup_dir, exist_ok=True)
         manifest: dict[str, str] = {}
+        targets: dict[str, str] = {}
         diffs: list[str] = []
         try:
             for index, relpath in enumerate(sorted(merged)):
                 path = _edit_target(root, relpath)
+                # A second path to one file would back up the edited text.
+                real = os.path.realpath(path)
+                if real in targets:
+                    raise ValueError(f"edit paths {targets[real]!r} and {relpath!r} name the same file")
+                targets[real] = relpath
                 with open(path, "rb") as f:
                     original = f.read()
                 name = f"{index}.orig"
@@ -1185,8 +1201,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
                 # Recorded before the file changes, so a crash between the
                 # two still leaves the original restorable.
                 manifest[relpath] = name
-                with open(os.path.join(backup_dir, _EDIT_MANIFEST), "w", encoding="utf-8") as f:
-                    json.dump(manifest, f)
+                _write_json_atomic(os.path.join(backup_dir, _EDIT_MANIFEST), manifest)
                 new = merged[relpath]
                 with open(path, "wb") as f:
                     f.write(new.encode("utf-8", "surrogateescape"))
