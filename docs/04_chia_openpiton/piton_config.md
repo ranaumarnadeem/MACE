@@ -79,7 +79,7 @@ A Verilator build of a configuration that breaks the rule therefore compiles and
 Earlier versions hashed a partial mapping as given.
 A model they built from one sits under a build ID that nothing computes now, so that configuration builds once more.
 
-Beyond the configuration fields, the key covers only what `configure()` records: the committed revision, the Ariane submodule commit, the Verilator version, and the unstaged diff under `piton/verif/env/manycore`. Edits anywhere else in the working tree leave the key unchanged. A directly constructed `PitonConfig` leaves those four fields empty, so its key depends on the configuration fields alone. The build cache covers the rest of the checkout: [build()](workspace_node.md) reuses a model only while the checkout's source fingerprint matches the one recorded when the model was built.
+Beyond the configuration fields, the key covers `source_edits`, which the caller sets, and what `configure()` records: the committed revision, the Ariane submodule commit, the Verilator version, and the unstaged diff under `piton/verif/env/manycore`. Edits anywhere else in the working tree leave the key unchanged. A directly constructed `PitonConfig` leaves those four fields empty, so its key depends on the configuration fields alone. The build cache covers the rest of the checkout: [build()](workspace_node.md) reuses a model only while the checkout's source fingerprint matches the one recorded when the model was built.
 
 ## sims_flags()
 

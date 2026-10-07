@@ -23,7 +23,7 @@ Fixes 6 and 7 come from `scripts/patch_openpiton.sh`. The BIST define is a build
 - By hand: `PitonConfig(core="pico", config_rtl=("CONFIG_DISABLE_BIST_CLEAR", "MINIMAL_MONITORING"))`.
 - Through the loop: the planner emits a `CONFIG_RTL:` line naming the define for its task. See [Planner](../03_mace_design/planner.md).
 
-Each task builds from its own configuration, so every task in a pico run needs the define.
+A task builds with its own `CONFIG_RTL:` flags plus those of every task it depends on, so each pico task needs the define directly or through a dependency.
 
 ## Workloads
 

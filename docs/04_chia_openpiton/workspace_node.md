@@ -95,7 +95,7 @@ clean(piton_root: str, config: PitonConfig) -> bool
 | `run` | Runs one diag and judges it from the transcript |
 | `regress` | Calls `run` serially for each entry of `tests`. `success` holds when at least one test ran and none failed. It is a single-worker fallback; fan `run` out across workers for parallel regressions |
 | `put_file` | Writes `content` to `<piton_root>/<relpath>`, creates parent directories, and returns the path. A `relpath` that escapes the checkout raises `ValueError` |
-| `apply_edits` | Replaces the content of existing files: `edits` maps a path relative to the root to the file's full new content, and `staged` names a JSON file of more edits under `build/.mace_edit_staging/`, which wins for the same file and is deleted once read. It first reverts edits a previous call left applied, keeps each original under `build/.mace_edit_backup/`, and restores every file on any error. A path outside the checkout, or one that names no existing file, raises `ValueError`. Returns the merged edits and their unified diff |
+| `apply_edits` | Replaces the content of existing files: `edits` maps a path relative to the root to the file's full new content, and `staged` names a JSON file of more edits under `build/.mace_edit_staging/`, which wins for the same file and is deleted once read. It first reverts edits a previous call left applied, keeps each original under `build/.mace_edit_backup/`, and restores every file on any error. A path outside the checkout, one that names no existing file, or two paths that name the same file raise `ValueError`, as does a `staged` name outside the staging directory; a `staged` file that does not exist adds nothing. Returns the merged edits and their unified diff |
 | `revert_edits` | Restores every file `apply_edits` changed and returns their paths; with nothing applied it does nothing |
 | `collect` | Globs `patterns` under `base_dir`, which is absolute or relative to the root; `**` is recursive. Skips matches outside `base_dir`, including symlinks whose target lies outside it. Files over `max_bytes_per_file` go to `skipped`; `0` skips every non-empty file, and `None` sets no cap |
 | `clean` | Removes the configuration's model directory and returns whether it existed. `sims -clean` removes only VCS output (`csrc`, `simv`, `simv.daidir`, `AxisWork`) and leaves `obj_dir` in place |
@@ -213,7 +213,7 @@ OpenPiton's prebuilt `configsrch`, which `sims` runs to look up each tool's vers
 | Field | Type | Meaning |
 |---|---|---|
 | `success` | `bool` | Exit status 0 and model binary present |
-| `returncode` | `int` | `sims` exit status; `-1` on timeout or launch failure |
+| `returncode` | `int` | `sims` exit status; `-1` on timeout, launch failure, or a refused (`way_rule`) configuration |
 | `config` | `PitonConfig` | The configuration built |
 | `sim_type` | `str` | Simulator selector |
 | `model_dir` | `str` | `$PITON_ROOT/build/<sys>/<build_id>` |
@@ -224,7 +224,7 @@ OpenPiton's prebuilt `configsrch`, which `sims` runs to look up each tool's vers
 | `failure_reason` | `str` | Failure tag, `way_rule` for a refused configuration; `""` on success |
 | `reused` | `bool` | `True` when served from the build cache |
 | `stdout`, `stderr` | `str` | Tail of each stream. `sims` prints Verilator's output to stdout |
-| `errors` | `tuple[str, ...]` | Error lines from the full output of a failed build, from [build_errors](parsers.md); `()` on success |
+| `errors` | `tuple[str, ...]` | Error lines from the full output of a failed build, from [build_errors](parsers.md), or for a `way_rule` refusal the caches that break the rule; `()` on success |
 
 ### PitonRunResult
 

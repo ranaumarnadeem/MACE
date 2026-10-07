@@ -22,7 +22,7 @@ Adding PicoRV32 took these changes:
 
 1. Add the core name to `PitonCore` and to the core check in `PitonConfig.__post_init__()`, both in `chia_openpiton/state_def.py`.
 2. Add its `sims` selection flags in `PitonConfig.sims_flags()`.
-3. Add the name to the core check in `MaceSpec.__post_init__()` (`mace/spec.py`), to `SUPPORTED_CORES` in `mace/cli/session.py`, and to the `--core` choices of `examples/mace_end_to_end.py` and `examples/baseline_one_shot_llm.py`.
+3. Add the name to the core check in `MaceSpec.__post_init__()` (`mace/spec.py`), to `SUPPORTED_CORES` in `mace/cli/session.py`, and to the `--core` choices of `examples/mace_end_to_end.py`, `examples/baseline_one_shot_llm.py`, and `examples/recovery_seeded.py`. Name the cores each seeded fault in `mace/eval/faults.py` applies to.
 4. Mirror the existing cores' tests in `chia_openpiton/test/`.
 
 Changes the core needs in the OpenPiton checkout go into `scripts/patch_openpiton.sh` as new numbered fixes. Each one is safe to run twice, and a new fix gets a test in `chia_openpiton/test/test_patch_openpiton.py`. See [Environment Patches](../04_chia_openpiton/environment_patches.md).

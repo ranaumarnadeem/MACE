@@ -16,6 +16,7 @@ Run it once per checkout, on every worker that hosts one. The GCP worker in `clu
 The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 13 skip with a `not found, skipping fix N` message when their target file is absent.
 
 `PATCH_SKIP` names fixes to leave out, as space-separated numbers, and the script prints `skipped fix N (PATCH_SKIP)` for each. A checkout patched with `PATCH_SKIP="11"` has every fix but 11, so the failure fix 11 addresses comes back; the evaluation's reverted-fix runs prepare their checkouts this way.
+Fix 9 edits the make line that fix 8 writes, so `PATCH_SKIP="8"` on an unpatched checkout makes fix 9 fail and the script exit 1.
 
 ```bash
 PATCH_SKIP="11" bash scripts/patch_openpiton.sh /path/to/openpiton
@@ -51,7 +52,7 @@ The environment builds under Verilator, using fix 8. Running it, or any other no
 
 ## Tests
 
-`chia_openpiton/test/test_patch_openpiton.py` runs the script against a small synthetic tree: a git repository with the boot ROM `Makefile`, `picorv32.v`, `pc_cmp.v.pyv`, `syscalls.c`, `cva6.sv`, and `wt_l15_adapter.sv`. It checks that fixes 6, 7, 10, 11, 12, and 13 replace their exact text blocks, and that a second run changes nothing and reports `already patched`. The test holds its own copy of each original and replacement block, so an edit to the script's blocks fails the test. It cannot detect changes in upstream OpenPiton.
+`chia_openpiton/test/test_patch_openpiton.py` runs the script against a small synthetic tree: a git repository with the boot ROM `Makefile`, `picorv32.v`, `pc_cmp.v.pyv`, `syscalls.c`, `cva6.sv`, and `wt_l15_adapter.sv`. It checks that fixes 6, 7, 10, 11, 12, and 13 replace their exact text blocks, that a second run changes nothing and reports `already patched`, and that `PATCH_SKIP` leaves the named fixes out. The test holds its own copy of each original and replacement block, so an edit to the script's blocks fails the test. It cannot detect changes in upstream OpenPiton.
 
 ```bash
 pytest chia_openpiton/test/test_patch_openpiton.py -q
