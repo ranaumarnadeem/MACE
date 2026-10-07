@@ -162,6 +162,17 @@ class TestVertexCost:
 
         assert vertex_cost_usd("gemini-2.5-flash", 0, 0, 1_000_000) == pytest.approx(2.50)
 
+    @pytest.mark.parametrize(
+        "model,price_in,price_out",
+        [("gemini-2.5-pro", 1.25, 10.00), ("gemini-3.1-pro-preview", 2.00, 12.00),
+         ("gemini-3-flash-preview", 0.50, 3.00), ("gemini-3.8-flash", 0.75, 3.75)],
+    )
+    def test_the_comparison_models_are_priced(self, model, price_in, price_out):
+        from mace.llm import vertex_cost_usd
+
+        assert vertex_cost_usd(model, 1_000_000, 0, 0) == pytest.approx(price_in)
+        assert vertex_cost_usd(model, 0, 500_000, 500_000) == pytest.approx(price_out)
+
     def test_an_unpriced_model_costs_nothing(self):
         from mace.llm import vertex_cost_usd
 

@@ -26,12 +26,18 @@ class UnknownLLMBackendError(ValueError):
     """MACE_LLM (or the backend argument) named something not recognized."""
 
 
-# Vertex list prices in US dollars per million tokens, as (input, output).
-# Gemini bills thinking tokens at the output price. These are the Gemini 2.5
-# Flash prices the hackathon paper used; a model missing here costs 0.0 while
-# its tokens are still counted.
+# Vertex list prices in US dollars per million tokens, as (input, output),
+# for prompts up to 200k tokens, as Google listed them on 2026-10-07.
+# Gemini bills thinking tokens at the output price. The 2.5 Flash prices are
+# the ones the hackathon paper used; gemini-3.8-flash's are its introductory
+# prices, which end on 2026-12-31. A model missing here costs 0.0 while its
+# tokens are still counted.
 VERTEX_USD_PER_M_TOKENS: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-pro": (1.25, 10.00),
+    "gemini-3.1-pro-preview": (2.00, 12.00),
+    "gemini-3-flash-preview": (0.50, 3.00),
+    "gemini-3.8-flash": (0.75, 3.75),
 }
 
 
