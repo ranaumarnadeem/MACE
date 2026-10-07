@@ -15,9 +15,9 @@ The paper and the docs site were written and revised under them.
 ## Accuracy
 
 - Check every claim against the code before writing it.
-- Take numbers from the run records or the paper's Table 1, and keep each number the same everywhere it appears.
+- Take numbers from the evaluation run databases. Until a result has runs there, use the earlier results in `docs/06_mace_evaluation/results.md`, and replace them when the runs land. Keep each number the same everywhere it appears.
 - In the docs and the paper:
-  - report results for the 2x2 and 4x4 meshes only;
+  - report results for the 2x2, 4x2, and 4x4 meshes;
   - describe how the code behaves now, and leave out bugs that were fixed during deployment.
 
 ## Docs pages
@@ -29,6 +29,6 @@ The paper and the docs site were written and revised under them.
 
 ## Paper
 
-- The paper uses the IEEEtran class and stays within 4 pages.
+- The paper uses the IEEEtran class. The text, figures, and tables fit in 6 pages, and a 7th page holds the references and nothing else.
 - The text refers to every figure and table.
 - Limitations and Future Directions stay brief, as two subsections.
