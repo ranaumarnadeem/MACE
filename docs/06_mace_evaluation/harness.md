@@ -164,5 +164,8 @@ Time to pass is the wall time of passed runs, and machine time sums build and si
 A second table gives each method's tasks, runs, and passes, its median time to pass and machine time, and its total dollars across tasks.
 A third compares each method with `mace` task by task, over the tasks where both passed at least once, with an exact two-sided Wilcoxon signed-rank test on time to pass.
 
+A run made with `--model` set to a model other than `gemini-2.5-flash` appears as `<method>@<model>`, such as `one_shot@gemini-3.8-flash`, so each model gets its own rows.
+Give each model's batch its own `--db-path`: the batch runner skips a job whose task, method, and repeat already finished in its database, whatever model ran it.
+
 For co-design searches it writes one row per task and method: the median best feasible finish, the best finish any search of the task found, how many searches came within 5% of it and the median simulations they needed, the share of feasible designs, and how many proposals were rejected before a build.
 `--csv` writes every run's numbers for plots, with `replaced` marking the runs the tables leave out.
