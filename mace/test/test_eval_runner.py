@@ -156,18 +156,30 @@ class TestRunJob:
                 seen.append("restored")
 
         monkeypatch.setattr(runner, "faulted", lambda roots, edits: (seen.append((roots, edits)), Held())[1])
+        monkeypatch.setattr(runner, "_run_job", lambda job, env: seen.append("ran"))
         fault = (SourceEdit("piton/design/x.v", "a", "b"),)
         env = make_env(tmp_path)
 
         runner.run_job(runner.Job(suite_task(source_fault=fault), "mace", 0), env)
 
-        assert seen[0] == (("/a", "/b"), fault)
-        assert seen[1:] == ["applied", "restored"]
+        assert seen == [(("/a", "/b"), fault), "applied", "ran", "restored"]
+
+    def test_a_fault_job_s_labels_name_the_faulted_files(self, tmp_path, calls, monkeypatch):
+        from contextlib import nullcontext
+
+        from mace.eval.source_faults import SourceEdit
+
+        monkeypatch.setattr(runner, "faulted", lambda roots, edits: nullcontext())
+        fault = (SourceEdit("piton/design/x.v", "a", "b"),)
+        runner.run_job(runner.Job(suite_task(source_fault=fault), "mace", 0), make_env(tmp_path))
         assert calls[0][2]["labels"].meta["source_fault"] == ["piton/design/x.v"]
 
-    def test_a_task_without_a_fault_applies_nothing(self, tmp_path, calls, monkeypatch):
+    def test_a_task_without_a_fault_applies_nothing_and_restores_leftovers_first(self, tmp_path, calls, monkeypatch):
+        restored = []
         monkeypatch.setattr(runner, "faulted", lambda *a: pytest.fail("no fault to apply"))
+        monkeypatch.setattr(runner, "restore", lambda root: restored.append((root, len(calls))))
         self._run(tmp_path, "mace")
+        assert restored == [("/a", 0), ("/b", 0)]
         assert "source_fault" not in calls[0][2]["labels"].meta
 
     def test_task_prompts_off_reaches_the_loop(self, tmp_path, calls):

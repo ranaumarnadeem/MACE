@@ -35,7 +35,7 @@ from mace.codesign.area import area_notes, design_area
 from mace.codesign.run import run_codesign
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
 from mace.eval.faults import FAULTS, first_plan_breaker
-from mace.eval.source_faults import faulted
+from mace.eval.source_faults import faulted, restore
 from mace.eval.suite import SuiteTask
 from mace.loop import run_gate_programs
 from mace.metrics import RunLabels, record_resimulation
@@ -225,10 +225,14 @@ def _probe(fn):
 
 def run_job(job: Job, env: RunEnv):
     """Run *job* on an empty build cache, and record it. A task with a
-    ``source_fault`` runs on checkouts that carry the fault, restored after."""
+    ``source_fault`` runs on checkouts that carry the fault, restored after.
+    Any other job first restores a fault or RTL edits a killed job left, so
+    it never builds them."""
     if job.task.source_fault:
         with faulted(env.piton_roots, job.task.source_fault):
             return _run_job(job, env)
+    for root in env.piton_roots:
+        restore(root)
     return _run_job(job, env)
 
 
