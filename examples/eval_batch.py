@@ -7,8 +7,8 @@ off. Each job starts by emptying MACE's build directories on every
 checkout. Every run lands in one database, labelled with its method, task,
 and repeat; examples/eval_report.py turns that database into tables.
 
-Methods (see mace/eval/runner.py): mace, mace_rtl, one_shot, retry_agent,
-retry_agent_rtl, expert, no_triage, one_checkout, build_check, and no_reuse
+Methods (see mace/eval/runner.py): mace, mace_rtl, one_shot, one_shot_rtl,
+retry_agent, retry_agent_rtl, expert, no_triage, one_checkout, build_check, and no_reuse
 run on bring-up tasks, as do seeded_<fault> and faultcheck_<fault> for each
 seeded fault;
 codesign_mace, codesign_random, codesign_grid, and codesign_bayes run on

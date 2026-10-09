@@ -36,6 +36,7 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `no_reuse` | A5 | The loop with `LoopOptions(reuse_builds=False)`. |
 | `mace_rtl` | Opt-in | The loop with `LoopOptions(rtl_edits=True)`: its planner may offer `rtl` tasks, whose agents edit the design's RTL. Meant for source-fault tasks. |
 | `retry_agent_rtl` | Opt-in | `retry_agent` whose design may be an `rtl` task, with the loop's edit tool. |
+| `one_shot_rtl` | Opt-in | `one_shot` with `LoopOptions(rtl_edits=True)`: one plan, run once, which may hold `rtl` tasks. |
 | `codesign_mace` | C0 | A co-design search whose designs come from the LLM proposer. |
 | `codesign_random` | C1 | A co-design search over uniform random designs, seeded by the repeat. |
 | `codesign_grid` | C2 | A co-design search over the task's fixed grid, in order. |
@@ -110,7 +111,8 @@ The run's `meta` lists the files the fault changed.
 
 `examples/eval/tasks_rtl.yaml` holds three such tasks, two on Ariane and one on PicoRV32, each a misspelled or undeclared name that makes the Verilator build fail with an error that names the file and line.
 The `ariane-2x2-accu-rtlfault` task was added after the `rtl` prompts were tuned on the other two, so no prompt change has seen it.
-Only a method that can edit RTL passes: `mace_rtl` and `retry_agent_rtl`.
+Only a method that can edit RTL can pass: `mace_rtl`, `retry_agent_rtl`, and `one_shot_rtl`.
+`one_shot_rtl` sees no build before its one plan, and the planner plans an `rtl` task only after a failure names the file, so it is expected to fail.
 `mace`, `one_shot`, and `retry_agent` change only the build configuration and are the controls.
 The `expert` reference fails by design on these tasks, and its failure is the check that the fault breaks the build.
 A task passes when its gate workload passes, so a fault must sit on a signal the workload needs: a first PicoRV32 fault, a misspelled wire read only by the optional coprocessor interface, was repaired by declaring the wire, and the workload still passed.
