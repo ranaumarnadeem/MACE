@@ -31,13 +31,15 @@ def run_one_shot(
     db: SQLiteNode,
     labels: RunLabels | None = None,
     task_prompts: bool = True,
+    rtl_edits: bool = False,
 ) -> LoopResult:
-    """One plan, executed once on *piton_roots*, recorded as ``one_shot``."""
+    """One plan, executed once on *piton_roots*, recorded as ``one_shot``.
+    With *rtl_edits*, the plan may hold ``rtl`` tasks, as in ``mace_rtl``."""
     return run_mace_loop(
         piton_roots,
         one_shot_spec(spec),
         llm,
         db,
         labels=labels or RunLabels(method="one_shot"),
-        options=dataclasses.replace(ONE_SHOT_OPTIONS, task_prompts=task_prompts),
+        options=dataclasses.replace(ONE_SHOT_OPTIONS, task_prompts=task_prompts, rtl_edits=rtl_edits),
     )

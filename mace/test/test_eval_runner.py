@@ -138,6 +138,12 @@ class TestRunJob:
         assert expert[0] == "run_expert" and expert[1][0] == ("/a",)
         assert expert[1][2].id == "expert"
 
+    def test_the_rtl_one_shot_runs_once_on_both_checkouts_with_rtl_edits(self, tmp_path, calls):
+        self._run(tmp_path, "one_shot_rtl")
+        ((name, args, kwargs),) = calls
+        assert name == "run_one_shot" and args[0] == ("/a", "/b") and kwargs["rtl_edits"] is True
+        assert kwargs["labels"].method == "one_shot_rtl"
+
     def test_the_rtl_retry_agent_edits_rtl_on_one_checkout(self, tmp_path, calls):
         self._run(tmp_path, "retry_agent_rtl")
         ((name, args, kwargs),) = calls

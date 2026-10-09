@@ -226,3 +226,13 @@ class TestOneShot:
         )
         one_shot.run_one_shot(("/a",), make_spec(), FakeLLM([]), make_db(tmp_path), task_prompts=False)
         assert received["options"].task_prompts is False
+
+    def test_rtl_edits_reach_the_loop(self, tmp_path, monkeypatch):
+        received = {}
+        monkeypatch.setattr(
+            "mace.baselines.one_shot.run_mace_loop",
+            lambda piton_roots, spec, llm, db, **kwargs: received.update(spec=spec, **kwargs),
+        )
+        one_shot.run_one_shot(("/a",), make_spec(), FakeLLM([]), make_db(tmp_path), rtl_edits=True)
+        assert received["options"] == LoopOptions(triage="off", post_mortem=False, rtl_edits=True)
+        assert received["spec"].budget.max_iterations == 1

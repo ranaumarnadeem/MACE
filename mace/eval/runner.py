@@ -56,6 +56,7 @@ METHODS: dict[str, str] = {
     "no_reuse": "A5: every task rebuilds, even a configuration already built.",
     "mace_rtl": "The loop with rtl tasks: its agents may also edit the design's RTL.",
     "retry_agent_rtl": "B2 with rtl designs: the retry agent may also edit the design's RTL.",
+    "one_shot_rtl": "B1 with rtl tasks: the planner's first plan, run once, may also edit the design's RTL.",
     "codesign_mace": "C0: MACE's LLM proposer picks each round's designs.",
     "codesign_random": "C1: uniform random designs, seeded by the repeat.",
     "codesign_grid": "C2: the task's fixed grid, in order.",
@@ -265,8 +266,11 @@ def _run_job(job: Job, env: RunEnv):
     method = job.method
     if method == "mace" or method == "one_checkout":
         return run_mace_loop(roots, spec, env.llm, env.db, labels=labels, options=options)
-    if method == "one_shot":
-        return run_one_shot(roots, spec, env.llm, env.db, labels=labels, task_prompts=env.task_prompts)
+    if method in ("one_shot", "one_shot_rtl"):
+        return run_one_shot(
+            roots, spec, env.llm, env.db, labels=labels, task_prompts=env.task_prompts,
+            rtl_edits=method == "one_shot_rtl",
+        )
     if method == "retry_agent":
         return run_retry_agent(roots[0], spec, env.llm, env.db, labels=labels)
     if method == "expert":
