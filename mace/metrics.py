@@ -147,7 +147,10 @@ ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "config_rtl": "TEXT", "rtl_edits": "TEXT",
     },
     "llm_calls": {"reply": "TEXT"},
-    "evaluations": {"simulated": "INTEGER NOT NULL DEFAULT 1", "rejected": "TEXT NOT NULL DEFAULT ''"},
+    "evaluations": {
+        "simulated": "INTEGER NOT NULL DEFAULT 1", "rejected": "TEXT NOT NULL DEFAULT ''",
+        "hart_cycles": "TEXT", "note": "TEXT", "storage_bits": "INTEGER",
+    },
 }
 
 
@@ -337,6 +340,27 @@ def record_evaluation(db: SQLiteNode, run_id: str, evaluation) -> None:
         (
             run_id, e.index, e.round, e.design.as_json(), int(e.passed), int(e.feasible), e.sim_time,
             e.area_um2, e.read_energy_nj, e.area_source, e.wall_s, int(e.simulated), e.rejected,
+        ),
+    )
+
+
+def record_rtl_evaluation(db: SQLiteNode, run_id: str, evaluation) -> None:
+    """One design an RTL-parameter search tried (a
+    ``mace.codesign.rtlsearch.RtlEvaluation``). ``hart_cycles`` holds each
+    gate program's per-hart ``[start, end]`` mcycle values as JSON, and
+    ``note`` the proposer's bottleneck line."""
+    e = evaluation
+    harts = json.dumps(
+        {program: {str(h): list(v) for h, v in sorted(by_hart.items())} for program, by_hart in e.hart_cycles.items()}
+    )
+    db.execute(
+        "INSERT OR REPLACE INTO evaluations "
+        "(run_id, idx, round, design, passed, feasible, sim_time, wall_s, simulated, rejected, "
+        "hart_cycles, note, storage_bits) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id, e.index, e.round, e.design.as_json(), int(e.passed), int(e.feasible), e.sim_time,
+            e.wall_s, int(e.simulated), e.rejected, harts, e.note, e.storage_bits,
         ),
     )
 

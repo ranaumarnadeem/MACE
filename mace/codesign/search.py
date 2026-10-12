@@ -69,14 +69,23 @@ class BayesianSearch:
 
     name = "bayesian"
 
-    def __init__(self, space: DesignSpace, seed: int = 0):
+    def __init__(
+        self, space: DesignSpace, seed: int = 0, n_startup_trials: int | None = None, first: dict | None = None
+    ):
+        """*n_startup_trials* is how many random trials TPE draws before it
+        models the scores (Optuna's own default, 10, when None). *first*, a
+        map of knob to value, is asked as the first trial, so the sampler
+        learns from that design's score."""
         import optuna
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         self.space = space
+        sampler_args = {} if n_startup_trials is None else {"n_startup_trials": n_startup_trials}
         self.study = optuna.create_study(
-            direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed, constant_liar=True)
+            direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed, constant_liar=True, **sampler_args)
         )
+        if first is not None:
+            self.study.enqueue_trial(first)
         self.pending: dict[Design, object] = {}
         self.worst = 0
 
