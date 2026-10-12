@@ -116,6 +116,15 @@ class TestParseTasks:
         tasks = parse_tasks(text)
         assert [t.id for t in tasks] == ["t1", "t2"]
 
+    def test_a_test_task_line_is_dropped(self):
+        """A directed test enters a run through a plan hook, so a planner
+        reply that names the kind gets no such task."""
+        text = (
+            "TASK: t1 | deps= | kind=config | x_tiles=1\n"
+            "TASK: t2 | deps=t1 | kind=test | write a test\n"
+        )
+        assert [t.id for t in parse_tasks(text)] == ["t1"]
+
     def test_blank_task_line_does_not_swallow_the_next_task_line(self):
         """A TASK line left blank must not consume the next TASK line --
         including its own tag -- as its spec field.

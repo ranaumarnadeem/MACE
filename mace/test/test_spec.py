@@ -134,6 +134,13 @@ class TestTaskValidation:
         t = Task(id="t1", deps=(), kind="unit_test", spec="picorv32.v")
         assert t.kind == "unit_test"
 
+    def test_test_kind_is_accepted_but_is_not_a_planned_kind(self):
+        from mace.spec import PLANNED_KINDS, TASK_KINDS
+
+        assert Task(id="t1", deps=(), kind="test", spec="write a test").kind == "test"
+        assert "test" in TASK_KINDS and "test" not in PLANNED_KINDS
+        assert PLANNED_KINDS == TASK_KINDS - {"test"}
+
     @pytest.mark.parametrize("bad_deps", [("",), ("t1", ""), (123,)])
     def test_dep_ids_must_be_non_empty_strings(self, bad_deps):
         with pytest.raises(ValueError, match="dep ids"):
@@ -309,3 +316,16 @@ class TestWorkloadArgs:
     def test_bad_entries_are_refused(self, entry):
         with pytest.raises(ValueError):
             make_spec(workload_args=(entry,))
+
+
+class TestDirectedTest:
+    def test_the_program_name_carries_the_form(self):
+        from mace.spec import DirectedTest
+
+        assert DirectedTest("lh_sign", "piton/design/x.v", "S", "src").program == "dt_lh_sign.S"
+        assert DirectedTest("count", "piton/design/x.v", "c", "src").program == "dt_count.c"
+
+    def test_a_step_result_carries_no_tests_by_default(self):
+        from mace.spec import StepResult
+
+        assert StepResult.__dataclass_fields__["tests"].default == ()

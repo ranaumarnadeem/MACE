@@ -172,7 +172,11 @@ class LoopOptions:
             raise ValueError(f"check must be one of {sorted(CHECK_MODES)}, got {self.check!r}")
 
 
-TASK_KINDS: frozenset[str] = frozenset(("config", "workload", "unit_test", "rtl"))
+TASK_KINDS: frozenset[str] = frozenset(("config", "workload", "unit_test", "rtl", "test"))
+# The kinds a plan's TASK lines may name. A ``test`` task (a directed test
+# written by an agent, see mace.directed) enters a run through a plan hook,
+# never through the planner's own output.
+PLANNED_KINDS: frozenset[str] = TASK_KINDS - {"test"}
 NETWORKS: frozenset[str] = frozenset(("2dmesh_config", "xbar_config"))
 
 
@@ -249,6 +253,34 @@ class Task:
         return dict(self.caches) if self.caches is not None else None
 
 
+@dataclass(frozen=True)
+class DirectedTest:
+    """A directed test program an agent wrote, and how it ran on the design
+    its task built.
+
+    ``form`` is ``"S"`` (RV32 assembly, PicoRV32) or ``"c"`` (C, Ariane);
+    ``target`` is the RTL file under ``piton/design/`` the test is for.
+    ``verdict`` is the run's verdict (``pass``, ``fail``, ``timeout``,
+    ``maxcycles``), ``no_verdict`` when the test did not compile or the
+    simulation reported nothing, or ``not_built`` when the design did not
+    build. ``evidence`` is the end of the log of a run that did not pass.
+    """
+
+    name: str
+    target: str
+    form: str
+    source: str
+    attempt: int = 1
+    verdict: str = "no_verdict"
+    wall_s: float = 0.0
+    evidence: str = ""
+
+    @property
+    def program(self) -> str:
+        """The file name sims runs: ``dt_<name>.S`` or ``dt_<name>.c``."""
+        return f"dt_{self.name}.{self.form}"
+
+
 @dataclass
 class StepResult:
     """Outcome of one run_mace_step call: an edit attempt, gated by a build+run.
@@ -279,6 +311,9 @@ class StepResult:
     edits_diff: str = ""
     # False for an rtl task whose agent recorded no edit of its own.
     edit_recorded: bool = True
+    # The directed tests a ``test`` task wrote, every attempt's, with their
+    # verdicts on the design the task built.
+    tests: tuple[DirectedTest, ...] = ()
 
 
 @dataclass(frozen=True)

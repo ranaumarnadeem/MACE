@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 
 from chia_openpiton.state_def import DEFAULT_CACHES
-from mace.spec import _RTL_FLAG_RE, TASK_KINDS, Task
+from mace.spec import _RTL_FLAG_RE, PLANNED_KINDS, Task
 
 # Not enforced by parse_diagnosis -- see its docstring for why. Exposed so a
 # caller can decide whether a parsed value is one it recognizes.
@@ -87,7 +87,7 @@ def parse_tasks(text: str) -> tuple[Task, ...]:
 
     Order matches the text. A line that doesn't split into exactly those four
     ``|``-separated fields, has a blank id, or a kind outside
-    :data:`mace.spec.TASK_KINDS` is skipped rather than raising.
+    :data:`mace.spec.PLANNED_KINDS` is skipped rather than raising.
 
     A task whose id is also named in a well-formed ``CACHES:`` line (see
     :func:`parse_cache_overrides`) gets that line's cache geometry; every
@@ -117,7 +117,7 @@ def _parse_task_line(
     if not task_id or not deps_field.lower().startswith("deps=") or not kind_field.lower().startswith("kind="):
         return None
     kind = kind_field[len("kind="):].strip().lower()
-    if kind not in TASK_KINDS:
+    if kind not in PLANNED_KINDS:
         return None
     deps = tuple(d.strip() for d in deps_field[len("deps="):].split(",") if d.strip())
     try:
