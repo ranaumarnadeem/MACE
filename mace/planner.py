@@ -34,7 +34,7 @@ TASK: <id> | deps=<comma-separated task ids, or empty> | kind={kinds} | <short i
 
 - <id> must be unique.
 - deps must name only ids you also define here, and must not form a cycle.
-- kind is "config" for a configuration/RTL change, "workload" for running
+- kind is "config" for a change to the build configuration, "workload" for running
   or fixing a gate workload, "unit_test" for a standalone unit test of one
   RTL module (added or changed this run) separate from the whole-chip build
   -- for a unit_test task, the instruction must be just that module's RTL
@@ -106,6 +106,16 @@ class PlanningError(Exception):
     """The Planner's response produced no usable task DAG."""
 
 
+# What a run without rtl edits can change, in the prompt when LoopOptions.rtl_edits is off.
+NO_RTL_RULE = """- No task in this run can edit a source file. A config or workload task
+  changes only what CACHES: and CONFIG_RTL: below set, so plan no task whose
+  instruction needs a source edit. When feedback suggests one, fix the
+  failure through the configuration instead: a build that fails with RTL
+  defines or caches changed from the defaults may fail because of one of
+  those changes, so leave out a change the objective does not ask for.
+"""
+
+
 # The rtl kind's rule, in the prompt only when LoopOptions.rtl_edits is on.
 RTL_RULE = """\
 - kind "rtl" is a change to the design's RTL source. Its agent gets tools to
@@ -123,7 +133,7 @@ def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = False) ->
     """The planner's prompt; *rtl_edits* True adds the rtl kind."""
     rules = _TASK_RULES.format(
         kinds="config|workload|unit_test|rtl" if rtl_edits else "config|workload|unit_test",
-        rtl_rule=RTL_RULE if rtl_edits else "",
+        rtl_rule=RTL_RULE if rtl_edits else NO_RTL_RULE,
     )
     prompt = (
         f"You are planning the work for one MACE loop run against OpenPiton/{spec.core}.\n\n"

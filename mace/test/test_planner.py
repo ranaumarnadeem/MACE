@@ -54,6 +54,21 @@ class TestBuildPrompt:
         assert "l1d" in prompt
 
 
+class TestWhatATaskCanChange:
+    def test_without_rtl_edits_no_task_may_edit_a_source_file(self):
+        from mace.planner import NO_RTL_RULE, RTL_RULE
+
+        prompt = build_prompt(make_spec())
+        assert NO_RTL_RULE in prompt and RTL_RULE not in prompt
+        assert "configuration/RTL change" not in prompt
+
+    def test_with_rtl_edits_the_rtl_kind_takes_that_rule_s_place(self):
+        from mace.planner import NO_RTL_RULE, RTL_RULE
+
+        prompt = build_prompt(make_spec(), rtl_edits=True)
+        assert RTL_RULE in prompt and NO_RTL_RULE not in prompt
+
+
 class TestPlan:
     def test_returns_the_parsed_task_dag(self):
         llm = FakeLLM(responses=[PLANNER_TRANSCRIPT])
