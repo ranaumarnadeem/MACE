@@ -62,6 +62,14 @@ class TestHeldOutFaults:
     def test_exactly_the_four_new_faults_are_held_out(self):
         assert {name for name, fault in FAULTS.items() if fault.held_out} == set(self.HELD_OUT)
 
+    def test_the_faultchecks_verified_each_fault_on_the_cores_it_failed_on(self):
+        # faultcheck_<name>, 2026-10-12: the l15 fault passed on pico, drop_monitoring on ariane.
+        assert all(FAULTS[name].verified for name in self.HELD_OUT)
+        assert FAULTS["l15_eight_way"].cores == frozenset(("ariane",))
+        assert FAULTS["drop_monitoring"].cores == frozenset(("pico",))
+        assert FAULTS["no_mem_ctrl"].cores == frozenset(("ariane", "pico"))
+        assert FAULTS["l2_direct_mapped"].cores == frozenset(("ariane", "pico"))
+
     def test_the_hackathon_faults_are_not_held_out(self):
         for name in ("fpga_synth", "drop_bist", "crossbar", "l1d_eight_way"):
             assert not FAULTS[name].held_out

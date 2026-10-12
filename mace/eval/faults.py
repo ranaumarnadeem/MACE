@@ -100,39 +100,42 @@ FAULTS: dict[str, Fault] = {
             True,
             lambda task: _with_cache(task, "l1d", (8192, 8)),
         ),
-        # Held out (2026-10-12): kinds the four faults above do not cover. None is verified until
-        # faultcheck_<name> fails on a core; `cores` then names the cores it failed on.
+        # Held out: defined on 2026-10-12, of kinds the four faults above do not cover, and checked by
+        # faultcheck_<name> on ariane-2x2-barrier and pico-2x2-addi (laptop, commit 8495669, one run each).
+        # `cores` names the cores whose run failed.
         Fault(
             "l15_eight_way",
-            "Sets an 8 KB eight-way L1.5. The way rule allows it, but the L1.5 is written for four ways, so "
-            "the build passes and the simulation fails.",
-            frozenset(("ariane", "pico")),
-            False,
+            "Sets an 8 KB eight-way L1.5. Ariane's way rule allows it and the build passes; the Ariane "
+            "simulation times out, and a PicoRV32 mesh passes.",
+            frozenset(("ariane",)),
+            True,
             lambda task: _with_cache(task, "l15", (8192, 8)),
             held_out=True,
         ),
         Fault(
             "no_mem_ctrl",
-            f"Adds {NO_MEMORY_DEFINE}, which leaves the chipset without a memory controller; the build "
-            "passes and the simulation never gets a memory response.",
+            f"Adds {NO_MEMORY_DEFINE}, which leaves out the chipset's memory controller; the build passes "
+            "and the simulation times out.",
             frozenset(("ariane", "pico")),
-            False,
+            True,
             lambda task: _with_defines(task, add={NO_MEMORY_DEFINE}),
             held_out=True,
         ),
         Fault(
             "l2_direct_mapped",
-            "Sets a direct-mapped L2; its way-select define becomes a zero-width number.",
+            "Sets a direct-mapped L2; the Verilator build fails with a zero replication value and a missing "
+            "module, l2_priority_encoder_0.",
             frozenset(("ariane", "pico")),
-            False,
+            True,
             lambda task: _with_cache(task, "l2", (65536, 1)),
             held_out=True,
         ),
         Fault(
             "drop_monitoring",
-            f"Removes the default {MONITORING_DEFINE}, which switches on the testbench's full monitor block.",
-            frozenset(("ariane", "pico")),
-            False,
+            f"Removes the default {MONITORING_DEFINE}, which turns on the testbench's full monitor block; a "
+            "PicoRV32 simulation ends with no pass status, and an Ariane one passes.",
+            frozenset(("pico",)),
+            True,
             lambda task: dataclasses.replace(
                 task, drop_rtl=tuple(sorted({*(task.drop_rtl or ()), MONITORING_DEFINE}))
             ),
