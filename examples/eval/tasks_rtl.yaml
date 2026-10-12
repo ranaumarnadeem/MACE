@@ -77,3 +77,58 @@ tasks:
       - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_dcache_ctrl.sv
         old: "{address_tag_q, address_idx_q, address_off_q};"
         new: "{address_tag_q, address_idx_q, address_offs_q};"
+
+  # Held out, session B, defined 2026-10-12, before any directed-test prompt
+  # was written. Unlike the three tasks above, these designs build: each bug
+  # changes behavior, so the gate workload fails in simulation and a directed
+  # test can fail on it. A task is `verified: true` once its expert run
+  # (the bug applied) builds and then fails in simulation, and its
+  # expert_clean run (no bug applied) passes.
+  - id: ariane-2x2-barrier-amobug
+    core: ariane
+    mesh: [2, 2]
+    workloads: [barrier_atomic.c]
+    objective: >-
+      Verify the barrier_atomic.c gate workload passes on a 2x2 mesh. The
+      design in this checkout has a bug under piton/design/ that makes the
+      workload fail in simulation, and it cannot pass until the bug is fixed.
+    verified: false
+    expert: {}
+    source_fault:
+      - path: piton/design/chip/tile/l2/rtl/l2_amo_alu.v
+        old: "`L2_AMO_ALU_ADD: amo_64b_tmp = adder_sum[63:0];"
+        new: "`L2_AMO_ALU_ADD: begin adder_operand_b = -$signed(amo_operand_b); amo_64b_tmp = adder_sum[63:0]; end"
+
+  - id: pico-2x2-sh-rtlbug
+    core: pico
+    mesh: [2, 2]
+    workloads: [sh.S]
+    objective: >-
+      Verify the sh.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has a bug under piton/design/ that makes the
+      workload fail in simulation, and it cannot pass until the bug is fixed.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "latched_is_lh: reg_out <= $signed(mem_rdata_word[15:0]);"
+        new: "latched_is_lh: reg_out <= mem_rdata_word[15:0];"
+
+  - id: pico-2x2-amomax-amobug
+    core: pico
+    mesh: [2, 2]
+    workloads: [amomax_w.S]
+    objective: >-
+      Verify the amomax_w.S gate workload passes on a 2x2 pico mesh in a
+      single task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
+      The design in this checkout has a bug under piton/design/ that makes the
+      workload fail in simulation, and it cannot pass until the bug is fixed.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/l2/rtl/l2_amo_alu.v
+        old: "adder_operand_b = -$signed(amo_operand_b);\n            amo_64b_tmp = adder_sum[64] ? amo_operand_b : amo_operand_a;"
+        new: "adder_operand_b = -$signed(amo_operand_b);\n            amo_64b_tmp = adder_sum[64] ? amo_operand_a : amo_operand_b;"

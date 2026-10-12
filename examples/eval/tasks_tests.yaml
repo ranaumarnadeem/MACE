@@ -1,0 +1,40 @@
+# Development bug for the directed-test prompts (session B). The prompts of
+# the test task are tuned on this bug and on the three tasks of
+# tasks_rtl.yaml's first block, and are never evaluated on it. The held-out
+# bugs, defined on 2026-10-12 before any prompt was written, are the last
+# three tasks of tasks_rtl.yaml.
+#
+# The design builds; the bug changes behavior, so the gate workload fails in
+# simulation. A task is `verified: true` once its expert run (the bug
+# applied) builds and then fails in simulation, and its expert_clean run (no
+# bug applied) passes.
+#
+# Run it with:
+#   examples/eval_batch.py --suite examples/eval/tasks_tests.yaml --include-unverified \
+#       --methods testgen,mace_rtl,mace_rtl_test
+
+version: 1
+
+defaults:
+  budget:
+    max_iterations: 3
+    max_wall_s: 3600
+    max_usd: 20.0
+
+tasks:
+  - id: pico-2x2-bgeu-rtlbug
+    core: pico
+    mesh: [2, 2]
+    workloads: [bgeu.S]
+    objective: >-
+      Verify the bgeu.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has a bug under piton/design/ that makes the
+      workload fail in simulation, and it cannot pass until the bug is fixed.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "alu_out_0 = !alu_ltu;"
+        new: "alu_out_0 = !alu_lts;"
