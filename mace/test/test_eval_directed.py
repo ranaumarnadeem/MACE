@@ -235,6 +235,15 @@ class TestChecking:
         test = ed.tests_of_run(db, run_id)[0][1]
         assert (test.source, test.target, test.verdict, test.wall_s) == ("source of one\n", TARGET, "fail", 1.5)
 
+    def test_directories_an_earlier_job_left_do_not_leak_into_the_check(self, db, design, tmp_path):
+        stale = tmp_path / "build" / ".mace_tests" / "check" / "1"
+        stale.mkdir(parents=True)
+        (stale / "dt_old.S").write_text("stale")
+        run_id = metrics.start_run(db, make_spec())
+        record_tests(db, run_id, a_test("one"))
+        ed.check_tests((str(tmp_path),), make_spec(), EXPERT, db, run_id)
+        assert sorted(p.name for p in (tmp_path / "build" / ".mace_tests" / "check" / "1").iterdir()) == ["dt_one.S"]
+
     def test_each_test_runs_with_the_bug_then_without_and_is_classified(self, db, design):
         run_id = metrics.start_run(db, make_spec())
         record_tests(db, run_id, a_test("good"), a_test("blind"), a_test("wrong"))
@@ -476,6 +485,21 @@ class TestRunnerMethods:
         # The hook also adds the defines the objective needs, as mace_rtl_defs does.
         assert all(t.config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",) for t in planned)
         assert check == ("check", ("/a", "/b"), "expert", "r1")
+
+    def test_a_failing_check_marks_the_finished_run_as_an_error_so_the_batch_runs_it_again(self, tmp_path, monkeypatch):
+        finished = []
+        monkeypatch.setattr(
+            runner, "run_mace_loop", lambda *a, **kw: LoopResult(run_id="r1", status="passed", iterations=())
+        )
+
+        def broken_check(*args):
+            raise RuntimeError("clean build failed")
+
+        monkeypatch.setattr(runner, "check_tests", broken_check)
+        monkeypatch.setattr(runner, "finish_run", lambda db, run_id, status: finished.append((run_id, status)))
+        with pytest.raises(RuntimeError, match="clean build failed"):
+            runner.run_job(runner.Job(self.planted(), "mace_rtl_test", 0), self.env(tmp_path))
+        assert finished == [("r1", "error")]
 
     def test_mace_rtl_defs_is_the_control_with_the_same_defines_and_no_tests(self, tmp_path, monkeypatch):
         seen = []

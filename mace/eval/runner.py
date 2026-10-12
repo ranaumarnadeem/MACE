@@ -40,7 +40,7 @@ from mace.eval.faults import FAULTS, first_design_breaker, first_plan_breaker
 from mace.eval.source_faults import faulted, restore
 from mace.eval.suite import SuiteTask
 from mace.loop import run_gate_programs
-from mace.metrics import RunLabels, record_resimulation
+from mace.metrics import RunLabels, finish_run, record_resimulation
 from mace.orchestrator import run_mace_loop
 from mace.spec import LoopOptions, LoopResult, MaceSpec
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
@@ -344,7 +344,13 @@ def _run_job(job: Job, env: RunEnv):
             roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, rtl_edits=True),
             plan_hook=compose(keep_defines(job.task.expert_task().config_rtl or ()), test_first()),
         )
-        check_tests(roots, spec, job.task.expert_task(), env.db, result.run_id)
+        try:
+            check_tests(roots, spec, job.task.expert_task(), env.db, result.run_id)
+        except BaseException:
+            # The loop already finished the run, so without this a run whose tests were never judged
+            # counts as done and no later pass runs it again.
+            finish_run(env.db, result.run_id, "error")
+            raise
         return result
     if method == "build_check":
         result = run_mace_loop(

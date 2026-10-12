@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -204,6 +205,7 @@ def _stage(root: str, tests) -> list[tuple[tuple[int, str, int, str], DirectedTe
     area (sims stops at two diags of one name in a directory), and return
     (key, test, directory) for each."""
     base = Path(root) / directed.TEST_DIR / "check"
+    shutil.rmtree(base, ignore_errors=True)  # an earlier job's directories must not leave stale files
     staged = []
     for i, (key, test) in enumerate(tests):
         directory = base / str(i)
