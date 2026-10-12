@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -30,6 +31,17 @@ from chia.base.tools.ChiaTool import ChiaTool
 RTL_EDIT_ROOT = "piton/design"
 _READ_LINES = 400
 _SEARCH_HITS = 60
+
+# What a test-writing agent may read: the design, and the diag programs and
+# headers a test is written like. It writes only files of its own, named
+# dt_<name>, in one directory under build/.mace_tests/.
+TEST_READ_ROOTS = (RTL_EDIT_ROOT, "piton/verif/diag")
+TEST_FILE_PREFIX = "dt_"
+TEST_SIDECAR = "tests.json"
+MAX_TESTS_PER_TASK = 3
+MAX_TEST_CHARS = 30000
+_TEST_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+TEST_FORMS = ("S", "c")
 
 
 class TestbenchEditTool(ChiaTool):
@@ -215,3 +227,158 @@ class RtlEditTool(ChiaTool):
             json.dump(self.staged, f)
         os.replace(partial, self.staging_path)
         return f"OK: recorded the change to {rel}; {len(self.staged)} file(s) changed so far"
+
+
+class DirectedTestTool(ChiaTool):
+    """MCP tool for one ``test`` task: read the design and the example
+    diag programs, and write directed test programs of its own.
+
+    Exposes ``{name}_list``, ``{name}_read``, ``{name}_search``, and
+    ``{name}_write_test``. Reads are confined to :data:`TEST_READ_ROOTS`
+    inside the checkout. The only thing it writes is a test: the file
+    ``dt_<name>.<form>`` in *test_dir*, which must lie under the
+    checkout's ``build/.mace_tests/``, and a JSON sidecar of the task's
+    tests that mace.directed reads back. The gate workloads in
+    ``mace/workloads/`` and every file under ``piton/`` are out of its reach.
+    Like the other file tools, it works on the checkout's files directly, so
+    its actor must run on the machine that holds the checkout (pass the
+    node's ``task_options``).
+    """
+
+    def __init__(self, name: str, piton_root: str, test_dir: str, form: str, task_options: dict | None = None):
+        # Checked before the actor starts: a bad directory must not start one.
+        if form not in TEST_FORMS:
+            raise ValueError(f"form must be one of {TEST_FORMS}, got {form!r}")
+        allowed = os.path.realpath(os.path.join(piton_root, "build", ".mace_tests"))
+        if not os.path.realpath(test_dir).startswith(allowed + os.sep):
+            raise ValueError(f"test_dir must lie under {allowed}, got {test_dir!r}")
+        super().__init__(name, task_options=task_options)
+        self.piton_root = str(Path(piton_root))
+        self.test_dir = str(Path(test_dir))
+        self.form = form
+        self.tests: dict[str, dict] = {}
+        self.mcp.add_tool(self.list_dir, name=f"{name}_list")
+        self.mcp.add_tool(self.read, name=f"{name}_read")
+        self.mcp.add_tool(self.search, name=f"{name}_search")
+        self.mcp.add_tool(self.write_test, name=f"{name}_write_test")
+        super().__post_init__()
+
+    def _resolve(self, path: str, roots: tuple[str, ...] = TEST_READ_ROOTS) -> tuple[str, Path]:
+        """(checkout-relative path, absolute path) for *path*; ValueError
+        unless it lies under one of *roots* inside the checkout."""
+        rel = os.path.normpath(path.strip().lstrip("/")).replace(os.sep, "/")
+        if not any(rel == r or rel.startswith(r + "/") for r in roots):
+            raise ValueError(f"{path!r} is outside " + " and ".join(r + "/" for r in roots))
+        full = Path(self.piton_root) / rel
+        root = os.path.realpath(self.piton_root)
+        if not os.path.realpath(full).startswith(root + os.sep):
+            raise ValueError(f"{path!r} resolves outside the checkout")
+        return rel, full
+
+    def list_dir(self, path: str = RTL_EDIT_ROOT) -> str:
+        """List one directory under piton/design or piton/verif/diag,
+        directories marked with a trailing slash.
+
+        Args:
+            path: The directory, relative to the checkout root.
+        """
+        try:
+            rel, full = self._resolve(path)
+            names = sorted(p.name + ("/" if p.is_dir() else "") for p in full.iterdir())
+        except (OSError, ValueError) as e:
+            return f"ERROR: {e}"
+        return f"{rel}/:\n" + "\n".join(names)
+
+    def read(self, path: str, start_line: int = 1, end_line: int = 0) -> str:
+        """Read a file under piton/design or piton/verif/diag, with line
+        numbers, at most 400 lines per call.
+
+        Args:
+            path: The file, relative to the checkout root.
+            start_line: The first line to show, counting from 1.
+            end_line: The last line to show; 0 shows up to 400 lines.
+        """
+        try:
+            rel, full = self._resolve(path)
+            lines = full.read_text(encoding="utf-8", errors="replace").splitlines()
+        except (OSError, ValueError) as e:
+            return f"ERROR: {e}"
+        first = max(start_line, 1)
+        last = min(end_line or first + _READ_LINES - 1, first + _READ_LINES - 1, len(lines))
+        shown = "\n".join(f"{n}: {lines[n - 1]}" for n in range(first, last + 1))
+        return f"{rel}, lines {first}-{last} of {len(lines)}:\n{shown}"
+
+    def search(self, pattern: str, path: str = RTL_EDIT_ROOT) -> str:
+        """Search files under piton/design or piton/verif/diag for an
+        extended regular expression, at most 60 matches.
+
+        Args:
+            pattern: The regular expression, as for grep -E.
+            path: The file or directory to search, relative to the checkout root.
+        """
+        try:
+            _, full = self._resolve(path)
+            done = subprocess.run(
+                ["grep", "-rnIE", "-e", pattern, "--", str(full)],
+                capture_output=True, text=True, errors="replace", timeout=60,
+            )
+        except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+            return f"ERROR: {e}"
+        prefix = self.piton_root.rstrip("/") + "/"
+        hits = [line.removeprefix(prefix)[:300] for line in done.stdout.splitlines()]
+        more = f"\n({len(hits) - _SEARCH_HITS} more matches)" if len(hits) > _SEARCH_HITS else ""
+        return ("\n".join(hits[:_SEARCH_HITS]) + more) if hits else "no matches"
+
+    def _source_problem(self, source: str) -> str:
+        if not source.strip():
+            return "source is empty"
+        if len(source) > MAX_TEST_CHARS:
+            return f"source is {len(source)} characters; the limit is {MAX_TEST_CHARS}"
+        if self.form == "S":
+            if "RVTEST_CODE_BEGIN" not in source:
+                return (
+                    "an assembly test starts from RVTEST_CODE_BEGIN, "
+                    "as the examples under piton/verif/diag/assembly/riscv/pico/ do"
+                )
+            if "TEST_PASSFAIL" not in source and "RVTEST_PASS" not in source:
+                return "an assembly test ends with TEST_PASSFAIL or reaches RVTEST_PASS"
+        elif not re.search(r"\bmain\s*\(", source):
+            return "a C test defines int main(int argc, char **argv)"
+        return ""
+
+    def write_test(self, name: str, target: str, source: str) -> str:
+        """Write one directed test program, which is then built into the
+        simulation and run on every tile. You cannot run it yourself.
+
+        Args:
+            name: Lowercase letters, digits, and underscores, starting with a
+                letter, at most 40 characters. The file is saved as dt_<name>.
+                Writing the same name again replaces the test.
+            target: The RTL file under piton/design/ the test is about,
+                relative to the checkout root. The file must exist.
+            source: The full text of the program.
+        """
+        if not _TEST_NAME_RE.match(name):
+            return "ERROR: name must be lowercase letters, digits and underscores, start with a letter, at most 40 characters"
+        if name not in self.tests and len(self.tests) >= MAX_TESTS_PER_TASK:
+            return f"ERROR: at most {MAX_TESTS_PER_TASK} tests; write the same name again to replace one"
+        try:
+            rel, full = self._resolve(target, roots=(RTL_EDIT_ROOT,))
+        except ValueError as e:
+            return f"ERROR: target {e}"
+        if not full.is_file():
+            return f"ERROR: target {rel} is not a file"
+        problem = self._source_problem(source)
+        if problem:
+            return f"ERROR: {problem}"
+        text = source if source.endswith("\n") else source + "\n"
+        os.makedirs(self.test_dir, exist_ok=True)
+        path = os.path.join(self.test_dir, f"{TEST_FILE_PREFIX}{name}.{self.form}")
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        self.tests[name] = {"name": name, "target": rel, "form": self.form, "source": text}
+        sidecar = os.path.join(self.test_dir, TEST_SIDECAR)
+        with open(sidecar + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(list(self.tests.values()), f)
+        os.replace(sidecar + ".tmp", sidecar)
+        return f"OK: wrote {TEST_FILE_PREFIX}{name}.{self.form}; {len(self.tests)} test(s) so far"
