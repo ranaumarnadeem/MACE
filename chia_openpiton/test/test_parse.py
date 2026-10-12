@@ -94,6 +94,40 @@ class TestRealCaptures:
         assert parse.sim_verdict(text) == "pass"
 
 
+class TestHartCycles:
+    LOG = (
+        "hart 0 start 1204 end 188731 mismatches 0\n"
+        "hart 1 start 1198 end 190002 mismatches 0\n"
+        "hart 2 start 1210 end 201555 mismatches 0\n"
+    )
+
+    def test_reads_each_harts_start_and_end(self):
+        assert parse.hart_cycles(self.LOG) == {0: (1204, 188731), 1: (1198, 190002), 2: (1210, 201555)}
+
+    def test_a_log_without_the_lines_gives_an_empty_dict(self):
+        """Programs that do not time themselves, such as hello_world, print none."""
+        assert parse.hart_cycles("Hello world, I am HART 0! Counting (0 of 32)...\n") == {}
+        assert parse.hart_cycles("") == {}
+
+    def test_ignores_other_output_around_the_lines(self):
+        text = f"matmul_scaled 4 harts\n{self.LOG}core 0: mcycle = 5\n"
+        assert set(parse.hart_cycles(text)) == {0, 1, 2}
+
+    def test_a_hart_that_reports_twice_is_rejected(self):
+        """Keeping one of two readings would hide a garbled log."""
+        with pytest.raises(ValueError, match="hart 1"):
+            parse.hart_cycles(self.LOG + "hart 1 start 5 end 9 mismatches 0\n")
+
+    def test_a_hart_that_ends_before_it_starts_is_rejected(self):
+        with pytest.raises(ValueError, match="before it starts"):
+            parse.hart_cycles("hart 0 start 900 end 100 mismatches 0\n")
+
+    def test_a_line_garbled_by_another_hart_is_left_out(self):
+        """The caller sees fewer harts than tiles and can tell the log is incomplete."""
+        text = "hart 0 start 1 end 2 mismatches 0\nhart 1 sthart 2 start 3 end 4 mismatches 0\n"
+        assert set(parse.hart_cycles(text)) == {0}
+
+
 class TestStatusLog:
     # regreport renders "Diag: %-40s   %s"
     STATUS = (
