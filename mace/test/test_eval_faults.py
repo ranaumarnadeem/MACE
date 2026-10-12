@@ -56,6 +56,47 @@ class TestFaults:
         assert FAULTS["fpga_synth"].break_task(unit) is unit
 
 
+class TestHeldOutFaults:
+    HELD_OUT = ("l15_eight_way", "no_mem_ctrl", "l2_direct_mapped", "drop_monitoring")
+
+    def test_exactly_the_four_new_faults_are_held_out(self):
+        assert {name for name, fault in FAULTS.items() if fault.held_out} == set(self.HELD_OUT)
+
+    def test_the_hackathon_faults_are_not_held_out(self):
+        for name in ("fpga_synth", "drop_bist", "crossbar", "l1d_eight_way"):
+            assert not FAULTS[name].held_out
+
+    def test_the_eight_way_l15_keeps_ariane_s_way_rule(self):
+        from chia_openpiton.state_def import PitonConfig
+
+        broken = FAULTS["l15_eight_way"].break_task(task(caches=(("l1d", (8192, 4)),)))
+        assert broken.caches_dict == {"l1d": (8192, 4), "l15": (8192, 8)}
+        assert not PitonConfig(core="ariane", caches=broken.caches_dict).way_violations()
+
+    def test_no_mem_ctrl_adds_its_define(self):
+        broken = FAULTS["no_mem_ctrl"].break_task(task(config_rtl=(BIST_DEFINE,)))
+        assert broken.config_rtl == (BIST_DEFINE, "PITONSYS_NO_MC")
+
+    def test_the_direct_mapped_l2_has_one_way(self):
+        assert FAULTS["l2_direct_mapped"].break_task(task()).caches_dict == {"l2": (65536, 1)}
+
+    def test_drop_monitoring_removes_a_default_define_from_the_build(self):
+        from mace.loop import _config_for_task
+        from mace.spec import MaceSpec
+
+        broken = FAULTS["drop_monitoring"].break_task(task(config_rtl=(BIST_DEFINE,)))
+        assert broken.drop_rtl == ("MINIMAL_MONITORING",)
+        config = _config_for_task(MaceSpec(workloads=("w.c",), objective="o"), broken)
+        assert config.config_rtl == (BIST_DEFINE,)
+
+    def test_drop_monitoring_applies_to_a_task_with_no_other_define(self):
+        from mace.loop import _config_for_task
+        from mace.spec import MaceSpec
+
+        config = _config_for_task(MaceSpec(workloads=("w.c",), objective="o"), FAULTS["drop_monitoring"].break_task(task()))
+        assert config.config_rtl == ()
+
+
 class TestFirstPlanBreaker:
     def test_breaks_only_the_first_plan(self):
         hook = first_plan_breaker(FAULTS["fpga_synth"])

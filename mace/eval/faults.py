@@ -13,6 +13,10 @@ on the cores it lists, on a mesh with at least ``min_rows`` rows of tiles.
 the cores it lists. A candidate stays unverified until a pilot shows it
 breaks the build or the simulation; the runner's ``faultcheck_<name>``
 methods are that pilot, the expert configuration with the fault applied.
+
+``held_out`` marks a fault defined after the loop's recovery checks were
+designed, of a kind the first four do not cover. Evaluations report the
+two groups apart.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ from mace.spec import Task
 
 FPGA_DEFINE = "PITON_FPGA_SYNTH"
 BIST_DEFINE = "CONFIG_DISABLE_BIST_CLEAR"
+NO_MEMORY_DEFINE = "PITONSYS_NO_MC"
+MONITORING_DEFINE = "MINIMAL_MONITORING"
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,7 @@ class Fault:
     change: Callable[[Task], Task]
     # The fewest rows of tiles a mesh needs for the fault to break it.
     min_rows: int = 1
+    held_out: bool = False
 
     def applies_to(self, core: str, mesh: tuple[int, int]) -> bool:
         """Whether seeding this fault into a task on *core* and *mesh* breaks it."""
@@ -92,6 +99,44 @@ FAULTS: dict[str, Fault] = {
             frozenset(("ariane",)),
             True,
             lambda task: _with_cache(task, "l1d", (8192, 8)),
+        ),
+        # Held out (2026-10-12): kinds the four faults above do not cover. None is verified until
+        # faultcheck_<name> fails on a core; `cores` then names the cores it failed on.
+        Fault(
+            "l15_eight_way",
+            "Sets an 8 KB eight-way L1.5. The way rule allows it, but the L1.5 is written for four ways, so "
+            "the build passes and the simulation fails.",
+            frozenset(("ariane", "pico")),
+            False,
+            lambda task: _with_cache(task, "l15", (8192, 8)),
+            held_out=True,
+        ),
+        Fault(
+            "no_mem_ctrl",
+            f"Adds {NO_MEMORY_DEFINE}, which leaves the chipset without a memory controller; the build "
+            "passes and the simulation never gets a memory response.",
+            frozenset(("ariane", "pico")),
+            False,
+            lambda task: _with_defines(task, add={NO_MEMORY_DEFINE}),
+            held_out=True,
+        ),
+        Fault(
+            "l2_direct_mapped",
+            "Sets a direct-mapped L2; its way-select define becomes a zero-width number.",
+            frozenset(("ariane", "pico")),
+            False,
+            lambda task: _with_cache(task, "l2", (65536, 1)),
+            held_out=True,
+        ),
+        Fault(
+            "drop_monitoring",
+            f"Removes the default {MONITORING_DEFINE}, which switches on the testbench's full monitor block.",
+            frozenset(("ariane", "pico")),
+            False,
+            lambda task: dataclasses.replace(
+                task, drop_rtl=tuple(sorted({*(task.drop_rtl or ()), MONITORING_DEFINE}))
+            ),
+            held_out=True,
         ),
     )
 }

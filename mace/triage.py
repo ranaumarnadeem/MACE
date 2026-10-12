@@ -58,12 +58,16 @@ class TriageError(Exception):
 
 def changes_from_defaults(config: PitonConfig) -> str:
     """What *config* changes from the mesh's defaults, in words: the RTL
-    defines it adds, the cache geometries that differ, and a non-default
+    defines it adds or leaves out, the cache geometries that differ, and a non-default
     interconnect; ``"none"`` when it changes nothing."""
     parts = []
-    added = sorted(set(config.config_rtl) - set(PitonConfig().config_rtl))
+    default_defines = set(PitonConfig().config_rtl)
+    added = sorted(set(config.config_rtl) - default_defines)
     if added:
         parts.append("RTL defines added: " + " ".join(added))
+    removed = sorted(default_defines - set(config.config_rtl))
+    if removed:
+        parts.append("default RTL defines removed: " + " ".join(removed))
     for name in sorted(config.caches):
         if config.caches[name] != DEFAULT_CACHES.get(name):
             size, assoc = config.caches[name]

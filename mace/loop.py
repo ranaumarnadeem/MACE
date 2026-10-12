@@ -246,7 +246,8 @@ def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
     are added on top of PitonConfig's own default config_rtl, never in place
     of it -- a real, already-discovered fix like CONFIG_DISABLE_BIST_CLEAR
     should not silently cost the run MINIMAL_MONITORING (PitonConfig's own
-    default) just because a task asked for one specific extra flag.
+    default) just because a task asked for one specific extra flag. Only a
+    task's ``drop_rtl`` (set by a seeded fault) removes a default.
     """
     kwargs: dict = dict(
         core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
@@ -254,8 +255,9 @@ def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
     )
     if task.caches is not None:
         kwargs["caches"] = task.caches_dict
-    if task.config_rtl is not None:
-        kwargs["config_rtl"] = tuple(sorted(set(PitonConfig().config_rtl) | set(task.config_rtl)))
+    if task.config_rtl is not None or task.drop_rtl is not None:
+        defines = set(PitonConfig().config_rtl) | set(task.config_rtl or ())
+        kwargs["config_rtl"] = tuple(sorted(defines - set(task.drop_rtl or ())))
     if task.network is not None:
         kwargs["network_config"] = task.network
     return PitonConfig(**kwargs)

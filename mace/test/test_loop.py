@@ -231,6 +231,20 @@ class TestConfigFromSpec:
         assert "-config_rtl=MINIMAL_MONITORING" in build_argv
         assert "-config_rtl=CONFIG_DISABLE_BIST_CLEAR" not in build_argv
 
+    def test_task_drop_rtl_removes_a_default_define_from_the_real_build(
+        self, stub_piton_root, monkeypatch, sims_argv
+    ):
+        monkeypatch.setenv("FAKE_SIMS_VERDICT", "pass")
+        llm = FakeLLM(responses=["edit"])
+        task_without_monitoring = Task(
+            id="t1", deps=(), kind="config", spec="drop the default monitoring define",
+            drop_rtl=("MINIMAL_MONITORING",),
+        )
+
+        run_mace_step(str(stub_piton_root), make_spec(), task_without_monitoring, llm)
+
+        assert "-config_rtl=MINIMAL_MONITORING" not in sims_argv.lines()[0]
+
     def test_spec_coverage_flag_reaches_the_real_build(self, stub_piton_root, monkeypatch, sims_argv):
         """Mirrors test_task_cache_override_reaches_the_real_build: spec.coverage
         only matters if it actually reaches the build's argv, not just the

@@ -207,6 +207,10 @@ class Task:
     # "xbar_config"; None keeps PitonConfig's default mesh. The planner has
     # no directive for it; co-design searches set it (see mace.codesign).
     network: str | None = None
+    # Default RTL defines this task's build leaves out. Only a seeded fault
+    # sets it (see mace.eval.faults): the planner has no directive for it,
+    # because config_rtl only ever adds to the mesh's defaults.
+    drop_rtl: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.network is not None and self.network not in NETWORKS:
@@ -241,6 +245,14 @@ class Task:
                 if flag in seen_flags:
                     raise ValueError(f"duplicate config_rtl flag {flag!r}")
                 seen_flags.add(flag)
+        if self.drop_rtl is not None:
+            for flag in self.drop_rtl:
+                if not isinstance(flag, str) or not _RTL_FLAG_RE.match(flag):
+                    raise ValueError(
+                        f"drop_rtl flags must be non-empty upper-snake-case identifiers, got {flag!r}"
+                    )
+            if len(set(self.drop_rtl)) != len(self.drop_rtl):
+                raise ValueError(f"duplicate drop_rtl flag in {self.drop_rtl!r}")
 
     @property
     def caches_dict(self) -> dict[str, tuple[int, int]] | None:

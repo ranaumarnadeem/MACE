@@ -164,6 +164,16 @@ class TestChangesFromDefaults:
             "RTL defines added: PITON_FPGA_SYNTH; l1d=4096,2 (default 8192,4); network xbar_config"
         )
 
+    def test_names_a_default_define_the_build_left_out(self):
+        from chia_openpiton.state_def import PitonConfig
+        from mace.triage import changes_from_defaults
+
+        assert changes_from_defaults(PitonConfig(config_rtl=())) == "default RTL defines removed: MINIMAL_MONITORING"
+        both = PitonConfig(config_rtl=("PITONSYS_NO_MC",))
+        assert changes_from_defaults(both) == (
+            "RTL defines added: PITONSYS_NO_MC; default RTL defines removed: MINIMAL_MONITORING"
+        )
+
     def test_the_prompt_carries_the_changes_line(self):
         from chia_openpiton.state_def import PitonConfig
         from mace.triage import build_prompt

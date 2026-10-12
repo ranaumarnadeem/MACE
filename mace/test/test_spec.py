@@ -189,6 +189,22 @@ class TestTaskValidation:
         with pytest.raises(ValueError, match="duplicate config_rtl"):
             Task(id="t1", deps=(), kind="config", spec="s", config_rtl=("FLAG_A", "FLAG_A"))
 
+    def test_drop_rtl_defaults_to_none(self):
+        assert Task(id="t1", deps=(), kind="config", spec="s").drop_rtl is None
+
+    def test_valid_drop_rtl_is_kept(self):
+        t = Task(id="t1", deps=(), kind="config", spec="s", drop_rtl=("MINIMAL_MONITORING",))
+        assert t.drop_rtl == ("MINIMAL_MONITORING",)
+
+    @pytest.mark.parametrize("bad_flag", ["minimal_monitoring", "1FLAG", "FLAG-A", ""])
+    def test_malformed_drop_rtl_flag_rejected(self, bad_flag):
+        with pytest.raises(ValueError, match="drop_rtl"):
+            Task(id="t1", deps=(), kind="config", spec="s", drop_rtl=(bad_flag,))
+
+    def test_duplicate_drop_rtl_flag_rejected(self):
+        with pytest.raises(ValueError, match="duplicate drop_rtl"):
+            Task(id="t1", deps=(), kind="config", spec="s", drop_rtl=("FLAG_A", "FLAG_A"))
+
 
 def test_task_is_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):
