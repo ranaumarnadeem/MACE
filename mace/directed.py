@@ -78,7 +78,9 @@ piton/verif/diag/assembly/include/riscv/pico/test_macros.h:
   RVTEST_DATA_END
 
 TEST_CASE(number, register, expected value, instructions) runs the instructions and fails the test if the register
-differs from the expected value. The numbers start at 2 and are unique."""
+differs from the expected value. The numbers start at 2 and are unique. The preprocessor joins the instructions into
+one line, so write no # comment inside TEST_CASE( ... ): it would hide the rest of the line, the check included.
+Comment with /* */ inside the macro, or put a # comment on its own line outside it."""
 
 _C_STYLE = """\
 A directed test is a short C program that checks one piece of logic in the design. Every tile runs main on shared

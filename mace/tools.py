@@ -42,6 +42,25 @@ MAX_TESTS_PER_TASK = 3
 MAX_TEST_CHARS = 30000
 _TEST_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 TEST_FORMS = ("S", "c")
+_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+_TEST_MACRO_RE = re.compile(r"\bTEST_[A-Z0-9_]+\s*\(")
+
+
+def hash_in_test_macro(source: str) -> bool:
+    """Whether an assembly test has a ``#`` inside the arguments of a
+    ``TEST_*`` macro. The preprocessor joins those arguments into one line, so
+    an assembler ``#`` comment there hides the rest of it, the check included,
+    and the program never reaches a verdict. ``/* */`` and ``//`` comments are
+    removed before the macro expands and are fine."""
+    text = _COMMENT_RE.sub("", source)
+    for found in _TEST_MACRO_RE.finditer(text):
+        depth, i = 1, found.end()
+        while i < len(text) and depth:
+            depth += (text[i] == "(") - (text[i] == ")")
+            i += 1
+        if "#" in text[found.end() : i]:
+            return True
+    return False
 
 
 class TestbenchEditTool(ChiaTool):
@@ -342,6 +361,11 @@ class DirectedTestTool(ChiaTool):
                 )
             if "TEST_PASSFAIL" not in source and "RVTEST_PASS" not in source:
                 return "an assembly test ends with TEST_PASSFAIL or reaches RVTEST_PASS"
+            if hash_in_test_macro(source):
+                return (
+                    "a # comment inside a TEST_ macro hides the rest of the expanded line, the check included, "
+                    "so the test never ends; comment with /* */ or put the comment on its own line outside the macro"
+                )
         elif not re.search(r"\bmain\s*\(", source):
             return "a C test defines int main(int argc, char **argv)"
         return ""

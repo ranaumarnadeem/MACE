@@ -250,3 +250,58 @@ class TestDirectedTestToolWrites:
 
     def test_the_write_method_takes_no_path_for_the_file(self):
         assert list(inspect.signature(DirectedTestTool.write_test).parameters) == ["self", "name", "target", "source"]
+
+
+HASH_IN_MACRO = """#include "riscv_test.h"
+#include "test_macros.h"
+RVTEST_RV32U
+RVTEST_CODE_BEGIN
+  TEST_CASE( 2, x3, 1,
+    li x1, 5;
+    bgeu x1, x2, 1f; # Should branch
+    li x3, 1;
+  )
+  TEST_PASSFAIL
+RVTEST_CODE_END
+"""
+
+
+class TestHashInTestMacro:
+    """Pilot finding: a # comment inside TEST_CASE hides the rest of the expanded line, so the test never ends."""
+
+    def test_a_hash_comment_inside_the_macro_is_found(self):
+        from mace.tools import hash_in_test_macro
+
+        assert hash_in_test_macro(HASH_IN_MACRO)
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "  TEST_CASE( 2, x3, 1, li x3, 1; )\n  # a comment on its own line\n",
+            "  TEST_CASE( 2, x3, 1, li x3, 1; /* fine # inside */ )\n",
+            "  TEST_CASE( 2, x3, 1, li x3, 1; // fine # here\n  )\n",
+            '#include "riscv_test.h"\n  TEST_CASE( 2, x3, 1, li x3, 1; )\n',
+            "  li x1, 1 # outside any macro\n  TEST_CASE( 2, x3, 1, li x3, 1; )\n",
+        ],
+    )
+    def test_other_comments_are_fine(self, source):
+        from mace.tools import hash_in_test_macro
+
+        assert not hash_in_test_macro(source)
+
+    def test_nested_parentheses_do_not_end_the_macro_early(self):
+        from mace.tools import hash_in_test_macro
+
+        assert hash_in_test_macro("TEST_CASE( 2, x2, 1, lw x2, 0(x3); # note\n li x2, 1; )")
+        assert not hash_in_test_macro("TEST_CASE( 2, x2, 1, lw x2, 0(x3); li x2, 1; )\n# after\n")
+
+    def test_write_test_refuses_it_with_the_reason(self, tmp_path):
+        tool = make_test_tool(tmp_path)
+        out = tool.write_test("hang", ALU, HASH_IN_MACRO)
+        assert out.startswith("ERROR") and "# comment inside a TEST_ macro" in out
+        assert not (tmp_path / "build").exists()
+
+    def test_a_c_test_is_not_checked(self, tmp_path):
+        tool = make_test_tool(tmp_path, "c")
+        source = C_TEST + "// TEST_CASE( # )\n"
+        assert tool.write_test("c_ok", ALU, source).startswith("OK")
