@@ -98,11 +98,11 @@ def max_cycles(text: str) -> int | None:
 # --- fake_uart.log: per-hart cycle counts -----------------------------------
 
 # One line per hart, printed by a program that reads mcycle (the counter
-# rdcycle reads) at the start and end of its work, e.g.
-#   "hart 3 start 1204 end 188731 mismatches 0"
-_HART_CYCLES_RE = re.compile(
-    r"^\s*hart\s+(\d+)\s+start\s+(\d+)\s+end\s+(\d+)\b", re.MULTILINE
-)
+# rdcycle reads) at the start and end of its work: the hart, the start cycle,
+# and the end cycle, e.g.
+#   "h3 1204 188731"
+# It is short because the fake UART costs about a thousand cycles a character.
+_HART_CYCLES_RE = re.compile(r"^[ \t]*h(\d+)[ \t]+(\d+)[ \t]+(\d+)[ \t\r]*$", re.MULTILINE)
 
 
 def hart_cycles(text: str) -> dict[int, tuple[int, int]]:

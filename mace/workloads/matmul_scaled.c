@@ -19,16 +19,20 @@
 //
 // Each hart reads mcycle (the counter rdcycle reads) before its first row and
 // after its last, then prints
-//   hart <id> start <cycle> end <cycle> mismatches <n>
+//   h<id> <start cycle> <end cycle>
 // in hart order, taking turns on an atomic counter the way syscalls.c's _init
-// does for its exit output. The line is formatted here by hand: printf buffers
-// in thread-local storage, which these programs do not set up, and sprintf
+// does for its exit output. The line is short because the fake UART costs
+// about a thousand cycles a character and the harts print one after another;
+// a hart that finds a wrong value ends at the bad trap, so no mismatch count
+// is printed. The line is formatted here by hand: printf buffers in
+// thread-local storage, which these programs do not set up, and sprintf
 // passes a nested function to its formatter.
 #include <stdint.h>
 #include "util.h"
 
 #define ROWS_PER_HART 4
 #define MAX_HARTS 1024
+#define POLL_BACKOFF 200  // loop iterations between polls of the print turn
 #define N 56
 #define S1 (N * (N - 1) / 2)
 #define S2 ((N - 1) * N * (2 * N - 1) / 6)
@@ -110,21 +114,25 @@ int main(int argc, char** argv) {
   uint64_t end = read_csr(mcycle);
   __asm__ __volatile__("" ::: "memory");
 
-  char line[96] __attribute__((aligned(64)));
-  char* p = put_str(line, "hart ");
+  char line[48] __attribute__((aligned(64)));
+  char* p = put_str(line, "h");
   p = put_num(p, hart_id);
-  p = put_str(p, " start ");
+  p = put_str(p, " ");
   p = put_num(p, start);
-  p = put_str(p, " end ");
+  p = put_str(p, " ");
   p = put_num(p, end);
-  p = put_str(p, " mismatches ");
-  p = put_num(p, wrong);
   *p++ = '\n';
   *p = 0;
 
+  // Wait for this hart's turn. The harts before it print slowly, so the wait
+  // backs off between polls instead of loading the network with atomics.
   uint32_t turn;
   do {
     ATOMIC_FETCH_OP(turn, print_turn, 0, add, w);
+    if (turn != hart_id) {
+      for (volatile uint32_t i = 0; i < POLL_BACKOFF; i++) {
+      }
+    }
   } while (turn != hart_id);
   printstr(line);
   ATOMIC_OP(print_turn, 1, add, w);

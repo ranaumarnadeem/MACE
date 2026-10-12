@@ -91,7 +91,7 @@ class FakeNode:
     def _run(self, config, program, **kwargs):
         self.runs += 1
         failed = self.fail_run(self.mshr())
-        uart = "".join(f"hart {h} start 100 end {1000 + 50 * h + 10 * self.mshr()} mismatches 0\n" for h in range(4))
+        uart = "".join(f"h{h} 100 {1000 + 50 * h + 10 * self.mshr()}\n" for h in range(4))
         return PitonRunResult(
             success=not failed, returncode=0, test=program, sim_type="vlt", run_dir="/x/runs/1",
             verdict="fail" if failed else "pass", sim_time=None if failed else 100_000 - 1000 * self.mshr(),

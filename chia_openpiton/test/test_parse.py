@@ -96,9 +96,9 @@ class TestRealCaptures:
 
 class TestHartCycles:
     LOG = (
-        "hart 0 start 1204 end 188731 mismatches 0\n"
-        "hart 1 start 1198 end 190002 mismatches 0\n"
-        "hart 2 start 1210 end 201555 mismatches 0\n"
+        "h0 1204 188731\n"
+        "h1 1198 190002\n"
+        "h2 1210 201555\n"
     )
 
     def test_reads_each_harts_start_and_end(self):
@@ -113,19 +113,30 @@ class TestHartCycles:
         text = f"matmul_scaled 4 harts\n{self.LOG}core 0: mcycle = 5\n"
         assert set(parse.hart_cycles(text)) == {0, 1, 2}
 
+    def test_does_not_read_other_numbers_as_a_hart(self):
+        """The line starts with h and a hart number, so a line of plain numbers or a word is not one."""
+        assert parse.hart_cycles("10 20 30\nhart 1 2 3\nh1 2\nh1 2 3 4\nh1 2 x\n") == {}
+
     def test_a_hart_that_reports_twice_is_rejected(self):
         """Keeping one of two readings would hide a garbled log."""
         with pytest.raises(ValueError, match="hart 1"):
-            parse.hart_cycles(self.LOG + "hart 1 start 5 end 9 mismatches 0\n")
+            parse.hart_cycles(self.LOG + "h1 5 9\n")
 
     def test_a_hart_that_ends_before_it_starts_is_rejected(self):
         with pytest.raises(ValueError, match="before it starts"):
-            parse.hart_cycles("hart 0 start 900 end 100 mismatches 0\n")
+            parse.hart_cycles("h0 900 100\n")
 
     def test_a_line_garbled_by_another_hart_is_left_out(self):
         """The caller sees fewer harts than tiles and can tell the log is incomplete."""
-        text = "hart 0 start 1 end 2 mismatches 0\nhart 1 sthart 2 start 3 end 4 mismatches 0\n"
+        text = "h0 1 2\nh1 4h2 3 4\n"
         assert set(parse.hart_cycles(text)) == {0}
+
+    def test_a_line_may_end_with_carriage_return_and_spaces(self):
+        assert parse.hart_cycles("h0 1 2  \r\nh1 3 4\r\n") == {0: (1, 2), 1: (3, 4)}
+
+    def test_a_truncated_first_line_is_left_out(self):
+        """The adapter keeps only the last 8000 characters of the log."""
+        assert parse.hart_cycles("0 1 2\nh1 3 4\n") == {1: (3, 4)}
 
 
 class TestStatusLog:

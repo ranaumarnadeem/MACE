@@ -13,10 +13,12 @@ The searches run on `matmul_scaled.c`, a program whose work grows with the hart 
 Each hart stores the elements it computes on its own stack, reads them back, and checks each one against a closed form. A hart that finds a wrong value ends at the bad trap, so the run passes only when every tile is right. Each hart reads `mcycle` before its first row and after its last, then prints one line in hart order:
 
 ```text
-hart 3 start 1204 end 188731 mismatches 0
+h3 1204 188731
 ```
 
 `chia_openpiton.parse.hart_cycles()` reads these lines from `fake_uart.log` (see [Transcript Parsers](../04_chia_openpiton/parsers.md)). The values are core clock cycles. The finish time is the testbench's simulation time when the last hart ends, so the two are in different units, and a hart is compared with the other harts and not with the finish time. Harts are numbered row by row, so hart `h` is on tile `(h mod X, h div X)` of an `X` by `Y` mesh.
+
+Printing to the fake UART takes many cycles per character, and the harts print one after another. The line is short for that reason, and the finish time includes the printing. The cycle counts leave it out, so the scaling study uses them, and the finish time is reported next to them.
 
 ## The parameters
 
