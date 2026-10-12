@@ -124,6 +124,60 @@ CODESIGN = MINIMAL.replace("id: pico-2x2-addi", "id: cd-task").replace("mesh: [2
 """
 
 
+RTLPARAM = MINIMAL.replace("id: pico-2x2-addi", "id: rp-task").replace("core: pico", "core: ariane").replace(
+    "      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]\n", ""
+) + """\
+    rtlparam:
+      simulations: 6
+      storage_budget_bits: 2000
+      space:
+        l2_mshr: [4, 8, 16]
+        home_alloc: [LOW, MIXED]
+"""
+
+
+class TestRtlParamBlock:
+    def test_loads_the_space_the_simulations_and_the_budget(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        assert task.kind == "rtlparam"
+        config = task.rtlparam
+        assert (config.simulations, config.storage_budget_bits) == (6, 2000)
+        assert config.space.knobs == {"home_alloc": ("LOW", "MIXED"), "l2_mshr": (4, 8, 16)}
+        assert task.codesign is None
+
+    def test_the_simulations_default_to_ten_and_the_budget_to_none(self, tmp_path):
+        text = RTLPARAM.replace("      simulations: 6\n", "").replace("      storage_budget_bits: 2000\n", "")
+        (task,) = load_suite(write(tmp_path, text))
+        assert (task.rtlparam.simulations, task.rtlparam.storage_budget_bits) == (10, None)
+
+    def test_a_task_without_the_block_is_not_an_rtl_parameter_task(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, MINIMAL))
+        assert task.rtlparam is None and task.kind == "bringup"
+
+    @pytest.mark.parametrize(
+        "old,new,message",
+        [
+            ("      simulations: 6\n", "      simulations: 0\n", "simulations"),
+            ("      simulations: 6\n", "      simulations: many\n", "simulations"),
+            ("      storage_budget_bits: 2000\n", "      storage_budget_bits: -1\n", "storage_budget_bits"),
+            ("      storage_budget_bits: 2000\n", "      storage_budget_bits: 2000\n      colour: red\n", "takes only"),
+            ("l2_mshr: [4, 8, 16]", "l3_mshr: [4, 8]", "unknown RTL parameter"),
+            ("l2_mshr: [4, 8, 16]", "l2_mshr: [4, 8, 32]", "must come from"),
+            ("l2_mshr: [4, 8, 16]", "l2_mshr: [4, 16]", "include the default"),
+            ("l2_mshr: [4, 8, 16]", "l2_mshr: 8", "list of values"),
+            ("      space:\n        l2_mshr: [4, 8, 16]\n        home_alloc: [LOW, MIXED]\n", "      space: {}\n", "needs a space"),
+        ],
+    )
+    def test_a_malformed_block_fails_to_load(self, tmp_path, old, new, message):
+        with pytest.raises(SuiteError, match=message):
+            load_suite(write(tmp_path, RTLPARAM.replace(old, new)))
+
+    def test_a_task_cannot_have_both_blocks(self, tmp_path):
+        both = RTLPARAM + "    codesign:\n" + CODESIGN.split("    codesign:\n", 1)[1]
+        with pytest.raises(SuiteError, match="not both"):
+            load_suite(write(tmp_path, both))
+
+
 class TestCodesignBlock:
     def test_loads_the_space_and_the_grid(self, tmp_path):
         (task,) = load_suite(write(tmp_path, CODESIGN))

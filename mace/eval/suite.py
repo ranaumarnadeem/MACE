@@ -35,6 +35,18 @@ and the area budget as a ratio of the default caches' area. ::
         l1d_size: [4096, 8192, 16384]
         l15_size: [8192, 16384]
 
+An RTL-parameter task adds an ``rtlparam`` block: the values each searched
+parameter may take (see ``mace.codesign.rtl``), the simulations per search,
+and the storage budget, the flip-flop bits per tile a design may add over the
+default design. ::
+
+    rtlparam:
+      simulations: 10
+      storage_budget_bits: 2000
+      space:
+        l2_mshr: [4, 8, 16]
+        dcache_wbuf: [4, 8, 16]
+
 ``workload_args`` gives a gate program the finish mask and extra ``sims``
 run arguments its run needs, as OpenSPARC T1's multi-thread diags do. A
 ``finish_mask`` left out keeps the mesh's one-per-tile default. ::
@@ -75,6 +87,7 @@ import yaml
 from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.baselines.expert import expert_task
 from mace.codesign.area import cache_arrays
+from mace.codesign.rtl import RtlSpace
 from mace.codesign.space import DEFAULT_NETWORK, Design, DesignSpace
 from mace.eval.source_faults import SourceEdit
 from mace.spec import Budget, MaceSpec, Task
@@ -82,9 +95,10 @@ from mace.spec import Budget, MaceSpec, Task
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _TASK_KEYS = frozenset(
     ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout", "max_cycle",
-     "codesign", "workload_args", "source_fault")
+     "codesign", "workload_args", "source_fault", "rtlparam")
 )
 _CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
+_RTLPARAM_KEYS = frozenset(("simulations", "storage_budget_bits", "space"))
 
 
 class SuiteError(ValueError):
@@ -112,6 +126,17 @@ class CodesignConfig:
 
 
 @dataclass(frozen=True)
+class RtlParamConfig:
+    """What an RTL-parameter task searches, and with how many simulations."""
+
+    space: RtlSpace
+    simulations: int = 10
+    # Flip-flop bits per tile a design may add over the default design; None
+    # sets no budget.
+    storage_budget_bits: int | None = None
+
+
+@dataclass(frozen=True)
 class SuiteTask:
     """One evaluation task."""
 
@@ -131,10 +156,14 @@ class SuiteTask:
     # RTL text replacements every job on this task runs under (see
     # mace.eval.source_faults); empty for a task on the unmodified design.
     source_fault: tuple[SourceEdit, ...] = ()
+    rtlparam: RtlParamConfig | None = None
 
     @property
     def kind(self) -> str:
-        """``codesign`` for a task with a ``codesign`` block, else ``bringup``."""
+        """``codesign`` for a task with a ``codesign`` block, ``rtlparam`` for
+        one with an ``rtlparam`` block, else ``bringup``."""
+        if self.rtlparam is not None:
+            return "rtlparam"
         return "codesign" if self.codesign is not None else "bringup"
 
     def spec(self) -> MaceSpec:
@@ -239,6 +268,29 @@ def _codesign(raw: object, task_id: str, core: str, mesh: tuple[int, int]) -> Co
     return config
 
 
+def _rtlparam(raw: object, task_id: str) -> RtlParamConfig | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) - _RTLPARAM_KEYS:
+        raise SuiteError(f"task {task_id}: rtlparam takes only {sorted(_RTLPARAM_KEYS)}")
+    space_raw = raw.get("space")
+    if not (isinstance(space_raw, dict) and space_raw):
+        raise SuiteError(f"task {task_id}: rtlparam needs a space mapping each parameter to its values")
+    if not all(isinstance(values, list) for values in space_raw.values()):
+        raise SuiteError(f"task {task_id}: each rtlparam space entry must be a list of values")
+    try:
+        space = RtlSpace({name: tuple(values) for name, values in space_raw.items()})
+    except ValueError as e:
+        raise SuiteError(f"task {task_id}: rtlparam: {e}") from e
+    simulations = raw.get("simulations", 10)
+    if not isinstance(simulations, int) or isinstance(simulations, bool) or simulations <= 0:
+        raise SuiteError(f"task {task_id}: rtlparam simulations must be a positive int, got {simulations!r}")
+    budget = raw.get("storage_budget_bits")
+    if budget is not None and (not isinstance(budget, int) or isinstance(budget, bool) or budget < 0):
+        raise SuiteError(f"task {task_id}: rtlparam storage_budget_bits must be a non-negative int or null, got {budget!r}")
+    return RtlParamConfig(space=space, simulations=simulations, storage_budget_bits=budget)
+
+
 def _budget(raw: dict, where: str, base: Budget | None = None) -> Budget:
     base = base or Budget()
     unknown = set(raw) - {"max_iterations", "max_usd", "max_wall_s"}
@@ -318,6 +370,8 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
         if name not in DEFAULT_CACHES or not (isinstance(geometry, list) and len(geometry) == 2):
             raise SuiteError(f"task {task_id}: expert cache {name!r} must be one of {sorted(DEFAULT_CACHES)} as [size, assoc]")
         caches[name] = (geometry[0], geometry[1])
+    if entry.get("codesign") is not None and entry.get("rtlparam") is not None:
+        raise SuiteError(f"task {task_id}: a task has a codesign block or an rtlparam block, not both")
     try:
         task = SuiteTask(
             id=task_id,
@@ -334,6 +388,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             codesign=_codesign(entry.get("codesign"), task_id, entry.get("core", "ariane"), (mesh[0], mesh[1])),
             workload_args=_workload_args(entry.get("workload_args"), task_id),
             source_fault=_source_fault(entry.get("source_fault"), task_id),
+            rtlparam=_rtlparam(entry.get("rtlparam"), task_id),
         )
         spec = task.spec()
         expert_cfg = task.expert_task()
