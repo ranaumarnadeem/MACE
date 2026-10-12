@@ -60,6 +60,35 @@ class TestTheRepositorySuite:
                 assert task.expert_config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",)
 
 
+class TestTheRtlParamSuite:
+    RTLPARAM_SUITE = SUITE.with_name("tasks_rtlparam.yaml")
+
+    def test_loads_one_task_per_mesh_with_the_scaled_program(self):
+        tasks = load_suite(self.RTLPARAM_SUITE)
+        assert [t.id for t in tasks] == [
+            "ariane-1x1-matmul-scaled", "ariane-2x2-matmul-scaled", "ariane-4x2-matmul-scaled",
+            "ariane-4x4-matmul-scaled",
+        ]
+        assert [t.mesh for t in tasks] == [(1, 1), (2, 2), (4, 2), (4, 4)]
+        assert all(t.kind == "rtlparam" and t.workloads == ("matmul_scaled.c",) for t in tasks)
+
+    def test_every_task_searches_the_same_space_with_the_same_budget(self):
+        first, *rest = [t.rtlparam for t in load_suite(self.RTLPARAM_SUITE)]
+        assert all(config == first for config in rest)
+
+    def test_the_workload_is_one_of_the_checksummed_gate_programs(self):
+        from mace.workloads import compute_checksums
+
+        for task in load_suite(self.RTLPARAM_SUITE):
+            assert set(task.workloads) <= set(compute_checksums())
+
+    def test_the_search_budget_lets_some_designs_in_and_keeps_others_out(self):
+        (task, *_) = load_suite(self.RTLPARAM_SUITE)
+        budget = task.rtlparam.storage_budget_bits
+        costs = [d.storage_delta() for d in task.rtlparam.space.one_at_a_time()]
+        assert any(c <= budget for c in costs) and any(c > budget for c in costs)
+
+
 class TestLoading:
     def test_a_task_becomes_a_spec_and_an_expert_task(self, tmp_path):
         (task,) = load_suite(write(tmp_path, MINIMAL))

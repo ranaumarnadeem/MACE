@@ -1,0 +1,72 @@
+# RTL-parameter searches on matmul_scaled.c: every hart multiplies its own rows,
+# so the work grows with the mesh and each hart prints the mcycle values at the
+# start and end of its work. A search changes RTL parameters that sims does not
+# expose (see mace/codesign/rtl.py) and keeps a design only when every tile
+# passes and the finish time drops. The same space, simulations, and storage
+# budget go to every method on a task.
+#
+# Run, on one checkout and with MAKEFLAGS=-j1:
+#   python examples/eval_batch.py --suite examples/eval/tasks_rtlparam.yaml \
+#     --piton-root ~/openpiton-eval --tasks ariane-4x4-matmul-scaled --repeats 3 \
+#     --methods rtlparam_default,rtlparam_sweep,rtlparam_mace,rtlparam_bayes --backend vertex \
+#     --db-path runs/rtlparam.db
+#
+# rtl_timeout, max_cycle, and storage_budget_bits are set from the pilot runs.
+# A task stays unverified until its default design passes on every tile.
+version: 1
+defaults:
+  budget: {max_iterations: 1, max_wall_s: 3600}
+tasks:
+  - id: ariane-1x1-matmul-scaled
+    core: ariane
+    mesh: [1, 1]
+    workloads: [matmul_scaled.c]
+    objective: Finish matmul_scaled.c soonest on a 1x1 Ariane mesh with every tile passing.
+    verified: false
+    rtl_timeout: 5000000
+    max_cycle: 5000000
+    budget: {max_wall_s: 7200}
+    rtlparam: &rtlparam
+      simulations: 10
+      storage_budget_bits: 2500
+      space:
+        l2_mshr: [4, 8, 16]
+        l2_req_buf: [4, 8, 16]
+        l2_req_data_buf: [2, 4, 8]
+        dcache_wbuf: [4, 8, 16]
+        store_buffer: [2, 4, 8]
+        scoreboard: [4, 8, 16]
+        home_alloc: [LOW, MIDDLE, HIGH, MIXED]
+
+  - id: ariane-2x2-matmul-scaled
+    core: ariane
+    mesh: [2, 2]
+    workloads: [matmul_scaled.c]
+    objective: Finish matmul_scaled.c soonest on a 2x2 Ariane mesh with every tile passing.
+    verified: false
+    rtl_timeout: 5000000
+    max_cycle: 5000000
+    budget: {max_wall_s: 21600}
+    rtlparam: *rtlparam
+
+  - id: ariane-4x2-matmul-scaled
+    core: ariane
+    mesh: [4, 2]
+    workloads: [matmul_scaled.c]
+    objective: Finish matmul_scaled.c soonest on a 4x2 Ariane mesh with every tile passing.
+    verified: false
+    rtl_timeout: 5000000
+    max_cycle: 5000000
+    budget: {max_wall_s: 36000}
+    rtlparam: *rtlparam
+
+  - id: ariane-4x4-matmul-scaled
+    core: ariane
+    mesh: [4, 4]
+    workloads: [matmul_scaled.c]
+    objective: Finish matmul_scaled.c soonest on a 4x4 Ariane mesh with every tile passing.
+    verified: false
+    rtl_timeout: 5000000
+    max_cycle: 5000000
+    budget: {max_wall_s: 43200}
+    rtlparam: *rtlparam
