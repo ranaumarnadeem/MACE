@@ -30,6 +30,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import time
 from collections.abc import Callable
 
@@ -109,6 +110,11 @@ def test_tag(run_id: str | None, iteration: int, task_id: str) -> str:
 def test_dir(piton_root: str, tag: str) -> str:
     """The directory on the checkout that holds the tests under *tag*."""
     return os.path.join(piton_root, TEST_DIR, tag)
+
+
+def clear_tests(piton_root: str) -> None:
+    """Remove every directed test a previous job left on a checkout."""
+    shutil.rmtree(os.path.join(piton_root, TEST_DIR), ignore_errors=True)
 
 
 def verdict_of(run: PitonRunResult) -> str:
