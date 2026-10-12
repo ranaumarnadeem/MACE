@@ -113,6 +113,40 @@ class TestCheck:
     wall_s: float = 0.0
 
 
+def keep_defines(defines: tuple[str, ...]) -> Callable[[int, tuple[Task, ...]], tuple[Task, ...]]:
+    """A ``plan_hook`` that adds *defines*, the RTL defines the task's objective
+    says its design needs, to every task of every plan that builds the design.
+
+    The planner states the defines for a first workload task and then leaves
+    them out of its ``rtl`` tasks, so every gate run of a PicoRV32 repair times
+    out whatever the edit was (all four loop pilots on the development bug).
+    The repair methods of the directed-test evaluation share this hook, so they
+    differ only in the tests. A task that already names a define keeps it.
+    """
+    wanted = tuple(sorted(defines))
+
+    def hook(iteration: int, tasks: tuple[Task, ...]) -> tuple[Task, ...]:
+        if not wanted:
+            return tasks
+        return tuple(
+            t if t.kind == "unit_test" else dataclasses.replace(t, config_rtl=tuple(sorted({*(t.config_rtl or ()), *wanted})))
+            for t in tasks
+        )
+
+    return hook
+
+
+def compose(*hooks):
+    """One ``plan_hook`` that applies *hooks* in order."""
+
+    def hook(iteration: int, tasks: tuple[Task, ...]) -> tuple[Task, ...]:
+        for h in hooks:
+            tasks = h(iteration, tasks)
+        return tasks
+
+    return hook
+
+
 def test_first() -> Callable[[int, tuple[Task, ...]], tuple[Task, ...]]:
     """A ``plan_hook`` for :func:`mace.orchestrator.run_mace_loop` that puts a
     ``test`` task before every ``rtl`` task in every plan.

@@ -43,13 +43,19 @@ Each outcome is a row in the `test_checks` table, keyed like the test's row in `
 |---|---|
 | `expert_clean` | The expert configuration without the task's `source_fault`, built and checked once with no LLM. It passes when the task's gate workload passes on a correct design. |
 | `testgen` | Detection. The expert design with the bug is built and its gate workloads run (iteration 0). One `test` task then writes tests for it, told what the gate workloads reported (iteration 1). The run ends `passed` when the mutation check finds a detected test, and `failed` otherwise. It uses one checkout. |
-| `mace_rtl_test` | Repair. `mace_rtl` with a plan hook that puts a `test` task before each `rtl` task. The mutation check then judges every test the run wrote. |
+| `mace_rtl_defs` | Repair, the control of `mace_rtl_test`. `mace_rtl` with a plan hook that adds the RTL defines the task's objective says its design needs to every task of every plan. |
+| `mace_rtl_test` | Repair. `mace_rtl_defs` with a second plan hook that puts a `test` task before each `rtl` task. The mutation check then judges every test the run wrote. |
 | `mace_rtl`, `retry_agent_rtl` | The existing methods that may edit RTL, run on the same tasks for comparison. |
 
-`expert_clean`, `testgen`, and `mace_rtl_test` run only on tasks that have a `source_fault`.
+`expert_clean`, `testgen`, `mace_rtl_defs`, and `mace_rtl_test` run only on tasks that have a `source_fault`.
 `expert` on the same task is the check that the bug makes the gate workload fail.
 On a bug that breaks the build, `testgen` builds the design, fails, and writes no test, so the evaluation runs it on the held-out bugs only.
 The hook of `mace_rtl_test` adds a test only before an `rtl` task, so a plan with no `rtl` task has no test.
+
+The defines hook exists because the planner names a PicoRV32 task's required define, `CONFIG_DISABLE_BIST_CLEAR`, for its first workload task and leaves it out of its `rtl` tasks.
+Every gate run of such a repair then times out, whatever the edit was: this happened in all four pilot runs of the loop that reached a repair iteration.
+`mace_rtl` shows the planner as it is, and `mace_rtl_defs` against `mace_rtl_test` is the comparison that isolates the tests.
+On a design that needs no define, such as Ariane's, the hook changes nothing and the two repair methods differ only in the tests.
 
 ## The held-out bugs
 
@@ -83,8 +89,8 @@ python examples/eval_batch.py --piton-root ~/openpiton --suite examples/eval/tas
     --methods expert,expert_clean --db-path runs/heldout_check.db
 python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-2 --backend vertex \
     --suite examples/eval/tasks_rtl.yaml --include-unverified --repeats 5 \
-    --methods testgen,mace_rtl,mace_rtl_test,retry_agent_rtl --db-path runs/directed.db
+    --methods testgen,mace_rtl,mace_rtl_defs,mace_rtl_test,retry_agent_rtl --db-path runs/directed.db
 ```
 
 The first command needs no LLM.
-`retry_agent_rtl` and `mace_rtl` run on every task of the suite; `testgen` and `mace_rtl_test` run on the tasks that have a fault.
+`retry_agent_rtl` and `mace_rtl` run on every task of the suite; `testgen`, `mace_rtl_defs`, and `mace_rtl_test` run on the tasks that have a fault.

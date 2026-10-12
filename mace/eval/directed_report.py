@@ -142,7 +142,7 @@ def detection_table(paths: list[str], methods: tuple[str, ...] = ("testgen", "ma
     return sorted(out, key=lambda r: (r["group"], r["task"], r["method"]))
 
 
-def repair_table(paths: list[str], methods: tuple[str, ...] = ("mace_rtl", "mace_rtl_test", "retry_agent_rtl")) -> list[dict]:
+def repair_table(paths: list[str], methods: tuple[str, ...] = ("mace_rtl", "mace_rtl_defs", "mace_rtl_test", "retry_agent_rtl")) -> list[dict]:
     """One row per (task, method): how often the run passed, how long a pass
     took, and what it cost."""
     rows = [r for r in rows_from(paths) if r["method"] in methods]

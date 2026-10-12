@@ -35,7 +35,7 @@ from mace.codesign.area import area_notes, design_area
 from mace.codesign.run import run_codesign
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
 from mace import directed
-from mace.eval.directed import check_tests, run_testgen, test_first
+from mace.eval.directed import check_tests, compose, keep_defines, run_testgen, test_first
 from mace.eval.faults import FAULTS, first_design_breaker, first_plan_breaker
 from mace.eval.source_faults import faulted, restore
 from mace.eval.suite import SuiteTask
@@ -100,10 +100,14 @@ NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codes
 EXPERT_CLEAN = "expert_clean"
 TESTGEN = "testgen"
 MACE_RTL_TEST = "mace_rtl_test"
+MACE_RTL_DEFS = "mace_rtl_defs"
 METHODS[EXPERT_CLEAN] = "The expert configuration on the design without the task's source fault; it should pass."
 METHODS[TESTGEN] = "Detection: an agent writes directed tests for the planted bug; the mutation check judges them."
-METHODS[MACE_RTL_TEST] = "mace_rtl with a test task before each rtl task; the mutation check judges the tests."
-SESSION_B_METHODS = frozenset((EXPERT_CLEAN, TESTGEN, MACE_RTL_TEST))
+METHODS[MACE_RTL_DEFS] = "mace_rtl with the task's required RTL defines added to every task: the control of mace_rtl_test."
+METHODS[MACE_RTL_TEST] = (
+    "mace_rtl_defs with a test task before each rtl task; the mutation check judges the tests."
+)
+SESSION_B_METHODS = frozenset((EXPERT_CLEAN, TESTGEN, MACE_RTL_DEFS, MACE_RTL_TEST))
 CLEAN_METHODS = frozenset((EXPERT_CLEAN,))
 ONCE_METHODS = ONCE_METHODS | frozenset((EXPERT_CLEAN,))
 NO_LLM_METHODS = NO_LLM_METHODS | frozenset((EXPERT_CLEAN,))
@@ -330,10 +334,15 @@ def _run_job(job: Job, env: RunEnv):
         return run_retry_agent(roots[0], spec, env.llm, env.db, labels=labels, rtl_edits=True)
     if method == TESTGEN:  # session B
         return run_testgen(roots, spec, job.task.expert_task(), env.llm, env.db, labels=labels)
+    if method == MACE_RTL_DEFS:  # session B
+        return run_mace_loop(
+            roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, rtl_edits=True),
+            plan_hook=keep_defines(job.task.expert_task().config_rtl or ()),
+        )
     if method == MACE_RTL_TEST:  # session B
         result = run_mace_loop(
             roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, rtl_edits=True),
-            plan_hook=test_first(),
+            plan_hook=compose(keep_defines(job.task.expert_task().config_rtl or ()), test_first()),
         )
         check_tests(roots, spec, job.task.expert_task(), env.db, result.run_id)
         return result

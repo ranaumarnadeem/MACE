@@ -144,6 +144,45 @@ class TestTestFirst:
         assert len({t.id for t in out}) == 3 and out[1].id == "test_fix_"
 
 
+class TestKeepDefines:
+    BIST = ("CONFIG_DISABLE_BIST_CLEAR",)
+
+    def plan(self):
+        return (
+            Task(id="w", deps=(), kind="workload", spec="run it", config_rtl=self.BIST),
+            Task(id="fix", deps=(), kind="rtl", spec="fix it"),
+            Task(id="ut", deps=(), kind="unit_test", spec="piton/design/x.v"),
+            Task(id="cfg", deps=(), kind="config", spec="x", config_rtl=("MINIMAL_MONITORING",)),
+        )
+
+    def test_every_building_task_gets_the_defines_the_objective_needs(self):
+        out = ed.keep_defines(self.BIST)(1, self.plan())
+        by_id = {t.id: t for t in out}
+        assert by_id["w"].config_rtl == self.BIST and by_id["fix"].config_rtl == self.BIST
+        assert by_id["cfg"].config_rtl == ("CONFIG_DISABLE_BIST_CLEAR", "MINIMAL_MONITORING")
+
+    def test_a_unit_test_task_is_left_alone(self):
+        out = ed.keep_defines(self.BIST)(1, self.plan())
+        assert {t.id: t for t in out}["ut"].config_rtl is None
+
+    def test_nothing_changes_when_the_objective_needs_no_define(self):
+        plan = self.plan()
+        assert ed.keep_defines(())(0, plan) == plan
+
+    def test_the_other_fields_of_a_task_survive(self):
+        task = Task(id="fix", deps=("a",), kind="rtl", spec="fix it", caches=(("l1d", (8192, 4)),), network="xbar_config")
+        (out,) = ed.keep_defines(self.BIST)(0, (task,))
+        assert (out.id, out.deps, out.kind, out.spec, out.caches, out.network) == (
+            "fix", ("a",), "rtl", "fix it", (("l1d", (8192, 4)),), "xbar_config",
+        )
+
+    def test_composed_with_test_first_the_test_task_gets_the_defines_too(self):
+        hook = ed.compose(ed.keep_defines(self.BIST), ed.test_first())
+        out = hook(1, (Task(id="fix", deps=(), kind="rtl", spec="fix it"),))
+        assert [t.kind for t in out] == ["test", "rtl"]
+        assert all(t.config_rtl == self.BIST for t in out)
+
+
 def record_tests(db, run_id, *tests, iteration=1, task_id="t"):
     result = step(Task(id=task_id, deps=(), kind="test", spec="s"), tests=tests)
     metrics.record_iteration(db, run_id, iteration, (result,), wall_s=1.0)
@@ -392,14 +431,15 @@ class TestRunnerMethods:
 
     def test_both_methods_run_only_on_tasks_with_a_source_fault(self):
         plain = self.planted(id="plain", source_fault=())
-        jobs = runner.plan_jobs((plain, self.planted()), ("testgen", "mace_rtl_test"), repeats=2)
+        jobs = runner.plan_jobs((plain, self.planted()), ("testgen", "mace_rtl_test", "mace_rtl_defs"), repeats=2)
         assert sorted(j.key for j in jobs) == [
+            ("pico-2x2-sh-rtlbug", "mace_rtl_defs", 0), ("pico-2x2-sh-rtlbug", "mace_rtl_defs", 1),
             ("pico-2x2-sh-rtlbug", "mace_rtl_test", 0), ("pico-2x2-sh-rtlbug", "mace_rtl_test", 1),
             ("pico-2x2-sh-rtlbug", "testgen", 0), ("pico-2x2-sh-rtlbug", "testgen", 1),
         ]
 
-    def test_both_need_an_llm(self):
-        assert not {"testgen", "mace_rtl_test"} & runner.NO_LLM_METHODS
+    def test_all_need_an_llm(self):
+        assert not {"testgen", "mace_rtl_test", "mace_rtl_defs"} & runner.NO_LLM_METHODS
 
     def test_testgen_runs_on_one_checkout_under_the_bug(self, tmp_path, monkeypatch):
         seen = []
@@ -425,13 +465,45 @@ class TestRunnerMethods:
         monkeypatch.setattr(
             runner, "check_tests", lambda roots, spec, expert, db, run_id: seen.append(("check", roots, expert.id, run_id))
         )
-        result = runner.run_job(runner.Job(self.planted(), "mace_rtl_test", 0), self.env(tmp_path))
+        task = self.planted(expert_config_rtl=("CONFIG_DISABLE_BIST_CLEAR",))
+        result = runner.run_job(runner.Job(task, "mace_rtl_test", 0), self.env(tmp_path))
         assert result.status == "passed"
         (_, roots, options, hook), check = seen
         assert roots == ("/a", "/b") and options.rtl_edits is True and options.task_prompts is True
         plan = (Task(id="fix", deps=(), kind="rtl", spec="fix it"),)
-        assert [t.kind for t in hook(0, plan)] == ["test", "rtl"]
+        planned = hook(0, plan)
+        assert [t.kind for t in planned] == ["test", "rtl"]
+        # The hook also adds the defines the objective needs, as mace_rtl_defs does.
+        assert all(t.config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",) for t in planned)
         assert check == ("check", ("/a", "/b"), "expert", "r1")
+
+    def test_mace_rtl_defs_is_the_control_with_the_same_defines_and_no_tests(self, tmp_path, monkeypatch):
+        seen = []
+
+        def loop(roots, spec, llm, db, labels=None, options=None, plan_hook=None):
+            seen.append((roots, options, plan_hook, labels))
+            return LoopResult(run_id="r1", status="passed", iterations=())
+
+        monkeypatch.setattr(runner, "run_mace_loop", loop)
+        monkeypatch.setattr(runner, "check_tests", lambda *a: pytest.fail("the control writes no tests"))
+        task = self.planted(expert_config_rtl=("CONFIG_DISABLE_BIST_CLEAR",))
+        runner.run_job(runner.Job(task, "mace_rtl_defs", 0), self.env(tmp_path))
+        ((roots, options, hook, labels),) = seen
+        assert roots == ("/a", "/b") and options.rtl_edits is True and labels.method == "mace_rtl_defs"
+        planned = hook(0, (Task(id="fix", deps=(), kind="rtl", spec="fix it"),))
+        assert [(t.kind, t.config_rtl) for t in planned] == [("rtl", ("CONFIG_DISABLE_BIST_CLEAR",))]
+
+    def test_a_task_that_needs_no_define_keeps_its_plan_unchanged(self, tmp_path, monkeypatch):
+        seen = []
+
+        def loop(roots, spec, llm, db, labels=None, options=None, plan_hook=None):
+            seen.append(plan_hook)
+            return LoopResult(run_id="r1", status="passed", iterations=())
+
+        monkeypatch.setattr(runner, "run_mace_loop", loop)
+        runner.run_job(runner.Job(self.planted(), "mace_rtl_defs", 0), self.env(tmp_path))
+        plan = (Task(id="fix", deps=(), kind="rtl", spec="fix it"),)
+        assert seen[0](0, plan) == plan
 
     def test_the_directed_tests_of_an_earlier_job_are_cleared_with_the_build_cache(self, tmp_path, monkeypatch):
         monkeypatch.setattr(runner, "run_expert", lambda *a, **kw: "done")
