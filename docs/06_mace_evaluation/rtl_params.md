@@ -56,12 +56,23 @@ A design over the budget is rejected before it builds and costs no simulation. T
 |---|---|---|---|
 | `rtlparam_default` | Builds and simulates the default design only, for its finish time and per-hart cycles | No | Once |
 | `rtlparam_sweep` | The default design, then each parameter alone at each of its other values | No | Once |
+| `rtlparam_trades` | The default design, then each design under the task's `trades`, which fit the storage budget | No | Once |
 | `rtlparam_mace` | The default design, then one design per round from MACE's proposer | Yes | Per repeat |
 | `rtlparam_bayes` | The default design, then designs from Optuna's TPE sampler, seeded by the repeat | No | Per repeat |
 
 Every search starts with the default design, so each result has a baseline from the same run. The proposer makes no LLM call for that first design. For each later design it sees the parameters with their defaults, values, and costs, the storage budget, every design tried with its outcome, and the per-hart cycles of the best design and the latest one. It replies with a `BOTTLENECK:` line, one sentence on what limits the finish time, and a `DESIGN:` line with the values to try. The bottleneck line is recorded with the design.
 
 TPE starts modelling after three random trials, where Optuna's default is ten. With ten simulations, the default would leave the sampler nothing to model.
+
+## Trades
+
+At a ratio of 1.0, no single increase fits the budget, so the sweep cannot show an in-budget gain by itself. A design can win only by trading: a larger buffer paid for with a smaller one. `examples/rtlparam_pick_trades.py` reads a task's latest sweep, takes the effect of each passing single change on the finish time, and ranks the combinations that fit the budget by the sum of their effects.
+
+The sum assumes the effects add. It chooses which designs to simulate and is not a result. The script prints a `trades:` list to paste into the task's `rtlparam` block. The loader refuses a trade that is the default design, a repeat, outside the space, or over the budget. `rtlparam_trades` then simulates the default design and each trade, and only those simulations show whether a trade beats the default.
+
+```bash
+python examples/rtlparam_pick_trades.py --task ariane-4x4-matmul-scaled --db runs/rtlparam.db --k 5
+```
 
 ## Counting simulations
 
