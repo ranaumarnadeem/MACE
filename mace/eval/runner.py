@@ -99,16 +99,19 @@ NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codes
 # They run on tasks with an rtlparam block, on one checkout, and keep the build
 # cache between jobs: a design's finish time does not depend on whether its
 # build was reused, and the default design is built once for every search.
-RTLPARAM_METHODS = frozenset(("rtlparam_default", "rtlparam_sweep", "rtlparam_mace", "rtlparam_bayes"))
+RTLPARAM_METHODS = frozenset(
+    ("rtlparam_default", "rtlparam_sweep", "rtlparam_trades", "rtlparam_mace", "rtlparam_bayes")
+)
 METHODS.update(
     {
         "rtlparam_default": "RP0: the default design only: its finish time and per-hart cycles, with no LLM.",
         "rtlparam_sweep": "RP1: the default design, then each parameter alone at each other value, with no LLM.",
         "rtlparam_mace": "RP2: MACE's LLM proposer reads the per-hart cycles and picks each design.",
         "rtlparam_bayes": "RP3: Optuna's TPE sampler over the same parameters, seeded by the repeat.",
+        "rtlparam_trades": "RP4: the default design, then the in-budget trade designs the task lists, with no LLM.",
     }
 )
-ONCE_METHODS = ONCE_METHODS | frozenset(("rtlparam_default", "rtlparam_sweep"))
+ONCE_METHODS = ONCE_METHODS | frozenset(("rtlparam_default", "rtlparam_sweep", "rtlparam_trades"))
 NO_LLM_METHODS = NO_LLM_METHODS | (RTLPARAM_METHODS - {"rtlparam_mace"})
 # --- end session C -------------------------------------------------------------
 
@@ -131,6 +134,8 @@ def applies(method: str, task: SuiteTask) -> bool:
     if fault is not None:
         return task.kind == "bringup" and fault.applies_to(task.core, task.mesh)
     if method in RTLPARAM_METHODS or task.kind == "rtlparam":  # session C
+        if method == "rtlparam_trades":  # it needs designs to simulate
+            return task.kind == "rtlparam" and bool(task.rtlparam.trades)
         return method in RTLPARAM_METHODS and task.kind == "rtlparam"
     return (method in CODESIGN_METHODS) == (task.kind == "codesign")
 
@@ -385,6 +390,10 @@ def _run_rtlparam_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
     elif job.method == "rtlparam_sweep":
         designs = space.one_at_a_time()
         strategy, seed, simulations, budget = GridSearch(designs), None, len(designs), None
+    elif job.method == "rtlparam_trades":
+        # The task's budget stays on, so a trade over it is rejected and recorded, not simulated.
+        designs = [default, *config.trades]
+        strategy, seed, simulations = GridSearch(designs), None, len(designs)
     elif job.method == "rtlparam_mace":
         strategy, seed = RtlProposer(env.llm, spec, space, budget), None
     elif job.method == "rtlparam_bayes":

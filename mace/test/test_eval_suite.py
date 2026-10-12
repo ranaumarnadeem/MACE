@@ -196,6 +196,48 @@ class TestRtlParamBlock:
         (task,) = load_suite(write(tmp_path, text))
         assert (task.rtlparam.simulations, task.rtlparam.storage_budget_ratio) == (10, 1.0)
 
+    TRADES = RTLPARAM.replace("1.25", "1.0").replace(
+        "        home_alloc: [LOW, MIXED]\n",
+        "        home_alloc: [LOW, MIXED]\n        scoreboard: [4, 8, 16]\n",
+    )
+
+    def test_trades_load_as_designs_of_the_space(self, tmp_path):
+        text = self.TRADES + "      trades:\n        - {l2_mshr: 16, scoreboard: 4}\n        - {home_alloc: LOW}\n"
+        (task,) = load_suite(write(tmp_path, text))
+        trades = task.rtlparam.trades
+        assert [t.changed() for t in trades] == [{"l2_mshr": 16, "scoreboard": 4}, {"home_alloc": "LOW"}]
+        assert all(task.rtlparam.space.contains(t) for t in trades)
+
+    def test_a_task_without_trades_has_none(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        assert task.rtlparam.trades == ()
+
+    @pytest.mark.parametrize(
+        "entry,message",
+        [
+            ("{l2_mshr: 16}", "over the budget"),
+            ("{l2_mshr: 16, scoreboard: 4, store_buffer: 2}", "unknown|maps searched parameters|outside"),
+            ("{l2_mshr: 8}", "default design or a repeat"),
+            ("{}", "maps searched parameters"),
+            ("{l3_mshr: 4}", "maps searched parameters"),
+            ("{scoreboard: 32}", "outside the space"),
+            ("[l2_mshr, 16]", "maps searched parameters"),
+        ],
+    )
+    def test_a_trade_that_cannot_be_simulated_in_budget_is_refused_at_load(self, tmp_path, entry, message):
+        text = self.TRADES + f"      trades:\n        - {entry}\n"
+        with pytest.raises(SuiteError, match=message):
+            load_suite(write(tmp_path, text))
+
+    def test_a_repeated_trade_is_refused(self, tmp_path):
+        text = self.TRADES + "      trades:\n        - {l2_mshr: 16, scoreboard: 4}\n        - {scoreboard: 4, l2_mshr: 16}\n"
+        with pytest.raises(SuiteError, match="repeat"):
+            load_suite(write(tmp_path, text))
+
+    def test_trades_must_be_a_list(self, tmp_path):
+        with pytest.raises(SuiteError, match="list of designs"):
+            load_suite(write(tmp_path, self.TRADES + "      trades: {l2_mshr: 16}\n"))
+
     def test_a_null_ratio_sets_no_budget(self, tmp_path):
         (task,) = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "null")))
         assert task.rtlparam.storage_budget_bits() is None

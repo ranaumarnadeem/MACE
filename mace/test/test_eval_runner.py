@@ -343,12 +343,13 @@ class TestCodesignJobs:
         assert runner.area_budget_um2(task) == pytest.approx(expected)
 
 
-def rtlparam_task(task_id="rp-task"):
+def rtlparam_task(task_id="rp-task", trades=False):
     from mace.codesign.rtl import RtlSpace
     from mace.eval.suite import RtlParamConfig
 
     space = RtlSpace({"l2_mshr": (4, 8, 16), "dcache_wbuf": (4, 8), "home_alloc": ("LOW", "MIXED")})
-    config = RtlParamConfig(space=space, simulations=6, storage_budget_ratio=1.25)
+    listed = (space.design({"l2_mshr": 4, "home_alloc": "LOW"}), space.design({"home_alloc": "LOW"})) if trades else ()
+    config = RtlParamConfig(space=space, simulations=6, storage_budget_ratio=1.25, trades=listed)
     return suite_task(task_id, workloads=("matmul_scaled.c",), rtlparam=config)
 
 
@@ -395,7 +396,7 @@ class TestRtlParamJobs:
         task = rtlparam_task()
         others = [m for m in runner.METHODS if m not in runner.RTLPARAM_METHODS]
         assert [m for m in others if runner.applies(m, task)] == []
-        assert all(runner.applies(m, task) for m in runner.RTLPARAM_METHODS)
+        assert all(runner.applies(m, task) for m in runner.RTLPARAM_METHODS - {"rtlparam_trades"})
 
     def test_the_methods_are_described(self):
         assert runner.RTLPARAM_METHODS <= set(runner.METHODS)
@@ -423,6 +424,25 @@ class TestRtlParamJobs:
         assert labels.meta["simulations"] == simulations and labels.meta["storage_budget_bits"] == budget
         assert labels.meta["storage_budget_ratio"] == (1.25 if budget is not None else None)
         assert labels.meta["piton_roots"] == ["/a"]
+
+    def test_the_trades_method_runs_only_on_a_task_that_lists_trades(self):
+        plain, with_trades = rtlparam_task(), rtlparam_task("rp-trades", trades=True)
+        assert not runner.applies("rtlparam_trades", plain)
+        assert runner.applies("rtlparam_trades", with_trades)
+        assert not runner.applies("rtlparam_trades", suite_task())
+        jobs = runner.plan_jobs((plain, with_trades), ("rtlparam_trades", "rtlparam_default"), repeats=2)
+        assert {j.key for j in jobs} == {
+            ("rp-trades", "rtlparam_trades", 0), ("rp-task", "rtlparam_default", 0), ("rp-trades", "rtlparam_default", 0),
+        }
+
+    def test_the_trades_method_simulates_the_default_then_each_trade_under_the_budget(self, tmp_path, searches):
+        task = rtlparam_task("rp-trades", trades=True)
+        runner.run_job(runner.Job(task, "rtlparam_trades", 0), make_env(tmp_path))
+        ((roots, _, strat, kwargs),) = searches
+        assert type(strat).__name__ == "GridSearch"
+        assert strat.designs == [task.rtlparam.space.default(), *task.rtlparam.trades]
+        assert kwargs["simulations"] == 1 + len(task.rtlparam.trades)
+        assert kwargs["storage_budget_bits"] == task.rtlparam.storage_budget_bits() == 602
 
     def test_every_search_starts_from_the_default_design(self, tmp_path, searches):
         pytest.importorskip("optuna")

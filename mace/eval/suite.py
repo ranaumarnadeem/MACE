@@ -48,6 +48,14 @@ lets a design reallocate storage but not add any. ::
         l2_mshr: [4, 8, 16]
         dcache_wbuf: [4, 8, 16]
 
+An optional ``trades`` list names designs to simulate after the sweep, chosen
+from its results (see ``examples/rtlparam_pick_trades.py``). The loader
+refuses a trade that is the default design, a repeat, outside the space, or
+over the storage budget. ::
+
+        trades:
+          - {scoreboard: 4, l2_mshr: 16}
+
 ``workload_args`` gives a gate program the finish mask and extra ``sims``
 run arguments its run needs, as OpenSPARC T1's multi-thread diags do. A
 ``finish_mask`` left out keeps the mesh's one-per-tile default. ::
@@ -79,6 +87,7 @@ job starts.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import re
 from dataclasses import dataclass, field
@@ -89,7 +98,7 @@ import yaml
 from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.baselines.expert import expert_task
 from mace.codesign.area import cache_arrays
-from mace.codesign.rtl import RtlSpace  # session C
+from mace.codesign.rtl import RtlDesign, RtlSpace  # session C
 from mace.codesign.space import DEFAULT_NETWORK, Design, DesignSpace
 from mace.eval.source_faults import SourceEdit
 from mace.spec import Budget, MaceSpec, Task
@@ -100,7 +109,7 @@ _TASK_KEYS = frozenset(
      "codesign", "workload_args", "source_fault", "rtlparam")  # "rtlparam": session C
 )
 _CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
-_RTLPARAM_KEYS = frozenset(("simulations", "storage_budget_ratio", "space"))  # session C
+_RTLPARAM_KEYS = frozenset(("simulations", "storage_budget_ratio", "space", "trades"))  # session C
 
 
 class SuiteError(ValueError):
@@ -136,6 +145,9 @@ class RtlParamConfig:  # session C
     # The storage budget as a multiple of the default design's storage in the
     # searched parameters; None sets no budget.
     storage_budget_ratio: float | None = 1.0
+    # Designs picked from the sweep's results for rtlparam_trades to simulate;
+    # each is within the budget.
+    trades: tuple[RtlDesign, ...] = ()
 
     def storage_budget_bits(self) -> int | None:
         """The flip-flop bits per tile a design may add over the default
@@ -299,7 +311,29 @@ def _rtlparam(raw: object, task_id: str) -> RtlParamConfig | None:
     ratio = raw.get("storage_budget_ratio", 1.0)
     if ratio is not None and (not isinstance(ratio, (int, float)) or isinstance(ratio, bool) or ratio <= 0):
         raise SuiteError(f"task {task_id}: rtlparam storage_budget_ratio must be positive or null, got {ratio!r}")
-    return RtlParamConfig(space=space, simulations=simulations, storage_budget_ratio=ratio)
+    config = RtlParamConfig(space=space, simulations=simulations, storage_budget_ratio=ratio)
+    trades_raw = raw.get("trades") or []
+    if not isinstance(trades_raw, list):
+        raise SuiteError(f"task {task_id}: rtlparam trades must be a list of designs")
+    trades: list[RtlDesign] = []
+    budget = config.storage_budget_bits()
+    for item in trades_raw:
+        if not (isinstance(item, dict) and item and set(item) <= set(space.values)):
+            raise SuiteError(
+                f"task {task_id}: each rtlparam trade maps searched parameters to values, got {item!r}"
+            )
+        design = space.design(item)
+        if not space.contains(design):
+            raise SuiteError(f"task {task_id}: rtlparam trade {item!r} uses a value outside the space")
+        if design == space.default() or design in trades:
+            raise SuiteError(f"task {task_id}: rtlparam trade {item!r} is the default design or a repeat")
+        if budget is not None and design.storage_delta() > budget:
+            raise SuiteError(
+                f"task {task_id}: rtlparam trade {item!r} adds {design.storage_delta()} storage bits, "
+                f"over the budget of {budget}"
+            )
+        trades.append(design)
+    return dataclasses.replace(config, trades=tuple(trades))
 
 
 # --- end session C -------------------------------------------------------------
