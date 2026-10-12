@@ -135,6 +135,16 @@ CREATE TABLE IF NOT EXISTS resimulations (
     wall_s REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, task_id, program)
 );
+
+CREATE TABLE IF NOT EXISTS plan_checks (
+    run_id TEXT NOT NULL,
+    iteration INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    problems TEXT NOT NULL,
+    stripped TEXT NOT NULL,
+    PRIMARY KEY (run_id, iteration, attempt)
+);
 """
 
 # Columns added after the first real runs/*.db files were written. CREATE
@@ -349,6 +359,30 @@ def record_resimulation(db: SQLiteNode, run_id: str, task_id: str, run) -> None:
         "INSERT OR REPLACE INTO resimulations (run_id, task_id, program, verdict, passed, wall_s) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         (run_id, task_id, run.test, run.verdict, int(run.success), run.wall_time_s),
+    )
+
+
+def record_plan_check(
+    db: SQLiteNode,
+    run_id: str,
+    iteration: int,
+    attempt: int,
+    action: str,
+    problems: tuple[tuple[str, str, str], ...],
+    stripped: tuple[str, ...],
+) -> None:
+    """One look at a plan by :mod:`mace.plan_check`, before any build.
+
+    *attempt* counts the plans the iteration asked for (0 is the first).
+    *action* is ``rejected`` when the planner was asked again, else
+    ``accepted``; an accepted plan can still hold *problems* when the
+    iteration had used up its rejections. *problems* are ``(rule, task id,
+    reason)`` triples and *stripped* the defines removed from the plan.
+    """
+    db.execute(
+        "INSERT OR REPLACE INTO plan_checks (run_id, iteration, attempt, action, problems, stripped) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, iteration, attempt, action, json.dumps(problems), json.dumps(list(stripped))),
     )
 
 

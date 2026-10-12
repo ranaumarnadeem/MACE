@@ -26,6 +26,7 @@ backends report a cost at all.
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import ray
@@ -43,12 +44,21 @@ from mace.metrics import (
     record_failure,
     record_iteration,
     record_llm_calls,
+    record_plan_check,
     record_post_mortem,
     start_run,
 )
+from mace.plan_check import (
+    check_plan,
+    define_index,
+    format_rejection,
+    note_failed_config,
+    objective_defines,
+    strip_unknown_defines,
+)
 from mace.planner import PlanningError, plan
 from mace.report import ReportError, generate_post_mortem
-from mace.spec import LoopOptions, LoopResult, MaceSpec, StepResult, Triage
+from mace.spec import LoopOptions, LoopResult, MaceSpec, StepResult, Task, Triage
 from mace.triage import TriageError, changes_from_defaults, edits_feedback, failure_evidence, triage
 from mace.workloads import verify_checksums
 
@@ -60,6 +70,10 @@ logger = logging.getLogger(__name__)
 # not a hardware-capability question), and "planning_failed" (no task
 # history exists yet for a post-mortem to synthesize anything from).
 _POST_MORTEM_STATUSES = frozenset(("failed", "budget_exceeded"))
+
+# How many times one iteration sends a plan back to the planner. A plan still
+# rejected after that runs as it stands, so the simulator stays the judge.
+MAX_PLAN_REJECTIONS = 2
 
 
 def _start_triage_tool_server(run_id: str, piton_root: str, failed: StepResult) -> PitonToolServer | None:
@@ -83,6 +97,61 @@ def _start_triage_tool_server(run_id: str, piton_root: str, failed: StepResult) 
             "run_mace_loop: failed to start the triage tool server -- continuing without it"
         )
         return None
+
+
+def _plan_checked(
+    db: SQLiteNode,
+    run_id: str,
+    iteration: int,
+    spec: MaceSpec,
+    llm,
+    tools,
+    feedback: str,
+    options: LoopOptions,
+    checkout: str | None,
+    failed_configs: dict[tuple[str, ...], str],
+) -> tuple[Task, ...]:
+    """The iteration's plan: one planner call, then :mod:`mace.plan_check`'s
+    look at it before any build.
+
+    Defines no file of *checkout* mentions are removed, as they change
+    nothing. A plan the loop cannot carry out goes back to the planner with
+    the reasons, up to :data:`MAX_PLAN_REJECTIONS` times; a planner reply
+    with no usable plan then leaves the plan it was asked to replace in
+    force. Every look that rejected a plan or removed a define is recorded.
+    """
+    tasks = plan(spec, llm, tools=tools, feedback=feedback, rtl_edits=options.rtl_edits)
+    if not options.plan_check:
+        return tasks
+    known = define_index(checkout) if checkout else None
+    path_exists = (lambda path: os.path.exists(os.path.join(checkout, path))) if checkout else None
+    keep = objective_defines(spec.objective)
+    for attempt in range(MAX_PLAN_REJECTIONS + 1):
+        tasks, stripped = strip_unknown_defines(tasks, known, keep)
+        problems = check_plan(
+            spec, tasks, rtl_edits=options.rtl_edits, path_exists=path_exists, failed_configs=failed_configs
+        )
+        rejected = bool(problems) and attempt < MAX_PLAN_REJECTIONS
+        if problems or stripped or attempt:
+            record_plan_check(
+                db, run_id, iteration, attempt, "rejected" if rejected else "accepted",
+                tuple((p.rule, p.task_id, p.reason) for p in problems), stripped,
+            )
+        if not rejected:
+            return tasks
+        try:
+            tasks = plan(
+                spec, llm, tools=tools, feedback=feedback, rtl_edits=options.rtl_edits,
+                rejection=format_rejection(problems), phase="plan_retry",
+            )
+        except PlanningError as e:
+            logger.warning("run %s: no usable plan after a rejection, running the rejected one: %s", run_id, e)
+            record_plan_check(
+                db, run_id, iteration, attempt + 1, "kept",
+                tuple((p.rule, p.task_id, p.reason) for p in problems), (),
+            )
+            return tasks
+    return tasks
 
 
 def _rtl_context(feedback_history: list[str], last_evidence: str) -> str:
@@ -232,6 +301,9 @@ def _run_started_loop(
     had_a_failure = False
     last_evidence = ""
     status = "budget_exceeded"
+    # The build flags of every configuration that has failed in this run, for the plan check's repeat rule.
+    failed_configs: dict[tuple[str, ...], str] = {}
+    checkout = piton_roots[0] if piton_roots and os.path.isdir(piton_roots[0]) else None
 
     # Built on first use, inside the loop below (not here): a run that
     # fails at the planning stage before ever reaching integrate_parallel
@@ -276,8 +348,9 @@ def _run_started_loop(
                 # favor.
                 iter_started = time.monotonic()
                 try:
-                    tasks = plan(
-                        spec, llm, tools=tools, feedback="\n".join(feedback_history), rtl_edits=options.rtl_edits
+                    tasks = _plan_checked(
+                        db, run_id, iteration, spec, llm, tools, "\n".join(feedback_history), options, checkout,
+                        failed_configs,
                     )
                 except PlanningError as e:
                     logger.warning("run %s: %s", run_id, e)
@@ -307,6 +380,8 @@ def _run_started_loop(
                 record_llm_calls(db, run_id, iteration, iter_calls)
                 if on_iteration is not None:
                     on_iteration(iteration, results)
+                for r in results:
+                    note_failed_config(failed_configs, r, iteration)
 
                 if results and all(r.passed for r in results):
                     status = "passed"

@@ -101,6 +101,21 @@ class TestPlan:
         message, _ = llm.calls[0]
         assert message == build_prompt(make_spec(), feedback="task x failed: timeout")
 
+    def test_a_rejection_note_follows_the_prompt_and_is_off_by_default(self):
+        assert "rejected before any build" not in build_prompt(make_spec())
+        prompt = build_prompt(make_spec(), feedback="f", rejection="The plan you just gave was rejected before any build.")
+        assert prompt.endswith("The plan you just gave was rejected before any build.\n")
+        assert prompt.index("Feedback from a previous attempt") < prompt.index("rejected before any build")
+
+    def test_the_call_is_recorded_under_the_phase_it_is_given(self):
+        from mace import usage
+
+        log = usage.UsageLog()
+        with usage.recording(log):
+            plan(make_spec(), FakeLLM(responses=[PLANNER_TRANSCRIPT]))
+            plan(make_spec(), FakeLLM(responses=[PLANNER_TRANSCRIPT]), rejection="no", phase="plan_retry")
+        assert [call.phase for call in log.calls()] == ["plan", "plan_retry"]
+
     def test_no_task_lines_raises_planning_error(self):
         llm = FakeLLM(responses=["I don't have enough information to plan yet."])
         with pytest.raises(PlanningError, match="no TASK:"):

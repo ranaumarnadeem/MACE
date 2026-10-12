@@ -41,9 +41,9 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
-from mace.integrator import topological_order
+from mace.integrator import NOT_STARTED, topological_order
 from mace.loop import _config_for_task
-from mace.spec import MaceSpec, Task
+from mace.spec import MaceSpec, StepResult, Task
 
 SOURCE_EDIT = "source_edit"
 REQUIRED_DEFINE = "required_define"
@@ -176,6 +176,24 @@ def config_key(spec: MaceSpec, task: Task) -> tuple[str, ...]:
     """The build flags *task* gets under *spec*: two tasks with equal keys
     build the same model."""
     return tuple(_config_for_task(spec, task).sims_flags())
+
+
+def note_failed_config(failed: dict[tuple[str, ...], str], result: StepResult, iteration: int) -> None:
+    """Add *result*'s configuration to *failed* when its task failed on its
+    own merits: not for a pass, a build that never started because the run's
+    time was gone, or a build that carried RTL edits, which the flags do not
+    show. The first failure of a configuration is the one kept."""
+    if result.passed or result.edits or result.build.failure_reason == NOT_STARTED:
+        return
+    if not result.build.success:
+        how = "its build failed"
+    else:
+        verdict = result.run.verdict if result.run is not None else None
+        how = f"its simulation ended {verdict}"
+    failed.setdefault(
+        tuple(result.build.config.sims_flags()),
+        f"task {result.task.id} in iteration {iteration + 1} ({how})",
+    )
 
 
 def _builds_on_edits(tasks: tuple[Task, ...]) -> set[str]:

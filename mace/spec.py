@@ -156,6 +156,8 @@ class LoopOptions:
       ``False``, changes only the build configuration: offered on tasks
       that pass at their defaults, the kind made the planner invent RTL
       bugs in files that do not exist.
+    - ``plan_check``: ``False`` runs each plan as the planner wrote it,
+      without :mod:`mace.plan_check` rejecting or cleaning it first.
     """
 
     triage: str = "llm"
@@ -164,6 +166,7 @@ class LoopOptions:
     task_prompts: bool = True
     post_mortem: bool = True
     rtl_edits: bool = False
+    plan_check: bool = True
 
     def __post_init__(self) -> None:
         if self.triage not in TRIAGE_MODES:

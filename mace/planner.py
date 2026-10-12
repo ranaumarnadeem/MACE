@@ -129,8 +129,10 @@ RTL_RULE = """\
 """
 
 
-def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = False) -> str:
-    """The planner's prompt; *rtl_edits* True adds the rtl kind."""
+def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = False, rejection: str = "") -> str:
+    """The planner's prompt; *rtl_edits* True adds the rtl kind. *rejection*
+    says why the plan this call replaces was turned away before any build
+    (see :mod:`mace.plan_check`)."""
     rules = _TASK_RULES.format(
         kinds="config|workload|unit_test|rtl" if rtl_edits else "config|workload|unit_test",
         rtl_rule=RTL_RULE if rtl_edits else NO_RTL_RULE,
@@ -141,10 +143,15 @@ def build_prompt(spec: MaceSpec, feedback: str = "", rtl_edits: bool = False) ->
     )
     if feedback:
         prompt += f"\nFeedback from a previous attempt, to inform this plan:\n{feedback}\n"
+    if rejection:
+        prompt += f"\n{rejection}\n"
     return prompt
 
 
-def plan(spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = False) -> tuple[Task, ...]:
+def plan(
+    spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = False, rejection: str = "",
+    phase: str = "plan",
+) -> tuple[Task, ...]:
     """One LLM call, turned into a validated task DAG.
 
     ``feedback`` (from mace.triage.triage, via mace.loop's replan-on-failure
@@ -153,7 +160,10 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = Fa
 
     Each task also gets its dependencies' RTL defines (see
     :func:`inherit_config_rtl`). *rtl_edits* True adds the ``rtl`` kind to
-    the prompt (see :class:`~mace.spec.LoopOptions`).
+    the prompt (see :class:`~mace.spec.LoopOptions`). *rejection* is the
+    note :func:`mace.plan_check.format_rejection` writes when a plan was
+    turned away; *phase* names the call in the usage records, ``plan`` for
+    a first call and ``plan_retry`` for one that follows a rejection.
 
     Raises:
         PlanningError: no ``TASK:`` lines, or the ones that parsed don't
@@ -163,7 +173,7 @@ def plan(spec: MaceSpec, llm, tools=(), feedback: str = "", rtl_edits: bool = Fa
             failed plan means (retry with more context, give up) is the
             caller's job; this only refuses to hand back something broken.
     """
-    query = usage.prompt(llm, "plan", build_prompt(spec, feedback, rtl_edits), tools)
+    query = usage.prompt(llm, phase, build_prompt(spec, feedback, rtl_edits, rejection), tools)
     tasks = parse_tasks(query.result)
     if not tasks:
         raise PlanningError(f"no TASK: lines in the planner's response: {query.result!r}")

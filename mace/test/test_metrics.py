@@ -284,6 +284,39 @@ class TestFailures:
         assert rows == {"a": 1, "b": 1, "c": 0}  # other_run_id's failure is untouched
 
 
+class TestPlanChecks:
+    def test_a_look_at_a_plan_records_its_problems_and_stripped_defines(self, tmp_path):
+        import json
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        problems = (("required_define", "t1", "task t1 builds without X."),)
+
+        metrics.record_plan_check(db, run_id, 1, 0, "rejected", problems, ("MADE_UP",))
+        metrics.record_plan_check(db, run_id, 1, 1, "accepted", (), ())
+
+        rows = db.query("SELECT * FROM plan_checks WHERE run_id = ? ORDER BY attempt", (run_id,))
+        assert [(r["iteration"], r["attempt"], r["action"]) for r in rows] == [(1, 0, "rejected"), (1, 1, "accepted")]
+        assert json.loads(rows[0]["problems"]) == [list(problems[0])] and json.loads(rows[0]["stripped"]) == ["MADE_UP"]
+        assert json.loads(rows[1]["problems"]) == [] and json.loads(rows[1]["stripped"]) == []
+
+    def test_an_older_database_gets_the_table(self, tmp_path):
+        import sqlite3
+
+        path = str(tmp_path / "old.db")
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, objective TEXT NOT NULL, core TEXT NOT NULL, "
+            "x_tiles INTEGER NOT NULL, y_tiles INTEGER NOT NULL, started_at REAL NOT NULL, finished_at REAL, "
+            "status TEXT NOT NULL DEFAULT 'running')"
+        )
+        conn.commit()
+        conn.close()
+        reader = metrics.DBReader(path)
+        assert reader.query("SELECT * FROM plan_checks") == []
+        reader.close()
+
+
 class TestPostMortem:
     def test_record_and_get_round_trip(self, tmp_path):
         db = open_test_db(tmp_path)

@@ -41,6 +41,14 @@ def _stub_node_lifecycle(monkeypatch):
     monkeypatch.setattr("mace.orchestrator.open_nodes", lambda piton_roots: [])
 
 
+@pytest.fixture(autouse=True)
+def _plan_check_off(monkeypatch):
+    """These tests are about the loop's control flow, and several re-plan the
+    same default configuration after a failure, which the plan check's repeat
+    rule would send back. TestPlanCheckInTheLoop puts the real check back."""
+    monkeypatch.setattr("mace.orchestrator.check_plan", lambda *args, **kwargs: ())
+
+
 def _no_post_mortem(*args, **kwargs):
     """A generate_post_mortem stand-in matching orchestrator's own fail-open
     handling (`except ReportError: pass`) -- these control-flow tests aren't

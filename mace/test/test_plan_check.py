@@ -228,6 +228,53 @@ class TestRepeatedFailure:
         assert check_plan(spec("ariane", "Verify hello."), (task("a"),), failed_configs={}) == ()
 
 
+class TestNoteFailedConfig:
+    def result(self, passed=False, build_ok=True, verdict="timeout", failure_reason="", edits=None, config=None):
+        from chia.base.llm_call import QueryResult
+        from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
+        from mace.spec import StepResult
+
+        build = PitonBuildArtifact(
+            success=build_ok, returncode=0 if build_ok else 1, config=config or PitonConfig(), sim_type="vlt",
+            model_dir="/x", binary_path="/x/V", wall_time_s=1.0, failure_reason=failure_reason,
+        )
+        run = PitonRunResult(success=passed, returncode=0, test="a.c", sim_type="vlt", run_dir="/x", verdict=verdict) if build_ok else None
+        query = QueryResult(result="", returncode=0, stderr="", stream_result="", success=True)
+        return StepResult(task=task("t9"), query=query, build=build, run=run, passed=passed, edits=edits)
+
+    def test_a_failed_simulation_is_noted_with_its_verdict(self):
+        failed = {}
+        plan_check.note_failed_config(failed, self.result(), 0)
+        ((flags, note),) = failed.items()
+        assert "-sys=manycore" in flags and note == "task t9 in iteration 1 (its simulation ended timeout)"
+
+    def test_a_failed_build_is_noted_as_a_build_failure(self):
+        failed = {}
+        plan_check.note_failed_config(failed, self.result(build_ok=False), 2)
+        assert list(failed.values()) == ["task t9 in iteration 3 (its build failed)"]
+
+    def test_a_pass_is_not_noted(self):
+        failed = {}
+        plan_check.note_failed_config(failed, self.result(passed=True, verdict="pass"), 0)
+        assert failed == {}
+
+    def test_a_build_the_run_never_started_is_not_noted(self):
+        failed = {}
+        plan_check.note_failed_config(failed, self.result(build_ok=False, failure_reason="budget_exhausted"), 0)
+        assert failed == {}
+
+    def test_a_build_with_rtl_edits_is_not_noted(self):
+        failed = {}
+        plan_check.note_failed_config(failed, self.result(edits={"a.v": "text"}), 0)
+        assert failed == {}
+
+    def test_the_first_failure_of_a_configuration_is_the_one_kept(self):
+        failed = {}
+        plan_check.note_failed_config(failed, self.result(), 0)
+        plan_check.note_failed_config(failed, self.result(), 1)
+        assert list(failed.values()) == ["task t9 in iteration 1 (its simulation ended timeout)"]
+
+
 def test_a_normal_plan_for_a_normal_objective_has_no_problem():
     s = spec("ariane", "Verify the barrier_atomic.c gate workload passes on a 2x2 mesh.", ("barrier_atomic.c",))
     plan = (
