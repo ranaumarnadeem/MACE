@@ -96,7 +96,7 @@ tasks:
       Verify the barrier_atomic.c gate workload passes on a 2x2 mesh. The
       design in this checkout has a bug under piton/design/ that makes the
       workload fail in simulation, and it cannot pass until the bug is fixed.
-    verified: false
+    verified: true
     expert: {}
     source_fault:
       - path: piton/design/chip/tile/l2/rtl/l2_amo_alu.v
