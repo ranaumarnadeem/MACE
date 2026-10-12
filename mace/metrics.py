@@ -153,6 +153,14 @@ CREATE TABLE IF NOT EXISTS probes (
     PRIMARY KEY (run_id, iteration, probe)
 );
 
+CREATE TABLE IF NOT EXISTS fast_paths (
+    run_id TEXT NOT NULL,
+    iteration INTEGER NOT NULL,
+    kept TEXT NOT NULL,
+    dropped TEXT NOT NULL,
+    PRIMARY KEY (run_id, iteration)
+);
+
 CREATE TABLE IF NOT EXISTS plan_checks (
     run_id TEXT NOT NULL,
     iteration INTEGER NOT NULL,
@@ -403,6 +411,15 @@ def record_probes(db: SQLiteNode, run_id: str, iteration: int, failed_task: str,
         ))
     if ops:
         db.transaction(ops)
+
+
+def record_fast_path(db: SQLiteNode, run_id: str, iteration: int, kept: str, dropped: tuple[str, ...]) -> None:
+    """An iteration whose plan built one design and ran as the single task
+    *kept*; *dropped* are the ids of the tasks it stood in for."""
+    db.execute(
+        "INSERT OR REPLACE INTO fast_paths (run_id, iteration, kept, dropped) VALUES (?, ?, ?, ?)",
+        (run_id, iteration, kept, json.dumps(list(dropped))),
+    )
 
 
 def record_plan_check(

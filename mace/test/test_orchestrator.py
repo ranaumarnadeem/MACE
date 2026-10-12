@@ -852,12 +852,27 @@ class TestLoopOptions:
         monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="w"),)]))
         monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: Triage("timeout", "wait"))
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
-        opts = LoopOptions(check="build", reuse_builds=False)
+        opts = LoopOptions(check="build", reuse_builds=False, fast_path=False)
         before = time.monotonic()
         run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=1, max_wall_s=900)), FakeLLM([]), make_db(tmp_path), options=opts)
 
         assert received[0]["options"] is opts
         assert before + 890 <= received[0]["deadline"] <= time.monotonic() + 900
+
+    def test_a_plan_of_one_design_reaches_the_integrator_with_only_its_task_calls_off(self, tmp_path, monkeypatch):
+        import dataclasses
+
+        from mace.spec import LoopOptions
+
+        received = []
+        self._failing_then_recorded(monkeypatch, received)
+        monkeypatch.setattr("mace.orchestrator.plan", fake_plan([(Task(id="t1", deps=(), kind="workload", spec="w"),)]))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: Triage("timeout", "wait"))
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+        opts = LoopOptions(check="build", reuse_builds=False)
+        run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=1)), FakeLLM([]), make_db(tmp_path), options=opts)
+
+        assert received[0]["options"] == dataclasses.replace(opts, task_prompts=False)
 
     def _replan_feedback(self, tmp_path, monkeypatch, options):
         feedback_seen = []

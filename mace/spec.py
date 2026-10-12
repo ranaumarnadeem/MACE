@@ -163,6 +163,9 @@ class LoopOptions:
       :func:`mace.triage.replan_feedback`).
     - ``narrowing``: ``False`` triages a failed task without first rebuilding
       it with each change from the defaults undone (see :mod:`mace.narrowing`).
+    - ``fast_path``: ``False`` runs every plan as the planner wrote it, with
+      each task's own LLM call; the default runs a plan that builds one
+      design as a single task without those calls (see :mod:`mace.fast_path`).
     """
 
     triage: str = "llm"
@@ -174,6 +177,7 @@ class LoopOptions:
     plan_check: bool = True
     raw_evidence: bool = True
     narrowing: bool = True
+    fast_path: bool = True
 
     def __post_init__(self) -> None:
         if self.triage not in TRIAGE_MODES:

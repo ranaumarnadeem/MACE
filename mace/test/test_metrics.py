@@ -284,6 +284,20 @@ class TestFailures:
         assert rows == {"a": 1, "b": 1, "c": 0}  # other_run_id's failure is untouched
 
 
+class TestFastPaths:
+    def test_an_iteration_that_ran_as_one_task_records_what_it_stood_for(self, tmp_path):
+        import json
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_fast_path(db, run_id, 0, "run", ("cfg", "warmup"))
+        metrics.record_fast_path(db, run_id, 1, "only", ())
+        rows = db.query("SELECT * FROM fast_paths WHERE run_id = ? ORDER BY iteration", (run_id,))
+        assert [(r["iteration"], r["kept"], json.loads(r["dropped"])) for r in rows] == [
+            (0, "run", ["cfg", "warmup"]), (1, "only", []),
+        ]
+
+
 class TestProbes:
     def test_each_probe_is_a_row_tied_to_the_task_it_examined(self, tmp_path):
         import json

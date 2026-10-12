@@ -36,6 +36,7 @@ from chia.database.sqlite_node import SQLiteNode
 from chia_openpiton.state_def import PitonConfig
 from chia_openpiton.tools import PitonToolServer
 from mace import usage
+from mace.fast_path import collapse_single_design
 from mace.integrator import close_nodes, integrate_parallel, open_nodes
 from mace.metrics import (
     RunLabels,
@@ -43,6 +44,7 @@ from mace.metrics import (
     finish_run,
     mark_all_recovered,
     record_failure,
+    record_fast_path,
     record_iteration,
     record_llm_calls,
     record_plan_check,
@@ -369,12 +371,19 @@ def _run_started_loop(
                     break
                 if plan_hook is not None:
                     tasks = plan_hook(iteration, tasks)
+                iteration_options = options
+                if options.fast_path:
+                    collapsed = collapse_single_design(spec, tasks)
+                    if collapsed is not None:
+                        tasks, dropped = collapsed
+                        iteration_options = dataclasses.replace(options, task_prompts=False)
+                        record_fast_path(db, run_id, iteration, tasks[0].id, dropped)
 
                 if nodes is None:
                     nodes = open_nodes(piton_roots)
                 results = integrate_parallel(
                     piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,
-                    on_task_progress=on_task_progress, nodes=nodes, options=options,
+                    on_task_progress=on_task_progress, nodes=nodes, options=iteration_options,
                     deadline=started + spec.budget.max_wall_s,
                     rtl_context=_rtl_context(feedback_history, last_evidence),
                 )
