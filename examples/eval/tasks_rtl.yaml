@@ -88,6 +88,10 @@ tasks:
     core: ariane
     mesh: [2, 2]
     workloads: [barrier_atomic.c]
+    # With the bug the workload hangs, and the default limit of 1,000,000 cycles
+    # costs 985 s of wall time per run; the correct design passes in about
+    # 25,000 cycles.
+    rtl_timeout: 200000
     objective: >-
       Verify the barrier_atomic.c gate workload passes on a 2x2 mesh. The
       design in this checkout has a bug under piton/design/ that makes the
