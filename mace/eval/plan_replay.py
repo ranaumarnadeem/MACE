@@ -11,6 +11,12 @@ A seeded fault changes the plan after the planner wrote it, so the reply is
 the plan the check would have seen. A plan that passed and has a problem is a
 rule that would have rejected a working plan, which is the mistake to look for.
 
+The replay reads each iteration's first planner call, phase ``plan``. In a
+database the loop wrote with the plan check on, a plan the check sent back is
+followed by a ``plan_retry`` call, and the iteration ran the retry's plan, so
+the replay of such a database pairs the rejected plan with the outcome of its
+replacement. It is meant for databases written before the check existed.
+
 The database opens read-only and immutable: :class:`mace.metrics.DBReader` adds
 tables and columns to an older database, and a backed-up evidence database
 must stay as it was.

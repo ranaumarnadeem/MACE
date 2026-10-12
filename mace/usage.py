@@ -2,7 +2,8 @@
 
 Every LLM call a run makes goes through :func:`prompt` (a local call) or
 :func:`note` (after a ``.chia_remote(...)`` call resolves), tagged with the
-phase that made it: ``plan``, ``task``, ``triage``, ``post_mortem``, or a
+phase that made it: ``plan``, ``plan_retry`` (a plan asked for again after
+the plan check rejected one), ``task``, ``triage``, ``post_mortem``, or a
 baseline's own phase. While a :class:`UsageLog` is active through
 :func:`recording`, each call lands in it; with none active, nothing is
 recorded, so code that never starts a log (tests, one-off scripts) is

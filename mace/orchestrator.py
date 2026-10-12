@@ -203,6 +203,15 @@ def run_mace_loop(
     iteration actually runs in place of the planner's; a seeded fault uses
     it to break the first plan (see :mod:`mace.eval.faults`).
 
+    Four fixed checks run inside the loop, each a ``LoopOptions`` field that
+    is on by default. Each plan is cleaned and checked before any build
+    (:mod:`mace.plan_check`) and, once the hook has run, a plan that builds
+    one design becomes one task without the tasks' own LLM calls
+    (:mod:`mace.fast_path`). A failed task is rebuilt with its changes from
+    the defaults undone before it is triaged (:mod:`mace.narrowing`), and
+    the re-plan's feedback carries the build's own report beside the
+    diagnosis (:func:`mace.triage.replan_feedback`).
+
     ``on_task_progress``, if given, is passed straight through to
     :func:`~mace.integrator.integrate_parallel` -- see its own docstring.
     Real-time in-flight feedback (a batch's tasks entering prompting/
