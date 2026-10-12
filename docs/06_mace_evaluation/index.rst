@@ -12,3 +12,4 @@ MACE Evaluation
    results
    cost
    harness
+   directed_tests
