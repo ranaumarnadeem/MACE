@@ -31,7 +31,7 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has a bug under piton/design/ that makes the
       workload fail in simulation, and it cannot pass until the bug is fixed.
-    verified: false
+    verified: true
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
     source_fault:
