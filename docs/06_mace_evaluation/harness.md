@@ -42,6 +42,7 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `codesign_grid` | C2 | A co-design search over the task's fixed grid, in order. |
 | `codesign_bayes` | C3 | A co-design search with Optuna's TPE sampler, seeded by the repeat. |
 | `seeded_<fault>` | RQ3 | The loop with its first plan broken by one seeded fault; see below. |
+| `seeded_retry_<fault>` | RQ3, B2 | The retry agent with its first design broken by one seeded fault, on one checkout; see below. |
 | `faultcheck_<fault>` | Fault check | The expert configuration with one seeded fault applied, with no LLM; it should fail. See below. |
 
 The co-design methods run only on tasks with a `codesign` block, and the others only on tasks without one.
@@ -88,6 +89,7 @@ Each changes the first plan's `config` and `workload` tasks before they run and 
 
 A fault applies to bring-up tasks on the cores it lists, and `crossbar` only to meshes with two or more rows, since OpenPiton's crossbar has one port per column.
 A `seeded_<fault>` method runs the loop with that fault seeded, only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
+A `seeded_retry_<fault>` method runs the retry agent with the same fault applied to its first design, through `run_retry_agent`'s `design_hook`, and leaves later designs alone; it applies to the same tasks as `seeded_<fault>`.
 A `faultcheck_<fault>` method builds and checks the task's expert configuration with the fault applied, with no LLM, once per task; the fault breaks that task when the run fails.
 A candidate fault becomes verified when its fault checks fail on every task it applies to, and one whose check passes is dropped.
 
