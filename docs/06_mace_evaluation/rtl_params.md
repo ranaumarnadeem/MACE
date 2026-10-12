@@ -46,7 +46,9 @@ The edits are applied through `OpenPitonWorkspaceNode.apply_edits`, set into `Pi
 
 ## The storage budget
 
-A task's `storage_budget_bits` caps the bits a design may add per tile over the default design. A design over the budget is rejected before it builds and costs no simulation. The budget keeps a search from taking the largest value of every buffer. Every method on a task gets the same budget.
+A task's `storage_budget_ratio` is a multiple of the default design's storage in the searched parameters, as `area_budget_ratio` is for the cache co-design. The budget is the ratio's excess over 1 times that storage, rounded down, as flip-flop bits per tile that a design may add. At the ratio of 1.0 that the task file sets, a design may not add storage, so a larger buffer must be paid for with a smaller one. The ratio is fixed before any search runs, so the budget does not shape the result.
+
+A design over the budget is rejected before it builds and costs no simulation. The budget keeps a search from taking the largest value of every buffer. Every method on a task gets the same budget, except `rtlparam_default` and `rtlparam_sweep`, which have none: they measure what each value does and are not searches.
 
 ## Methods
 
@@ -74,12 +76,12 @@ MAKEFLAGS=-j1 python examples/eval_batch.py --suite examples/eval/tasks_rtlparam
   --backend vertex --db-path runs/rtlparam.db
 ```
 
-`examples/eval/tasks_rtlparam.yaml` has one task per mesh: 1x1, 2x2, 4x2, and 4x4 Ariane. Each task's `rtlparam` block gives the values each searched parameter may take, the number of simulations per search, and the storage budget. A parameter left out of the space keeps its default, and the values must include the default. The searches use one checkout.
+`examples/eval/tasks_rtlparam.yaml` has one task per mesh: 1x1, 2x2, 4x2, and 4x4 Ariane. Each task's `rtlparam` block gives the values each searched parameter may take, the number of simulations per search, and the storage budget ratio. A parameter left out of the space keeps its default, and the values must include the default. The searches use one checkout.
 
 ```yaml
 rtlparam:
   simulations: 10
-  storage_budget_bits: 2500
+  storage_budget_ratio: 1.0
   space:
     l2_mshr: [4, 8, 16]
     dcache_wbuf: [4, 8, 16]

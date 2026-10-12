@@ -348,7 +348,7 @@ def rtlparam_task(task_id="rp-task"):
     from mace.eval.suite import RtlParamConfig
 
     space = RtlSpace({"l2_mshr": (4, 8, 16), "dcache_wbuf": (4, 8), "home_alloc": ("LOW", "MIXED")})
-    config = RtlParamConfig(space=space, simulations=6, storage_budget_bits=2000)
+    config = RtlParamConfig(space=space, simulations=6, storage_budget_ratio=1.25)
     return suite_task(task_id, workloads=("matmul_scaled.c",), rtlparam=config)
 
 
@@ -406,8 +406,8 @@ class TestRtlParamJobs:
         [
             ("rtlparam_default", "GridSearch", None, 1, None),
             ("rtlparam_sweep", "GridSearch", None, 1 + 2 + 1 + 1, None),
-            ("rtlparam_mace", "RtlProposer", None, 6, 2000),
-            ("rtlparam_bayes", "BayesianSearch", 1, 6, 2000),
+            ("rtlparam_mace", "RtlProposer", None, 6, 602),
+            ("rtlparam_bayes", "BayesianSearch", 1, 6, 602),
         ],
     )
     def test_each_method_searches_with_its_strategy(self, tmp_path, searches, method, strategy, seed, simulations, budget):
@@ -421,6 +421,7 @@ class TestRtlParamJobs:
         labels = kwargs["labels"]
         assert (labels.method, labels.task, labels.seed) == (method, "rp-task", seed)
         assert labels.meta["simulations"] == simulations and labels.meta["storage_budget_bits"] == budget
+        assert labels.meta["storage_budget_ratio"] == (1.25 if budget is not None else None)
         assert labels.meta["piton_roots"] == ["/a"]
 
     def test_every_search_starts_from_the_default_design(self, tmp_path, searches):

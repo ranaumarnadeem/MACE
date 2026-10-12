@@ -11,8 +11,11 @@
 #     --methods rtlparam_default,rtlparam_sweep,rtlparam_mace,rtlparam_bayes --backend vertex \
 #     --db-path runs/rtlparam.db
 #
-# rtl_timeout, max_cycle, and storage_budget_bits are set from the pilot runs.
-# A task stays unverified until its default design passes on every tile.
+# rtl_timeout and max_cycle are set from the pilot runs. The storage budget is
+# a ratio of the default design's storage in the searched parameters, fixed
+# before any search runs, as area_budget_ratio is for the cache co-design: 1.0
+# lets a design reallocate storage but not add any. A task stays unverified
+# until its default design passes on every tile.
 version: 1
 defaults:
   budget: {max_iterations: 1, max_wall_s: 3600}
@@ -28,7 +31,7 @@ tasks:
     budget: {max_wall_s: 7200}
     rtlparam: &rtlparam
       simulations: 10
-      storage_budget_bits: 2500
+      storage_budget_ratio: 1.0
       space:
         l2_mshr: [4, 8, 16]
         l2_req_buf: [4, 8, 16]

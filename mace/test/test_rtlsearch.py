@@ -342,6 +342,18 @@ class TestRtlProposer:
         prompt = self._proposer().build_prompt([evaluation(SPACE.default())])
         assert "1. the default design: passed" in prompt
 
+    @pytest.mark.parametrize(
+        "budget,expected",
+        [
+            (602, "may add at most 602 flip-flop bits per tile over the default design"),
+            (0, "may not add flip-flop bits per tile over the default design, so a larger buffer must be paid for"),
+            (-616, "must save at least 616 flip-flop bits per tile against the default design"),
+        ],
+    )
+    def test_the_budget_paragraph_says_what_the_budget_allows(self, budget, expected):
+        prompt = self._proposer(budget=budget).build_prompt([evaluation(SPACE.default())])
+        assert f"Storage budget: a design {expected}" in prompt
+
     def test_there_is_no_budget_paragraph_without_a_budget(self):
         assert "Storage budget" not in self._proposer().build_prompt([evaluation(SPACE.default())])
 

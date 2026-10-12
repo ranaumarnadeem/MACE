@@ -82,11 +82,16 @@ class TestTheRtlParamSuite:
         for task in load_suite(self.RTLPARAM_SUITE):
             assert set(task.workloads) <= set(compute_checksums())
 
-    def test_the_search_budget_lets_some_designs_in_and_keeps_others_out(self):
+    def test_the_budget_is_the_default_design_s_storage_so_a_larger_buffer_must_be_paid_for(self):
         (task, *_) = load_suite(self.RTLPARAM_SUITE)
-        budget = task.rtlparam.storage_budget_bits
+        assert task.rtlparam.storage_budget_ratio == 1.0
+        budget = task.rtlparam.storage_budget_bits()
+        assert budget == 0
         costs = [d.storage_delta() for d in task.rtlparam.space.one_at_a_time()]
         assert any(c <= budget for c in costs) and any(c > budget for c in costs)
+        # A larger buffer paired with a smaller one fits.
+        space = task.rtlparam.space
+        assert space.design({"scoreboard": 4, "l2_mshr": 16}).storage_delta() <= budget
 
 
 class TestLoading:
@@ -158,7 +163,7 @@ RTLPARAM = MINIMAL.replace("id: pico-2x2-addi", "id: rp-task").replace("core: pi
 ) + """\
     rtlparam:
       simulations: 6
-      storage_budget_bits: 2000
+      storage_budget_ratio: 1.25
       space:
         l2_mshr: [4, 8, 16]
         home_alloc: [LOW, MIXED]
@@ -170,14 +175,30 @@ class TestRtlParamBlock:
         (task,) = load_suite(write(tmp_path, RTLPARAM))
         assert task.kind == "rtlparam"
         config = task.rtlparam
-        assert (config.simulations, config.storage_budget_bits) == (6, 2000)
+        assert (config.simulations, config.storage_budget_ratio) == (6, 1.25)
         assert config.space.knobs == {"home_alloc": ("LOW", "MIXED"), "l2_mshr": (4, 8, 16)}
         assert task.codesign is None
 
-    def test_the_simulations_default_to_ten_and_the_budget_to_none(self, tmp_path):
-        text = RTLPARAM.replace("      simulations: 6\n", "").replace("      storage_budget_bits: 2000\n", "")
+    def test_the_budget_is_the_ratio_s_excess_times_the_default_design_s_storage(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        # The default design holds 8 L2 MSHR entries of 154 bits; the ratio adds a quarter of that.
+        assert task.rtlparam.space.default().storage_total() == 8 * 154
+        assert task.rtlparam.storage_budget_bits() == 308
+
+    def test_a_ratio_of_one_allows_no_added_storage_and_below_one_requires_savings(self, tmp_path):
+        one = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "1.0")))[0].rtlparam
+        below = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "0.5")))[0].rtlparam
+        assert one.storage_budget_bits() == 0
+        assert below.storage_budget_bits() == -616
+
+    def test_the_simulations_default_to_ten_and_the_ratio_to_one(self, tmp_path):
+        text = RTLPARAM.replace("      simulations: 6\n", "").replace("      storage_budget_ratio: 1.25\n", "")
         (task,) = load_suite(write(tmp_path, text))
-        assert (task.rtlparam.simulations, task.rtlparam.storage_budget_bits) == (10, None)
+        assert (task.rtlparam.simulations, task.rtlparam.storage_budget_ratio) == (10, 1.0)
+
+    def test_a_null_ratio_sets_no_budget(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "null")))
+        assert task.rtlparam.storage_budget_bits() is None
 
     def test_a_task_without_the_block_is_not_an_rtl_parameter_task(self, tmp_path):
         (task,) = load_suite(write(tmp_path, MINIMAL))
@@ -188,8 +209,10 @@ class TestRtlParamBlock:
         [
             ("      simulations: 6\n", "      simulations: 0\n", "simulations"),
             ("      simulations: 6\n", "      simulations: many\n", "simulations"),
-            ("      storage_budget_bits: 2000\n", "      storage_budget_bits: -1\n", "storage_budget_bits"),
-            ("      storage_budget_bits: 2000\n", "      storage_budget_bits: 2000\n      colour: red\n", "takes only"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: 0\n", "storage_budget_ratio"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: -1\n", "storage_budget_ratio"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: big\n", "storage_budget_ratio"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: 1.25\n      colour: red\n", "takes only"),
             ("l2_mshr: [4, 8, 16]", "l3_mshr: [4, 8]", "unknown RTL parameter"),
             ("l2_mshr: [4, 8, 16]", "l2_mshr: [4, 8, 32]", "must come from"),
             ("l2_mshr: [4, 8, 16]", "l2_mshr: [4, 16]", "include the default"),

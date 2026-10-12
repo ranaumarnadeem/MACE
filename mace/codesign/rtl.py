@@ -230,6 +230,10 @@ class RtlDesign:
     def as_json(self) -> str:
         return json.dumps({"rtl": self.as_dict()}, sort_keys=True)
 
+    def storage_total(self) -> int:
+        """Flip-flop bits per tile in this design's searched parameters."""
+        return sum(CATALOG[n].storage_bits(v) for n, v in self.values)
+
     def storage_delta(self) -> int:
         """Flip-flop bits per tile this design adds over the default design (negative if it saves some)."""
         return sum(CATALOG[n].storage_bits(v) - CATALOG[n].storage_bits(CATALOG[n].default) for n, v in self.values)

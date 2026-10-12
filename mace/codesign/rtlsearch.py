@@ -178,13 +178,19 @@ class RtlProposer:
 
     def build_prompt(self, history: list) -> str:
         x, y = self.spec.target_mesh
-        if self.storage_budget_bits is None:
+        bits = self.storage_budget_bits
+        if bits is None:
             budget = ""
         else:
+            if bits > 0:
+                limit = f"may add at most {bits} flip-flop bits per tile over the default design"
+            elif bits == 0:
+                limit = "may not add flip-flop bits per tile over the default design, so a larger buffer must be paid for with a smaller one"
+            else:
+                limit = f"must save at least {-bits} flip-flop bits per tile against the default design"
             budget = (
-                f"Storage budget: a design may add at most {self.storage_budget_bits} flip-flop bits per tile over "
-                "the default design, from each parameter's cost above; a smaller buffer gives bits back. A design "
-                "over budget is rejected without a simulation.\n\n"
+                f"Storage budget: a design {limit}, from each parameter's cost above; a smaller buffer gives bits "
+                "back. A design over budget is rejected without a simulation.\n\n"
             )
         prompt = (
             _HEADER.format(core=self.spec.core, x=x, y=y)

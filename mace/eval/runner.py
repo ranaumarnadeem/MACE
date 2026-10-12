@@ -379,7 +379,7 @@ def _run_rtlparam_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
     config = job.task.rtlparam
     space = config.space
     default = space.default()
-    seed, simulations, budget = job.repeat, config.simulations, config.storage_budget_bits
+    seed, simulations, budget = job.repeat, config.simulations, config.storage_budget_bits()
     if job.method == "rtlparam_default":
         strategy, seed, simulations, budget = GridSearch([default]), None, 1, None
     elif job.method == "rtlparam_sweep":
@@ -393,8 +393,10 @@ def _run_rtlparam_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
         strategy = BayesianSearch(space, seed=seed, n_startup_trials=3, first=dict(default.values))
     else:
         raise ValueError(f"unknown RTL-parameter method {job.method!r}")
+    ratio = config.storage_budget_ratio if budget is not None else None
     labels = dataclasses.replace(
-        labels, seed=seed, meta={**labels.meta, "simulations": simulations, "storage_budget_bits": budget}
+        labels, seed=seed,
+        meta={**labels.meta, "simulations": simulations, "storage_budget_ratio": ratio, "storage_budget_bits": budget},
     )
     return run_rtlsearch(
         roots, spec, strategy, env.db, simulations=simulations, storage_budget_bits=budget, labels=labels
