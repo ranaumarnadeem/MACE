@@ -109,6 +109,59 @@ class TestPrompt:
         assert [c.phase for c in outer.calls()] == ["plan"]
 
 
+class TestPromptRetrying:
+    class Limited(Exception):
+        error_type = "rate_limit"
+
+    class Llm:
+        def __init__(self, errors):
+            self.errors = list(errors)
+            self.calls = 0
+
+        def prompt(self, message, tools=()):
+            self.calls += 1
+            if self.errors:
+                raise self.errors.pop(0)
+            return QueryResult(result="ok", returncode=0, stderr="", stream_result="ok", success=True)
+
+    @pytest.fixture
+    def waits(self, monkeypatch):
+        waits = []
+        monkeypatch.setattr("mace.usage.time.sleep", lambda seconds: waits.append(seconds))
+        return waits
+
+    def test_a_call_that_works_waits_for_nothing(self, waits):
+        llm = self.Llm([])
+        assert usage.prompt_retrying(llm, "task", "hi").result == "ok"
+        assert waits == [] and llm.calls == 1
+
+    def test_it_waits_after_each_rate_limit_and_records_the_failed_tries(self, waits):
+        llm = self.Llm([self.Limited("429"), self.Limited("429")])
+        log = usage.UsageLog()
+        with usage.recording(log):
+            assert usage.prompt_retrying(llm, "task", "hi").result == "ok"
+        assert waits == [30, 60] and llm.calls == 3
+        assert [c.ok for c in log.calls()] == [False, False, True]
+
+    def test_it_gives_up_after_the_last_wait(self, waits):
+        llm = self.Llm([self.Limited("429")] * 9)
+        with pytest.raises(self.Limited):
+            usage.prompt_retrying(llm, "task", "hi")
+        assert waits == [30, 60, 120] and llm.calls == 4
+
+    def test_the_waits_can_be_changed(self, waits):
+        llm = self.Llm([self.Limited("429")] * 9)
+        with pytest.raises(self.Limited):
+            usage.prompt_retrying(llm, "task", "hi", waits=(1,))
+        assert waits == [1] and llm.calls == 2
+
+    def test_any_other_error_is_raised_at_once(self, waits):
+        llm = self.Llm([RuntimeError("boom"), self.Limited("429")])
+        with pytest.raises(RuntimeError, match="boom"):
+            usage.prompt_retrying(llm, "task", "hi")
+        assert waits == [] and llm.calls == 1
+
+
 class TestIsRateLimit:
     def test_a_backend_error_of_type_rate_limit(self):
         class Limited(Exception):

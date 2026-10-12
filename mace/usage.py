@@ -21,10 +21,13 @@ records its wall time with ``ok=False`` and zero tokens.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -131,3 +134,26 @@ def prompt(llm, phase: str, message: str, tools=()):
         raise
     note(phase, query, time.monotonic() - started)
     return query
+
+
+# Seconds to wait before each retry of a rate-limited call.
+RATE_LIMIT_WAITS = (30, 60, 120)
+
+
+def prompt_retrying(llm, phase: str, message: str, tools=(), waits=RATE_LIMIT_WAITS):
+    """:func:`prompt`, tried again after each of *waits* seconds when the
+    backend rate-limits the call (see :func:`is_rate_limit`); the last rate
+    limit raises. Each try is recorded, so the log shows the failed ones.
+
+    For a call whose reply decides the outcome, such as an agent that edits
+    RTL or writes a test: ending the run at the first 429 would throw away a
+    build that can take minutes.
+    """
+    for wait in (*waits, None):
+        try:
+            return prompt(llm, phase, message, tools)
+        except Exception as e:
+            if wait is None or not is_rate_limit(e):
+                raise
+            logger.warning("%s call rate-limited; trying again in %d s", phase, wait)
+            time.sleep(wait)

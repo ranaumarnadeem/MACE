@@ -330,8 +330,48 @@ class Throwing:
         raise self.error
 
 
+class FlakyThenFine:
+    """Rate-limited for the first *times* calls, then answers."""
+
+    def __init__(self, times):
+        self.times = times
+        self.calls = 0
+
+    def prompt(self, message, tools=()):
+        self.calls += 1
+        if self.calls <= self.times:
+            raise RateLimited("429")
+        return reply("wrote the tests")
+
+
 class TestRateLimit:
-    """A rate limit says nothing about the tests or the repair, so it ends the run as an error."""
+    """A rate limit says nothing about the tests or the repair. The agent calls wait and try again, and if the
+    limit persists the run ends as an error, which the batch runs again."""
+
+    @pytest.fixture(autouse=True)
+    def no_waiting(self, monkeypatch):
+        self.waits = []
+        monkeypatch.setattr("mace.usage.time.sleep", lambda seconds: self.waits.append(seconds))
+
+    def test_the_test_agent_waits_and_tries_again(self):
+        llm = FlakyThenFine(times=2)
+        query = directed.test_session(Node(), make_spec(), test_task(), llm, (), "S", "/d", "tag", "", "")
+        assert query.result == "wrote the tests" and llm.calls == 3
+        assert self.waits == [30, 60]
+
+    def test_the_rtl_agent_waits_and_tries_again(self):
+        from mace.integrator import _rtl_session
+
+        task = Task(id="r", deps=(), kind="rtl", spec="fix it")
+        llm = FlakyThenFine(times=1)
+        query, _ = _rtl_session(Node(), make_spec(), task, llm, (), {}, "run1", 0)
+        assert query.result == "wrote the tests" and self.waits == [30]
+
+    def test_the_test_agent_lets_it_through_once_the_waits_are_used(self):
+        llm = FlakyThenFine(times=99)
+        with pytest.raises(RateLimited):
+            directed.test_session(Node(), make_spec(), test_task(), llm, (), "S", "/d", "tag", "", "")
+        assert llm.calls == 4 and self.waits == [30, 60, 120]
 
     def test_the_test_agent_lets_it_through(self):
         with pytest.raises(RateLimited):

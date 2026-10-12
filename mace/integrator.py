@@ -151,12 +151,12 @@ def _rtl_session(
             task_options=node.task_options,
         )
     try:
-        query = usage.prompt(
+        query = usage.prompt_retrying(
             llm, "task", rtl_prompt(spec, task, inherited, context, tests), (*tools, tool) if tool else tools
         )
     except Exception as e:
         if usage.is_rate_limit(e):
-            raise  # not a failed repair: the run ends as an error and the batch runs it again
+            raise  # not a failed repair: once the waits are used the run ends as an error, which the batch runs again
         logger.warning("task %s: rtl agent call failed: %s", task.id, e)
         query = QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
     finally:
