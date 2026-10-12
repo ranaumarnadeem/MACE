@@ -26,7 +26,9 @@ was. A plain *scalar* (non-array) variable accessed the same way was fine,
 but rather than trust which cases happen to work, those three go through
 the atomic path uniformly. matmul.c needs none of it: its matrices are
 compile-time constants, and each hart checks a result in the register
-that accumulated it and stores nothing. Each program also
+that accumulated it and stores nothing. matmul_scaled.c shares only a
+print-turn counter, touched with atomics; its other stores go to its own
+stack. Each program also
 needs a larger-than-default ``rtl_timeout`` -- see RECOMMENDED_RTL_TIMEOUT.
 """
 

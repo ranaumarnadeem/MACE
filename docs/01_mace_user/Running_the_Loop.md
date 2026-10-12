@@ -29,7 +29,7 @@ If the build succeeds, the task simulates each entry of `workloads` in order on 
 It passes when every one reports `pass`, and it stops at the first that does not.
 A `unit_test` task builds a standalone testbench for one RTL module and is gated on that build alone.
 
-`mace/workloads/` holds four RISC-V C gate programs:
+`mace/workloads/` holds five RISC-V C gate programs:
 
 | Workload | Check |
 |---|---|
@@ -37,8 +37,10 @@ A `unit_test` task builds a standalone testbench for one RTL module and is gated
 | `producer_consumer.c` | Hart 0 publishes values behind per-slot ready flags; the highest-numbered hart reads and checksums them. |
 | `scatter_gather.c` | Each hart writes its ID plus one to its own slot; after a barrier, every hart gathers and checksums the array. |
 | `matmul.c` | The harts share out the rows of a 16x56 by 56x56 matrix product, and every hart checks each element it computes against a closed form. For every row, a hart walks all of the 12.25 KB second matrix, which is larger than the default L1D, so the co-design searches use it. |
+| `matmul_scaled.c` | Each hart multiplies its own four rows by the same 56x56 matrix, so the work grows with the hart count. It stores each element on its stack, reads it back, and checks it against a closed form. Each hart prints the `mcycle` values at the start and end of its work. |
 
-A hart that finds a wrong value returns nonzero and ends at the bad trap, so a run passes only when every hart saw the right result; only hart 0 prints.
+A hart that finds a wrong value returns nonzero and ends at the bad trap, so a run passes only when every hart saw the right result.
+Only hart 0 prints, except in `matmul_scaled.c`, where every hart prints one line in hart order.
 
 Before any LLM call or checkout access, `run_mace_loop` checks these files against `mace/workloads/CHECKSUMS` and stops with status `checksum_mismatch` on any difference.
 Update `CHECKSUMS` when you add or change a workload; `sha256sum -c CHECKSUMS` in `mace/workloads/` checks it.
