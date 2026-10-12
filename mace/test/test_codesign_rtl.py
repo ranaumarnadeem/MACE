@@ -11,6 +11,7 @@ patched OpenPiton checkout in mace/test/cluster/test_rtl_catalog.py.
 from __future__ import annotations
 
 import random
+from pathlib import Path
 
 import pytest
 
@@ -243,3 +244,28 @@ class TestSpace:
         text = self.SPACE.describe()
         assert "- l2_mshr (default 8; one of 4, 8, 16; 154 bits per tile per unit of the value)" in text
         assert "- home_alloc (default MIXED; one of LOW, MIXED; no storage)" in text
+
+
+class TestDocsPage:
+    """docs/06_mace_evaluation/rtl_params.md lists the catalog; a change to one must reach the other."""
+
+    PAGE = Path(__file__).resolve().parents[2] / "docs" / "06_mace_evaluation" / "rtl_params.md"
+
+    def _rows(self):
+        rows = {}
+        for line in self.PAGE.read_text().splitlines():
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if line.startswith("| `") and len(cells) == 5:
+                rows[cells[0].strip("`")] = cells
+        return rows
+
+    def test_the_table_lists_every_parameter(self):
+        assert set(self._rows()) == set(CATALOG)
+
+    def test_each_row_matches_its_parameter(self):
+        for name, (_, default, values, bits, _) in self._rows().items():
+            param = CATALOG[name]
+            assert default == str(param.default), name
+            assert values == ", ".join(str(v) for v in param.values), name
+            assert bits == str(param.bits_per_unit), name
+
