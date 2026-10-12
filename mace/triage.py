@@ -27,12 +27,29 @@ Run verdict: {verdict}
 
 {context}
 
+{actions}
+Each change from the defaults above is a candidate cause: before blaming the
+design, consider whether the failure goes away without a change the
+objective does not ask for.
+
 Diagnose why this failed and suggest a fix. Respond with exactly these two
 footer lines (a footer, not prose):
 
 DIAGNOSIS: <a short label, e.g. test_bug, config_error, timeout, maxcycles, rtl_suspect, testbench_mismatch>
 FIX: <a short, concrete instruction for what to try next>
 """
+
+
+# What the next plan can change, by whether the run allows RTL edits.
+ACTIONS_NO_RTL = (
+    "The next plan cannot edit any source file in this run. It can change only the build configuration: "
+    "add or remove RTL defines, and set cache sizes and associativity. Suggest a fix of that kind; if no "
+    "configuration can fix this failure, say so in FIX and use the diagnosis label needs_rtl_change."
+)
+ACTIONS_RTL = (
+    "The next plan can change the build configuration (RTL defines, cache sizes and associativity) and can "
+    "edit files under piton/design/; testbench and monitor files under piton/verif/ cannot change."
+)
 
 
 class TriageError(Exception):
@@ -106,10 +123,11 @@ def failure_evidence(result: StepResult) -> str:
     return "\n\n".join(context_parts)
 
 
-def build_prompt(result: StepResult, objective: str = "") -> str:
+def build_prompt(result: StepResult, objective: str = "", rtl_edits: bool = False) -> str:
     """Triage's prompt for *result*. *objective*, the run's objective,
     leads the prompt when given: it can name what a build needs, such as an
-    RTL define, that the failed plan left out."""
+    RTL define, that the failed plan left out. *rtl_edits* says whether the
+    next plan may edit RTL, so the suggested fix is one a task can make."""
     build = result.build
     run = result.run
     return _PROMPT_TEMPLATE.format(
@@ -120,10 +138,11 @@ def build_prompt(result: StepResult, objective: str = "") -> str:
         build_success=build.success,
         verdict=run.verdict if run else None,
         context=failure_evidence(result),
+        actions=ACTIONS_RTL if rtl_edits else ACTIONS_NO_RTL,
     )
 
 
-def triage(result: StepResult, llm, tools=(), objective: str = "") -> Triage:
+def triage(result: StepResult, llm, tools=(), objective: str = "", rtl_edits: bool = False) -> Triage:
     """One LLM call, turned into a validated diagnosis.
 
     Skips that call entirely when the failed task is a ``unit_test`` and the
@@ -159,7 +178,7 @@ def triage(result: StepResult, llm, tools=(), objective: str = "") -> Triage:
             ),
         )
 
-    query = usage.prompt(llm, "triage", build_prompt(result, objective), tools)
+    query = usage.prompt(llm, "triage", build_prompt(result, objective, rtl_edits), tools)
     diagnosis = parse_diagnosis(query.result)
     if diagnosis is None:
         raise TriageError(f"no DIAGNOSIS: line in the triage response: {query.result!r}")

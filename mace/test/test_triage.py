@@ -173,6 +173,28 @@ class TestChangesFromDefaults:
         assert "Changes from the defaults: RTL defines added: PITON_FPGA_SYNTH" in build_prompt(result)
 
 
+class TestWhatTheFixMayChange:
+    def test_without_rtl_edits_the_fix_must_change_the_configuration(self):
+        from mace.triage import ACTIONS_NO_RTL, ACTIONS_RTL
+
+        prompt = build_prompt(make_failed_result())
+        assert ACTIONS_NO_RTL in prompt and ACTIONS_RTL not in prompt
+        assert "candidate cause" in prompt
+
+    def test_with_rtl_edits_the_fix_may_edit_the_design(self):
+        from mace.triage import ACTIONS_NO_RTL, ACTIONS_RTL
+
+        prompt = build_prompt(make_failed_result(), rtl_edits=True)
+        assert ACTIONS_RTL in prompt and ACTIONS_NO_RTL not in prompt
+
+    def test_triage_passes_rtl_edits_to_its_prompt(self):
+        from mace.triage import ACTIONS_RTL
+
+        llm = FakeLLM(responses=["DIAGNOSIS: config_error\nFIX: drop the define"])
+        triage(make_failed_result(), llm, rtl_edits=True)
+        assert ACTIONS_RTL in llm.calls[0][0]
+
+
 class TestObjectiveInTheprompt:
     def test_the_objective_leads_the_prompt_when_given(self):
         from mace.triage import build_prompt

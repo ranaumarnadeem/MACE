@@ -536,6 +536,33 @@ class TestTriageToolServerConstructionFailure:
         assert triage_tools == [()]  # still triaged, just without the tool
 
 
+class TestTriageKnowsWhatThePlanCanChange:
+    @pytest.mark.parametrize("rtl_edits", [False, True])
+    def test_the_loop_passes_its_rtl_edits_option_to_triage(self, tmp_path, monkeypatch, rtl_edits):
+        from mace.spec import LoopOptions
+
+        monkeypatch.setattr(
+            "mace.orchestrator.plan",
+            fake_plan([(Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)] * 2),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            fake_integrate_parallel([step_result("t1", passed=False, verdict="fail"), step_result("t1")]),
+        )
+        seen = []
+
+        def recording_triage(result, llm, tools=(), **kwargs):
+            seen.append(kwargs.get("rtl_edits"))
+            return Triage(diagnosis="config_error", fix="drop the define")
+
+        monkeypatch.setattr("mace.orchestrator.triage", recording_triage)
+        run_mace_loop(
+            ("/fake/root",), make_spec(budget=Budget(max_iterations=2)), FakeLLM(responses=[]), make_db(tmp_path),
+            options=LoopOptions(rtl_edits=rtl_edits),
+        )
+        assert seen == [rtl_edits]
+
+
 class StubToolServers:
     """Stands in for the Ray actors ChiaTool.__post_init__ starts: records,
     per tool, the snapshot it would ship there, and which tools stopped."""
