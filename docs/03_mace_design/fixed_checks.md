@@ -10,7 +10,7 @@ Each is a `LoopOptions` field that is on by default, and an ablation method turn
 | Plan check | `plan_check` | `mace/plan_check.py` | Rejects a plan that cannot work before any build |
 | Raw evidence | `raw_evidence` | `mace/triage.py` | Gives the re-plan the build's own report beside the diagnosis |
 | Narrowing | `narrowing` | `mace/narrowing.py` | Rebuilds a failed task with its changes undone to find which one breaks it |
-| Fast path | `fast_path` | `mace/fast_path.py` | Runs a plan that builds one design as a single task, without the per-task LLM calls |
+| Fast path | `fast_path` | `mace/fast_path.py` | Runs every plan without the per-task LLM calls, and a plan that builds one design as a single task |
 
 ## Plan Check
 
@@ -106,9 +106,10 @@ With `narrowing=False`, or with `triage="raw"` or `"off"`, no probe runs.
 
 When all the tasks of a plan resolve to the same build flags, they are one design with several names, and each task after the first reuses the build and simulates the same programs again.
 `collapse_single_design()` keeps the last task in dependency order, with no dependencies, when every task is a `config` or `workload` task and `config_key()` gives one set of flags.
-The orchestrator then runs that task with `task_prompts` off, so the run makes no LLM call of its own for its tasks, since their replies change nothing that is built.
 `record_fast_path()` writes the kept task and the ids it replaced to the `fast_paths` table.
 
-A plan with more than one design keeps all its tasks and their calls.
+The orchestrator runs every plan with `task_prompts` off, one design or several, so the run makes no LLM call of its own for its tasks: their replies change nothing that is built.
+A plan with more than one design keeps all its tasks.
+An `rtl` task still makes its agent call, since that call is the edit.
 The collapse follows the seeded-fault `plan_hook`, so a fault applies to the task that runs.
-With `fast_path=False`, every plan runs as the planner wrote it.
+With `fast_path=False`, every plan runs as the planner wrote it, with each task's call.

@@ -109,14 +109,32 @@ class TestInTheLoop:
         row = db.query_one("SELECT kept, dropped FROM fast_paths WHERE run_id = ?", (result.run_id,))
         assert (row["kept"], json.loads(row["dropped"])) == ("run", ["cfg"])
 
-    def test_a_plan_of_two_designs_runs_whole_with_its_task_calls(self, tmp_path, monkeypatch):
+    def test_a_plan_of_two_designs_keeps_its_tasks_but_makes_no_task_calls(self, tmp_path, monkeypatch):
         plan = (
             Task(id="a", deps=(), kind="workload", spec="default"),
             Task(id="b", deps=(), kind="workload", spec="small l2", caches=(("l2", (32768, 4)),)),
         )
         result, db, calls = run(tmp_path, monkeypatch, [plan])
+        assert [t.id for t in calls[0]["tasks"]] == ["a", "b"] and calls[0]["options"].task_prompts is False
+        assert db.query("SELECT * FROM fast_paths") == []  # nothing collapsed
+
+    def test_without_the_fast_path_a_plan_of_two_designs_keeps_its_task_calls(self, tmp_path, monkeypatch):
+        plan = (
+            Task(id="a", deps=(), kind="workload", spec="default"),
+            Task(id="b", deps=(), kind="workload", spec="small l2", caches=(("l2", (32768, 4)),)),
+        )
+        _, _, calls = run(tmp_path, monkeypatch, [plan], options=LoopOptions(fast_path=False))
         assert [t.id for t in calls[0]["tasks"]] == ["a", "b"] and calls[0]["options"].task_prompts is True
-        assert db.query("SELECT * FROM fast_paths") == []
+
+    def test_an_rtl_task_still_gets_its_agent_call_when_task_calls_are_off(self):
+        # integrate's rtl branch runs on kind == "rtl" and options.rtl_edits, whatever task_prompts says.
+        import inspect
+
+        from mace import integrator
+
+        source = inspect.getsource(integrator._run_batch)
+        assert 'rtl = task.kind == "rtl" and options.rtl_edits' in source
+        assert source.index("if rtl:") < source.index("elif options.task_prompts:")
 
     def test_it_can_be_turned_off(self, tmp_path, monkeypatch):
         _, db, calls = run(tmp_path, monkeypatch, [self.one_design()], options=LoopOptions(fast_path=False))

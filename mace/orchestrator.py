@@ -400,10 +400,11 @@ def _run_started_loop(
                     tasks = plan_hook(iteration, tasks)
                 iteration_options = options
                 if options.fast_path:
+                    # No plan's task calls change what is built; a plan of one design also becomes one task.
+                    iteration_options = dataclasses.replace(options, task_prompts=False)
                     collapsed = collapse_single_design(spec, tasks)
                     if collapsed is not None:
                         tasks, dropped = collapsed
-                        iteration_options = dataclasses.replace(options, task_prompts=False)
                         record_fast_path(db, run_id, iteration, tasks[0].id, dropped)
 
                 if nodes is None:

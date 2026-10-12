@@ -9,9 +9,10 @@ full loop planned one design over one to seven tasks.
 
 :func:`collapse_single_design` keeps the last task of such a plan, the one
 that carries every inherited define. The orchestrator also turns the tasks'
-own LLM calls off for it: the reply of such a call changes nothing that is
-built, and those calls were $2.66 of the loop's $3.37 over 95 passing runs.
-A plan with more than one design keeps its tasks and its calls.
+own LLM calls off for every plan, one design or several: the reply of such a
+call changes nothing that is built, and those calls were $2.66 of the loop's
+$3.37 over 95 passing runs. A plan with more than one design keeps its tasks.
+An ``rtl`` task still makes its agent call, since that call is the edit.
 """
 
 from __future__ import annotations
