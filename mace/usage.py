@@ -111,6 +111,16 @@ def note_failure(phase: str, wall_s: float) -> None:
         _active.add(LLMCall(phase=phase, wall_s=wall_s, ok=False))
 
 
+def is_rate_limit(error: BaseException) -> bool:
+    """Whether *error* is a backend's rate or quota error (Vertex's HTTP 429).
+
+    A rate limit says nothing about the work a call was for, so a caller whose
+    reply decides the outcome lets it end the run as an error, which a batch
+    runs again, in place of counting a failed attempt.
+    """
+    return getattr(error, "error_type", "") == "rate_limit"
+
+
 def prompt(llm, phase: str, message: str, tools=()):
     """``llm.prompt(message, tools=...)``, recorded under *phase*."""
     started = time.monotonic()

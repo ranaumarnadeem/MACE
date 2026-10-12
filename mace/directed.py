@@ -209,6 +209,8 @@ def test_session(
             llm, "task", test_prompt(spec, task, form, context, feedback), (*tools, tool) if tool else tools
         )
     except Exception as e:
+        if usage.is_rate_limit(e):
+            raise  # not a failed attempt: the run ends as an error and the batch runs it again
         logger.warning("task %s: test agent call failed: %s", task.id, e)
         return QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
     finally:

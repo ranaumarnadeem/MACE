@@ -107,3 +107,21 @@ class TestPrompt:
             usage.note("plan", vertex_reply(), 0.0)
         assert [c.phase for c in inner.calls()] == ["task"]
         assert [c.phase for c in outer.calls()] == ["plan"]
+
+
+class TestIsRateLimit:
+    def test_a_backend_error_of_type_rate_limit(self):
+        class Limited(Exception):
+            error_type = "rate_limit"
+
+        assert usage.is_rate_limit(Limited("429"))
+
+    @pytest.mark.parametrize("error", [RuntimeError("x"), ValueError("rate_limit"), TimeoutError()])
+    def test_any_other_error_is_not(self, error):
+        assert not usage.is_rate_limit(error)
+
+    def test_another_backend_error_type_is_not(self):
+        class Auth(Exception):
+            error_type = "authentication"
+
+        assert not usage.is_rate_limit(Auth("denied"))

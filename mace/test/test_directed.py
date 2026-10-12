@@ -316,6 +316,58 @@ class TestSession:
         assert query.returncode == 1 and query.stderr
 
 
+class RateLimited(Exception):
+    """What a backend raises on HTTP 429: it carries error_type "rate_limit"."""
+
+    error_type = "rate_limit"
+
+
+class Throwing:
+    def __init__(self, error):
+        self.error = error
+
+    def prompt(self, message, tools=()):
+        raise self.error
+
+
+class TestRateLimit:
+    """A rate limit says nothing about the tests or the repair, so it ends the run as an error."""
+
+    def test_the_test_agent_lets_it_through(self):
+        with pytest.raises(RateLimited):
+            directed.test_session(
+                Node(), make_spec(), test_task(), Throwing(RateLimited("429")), (), "S", "/d", "tag", "", ""
+            )
+
+    def test_the_test_agent_still_absorbs_any_other_error(self):
+        query = directed.test_session(
+            Node(), make_spec(), test_task(), Throwing(RuntimeError("boom")), (), "S", "/d", "tag", "", ""
+        )
+        assert query.returncode == 1 and "boom" in query.stderr
+
+    def test_the_rtl_agent_lets_it_through(self):
+        from mace.integrator import _rtl_session
+
+        task = Task(id="r", deps=(), kind="rtl", spec="fix it")
+        with pytest.raises(RateLimited):
+            _rtl_session(Node(), make_spec(), task, Throwing(RateLimited("429")), (), {}, "run1", 0)
+
+    def test_the_rtl_agent_still_absorbs_any_other_error(self):
+        from mace.integrator import _rtl_session
+
+        task = Task(id="r", deps=(), kind="rtl", spec="fix it")
+        query, staged = _rtl_session(Node(), make_spec(), task, Throwing(RuntimeError("boom")), (), {}, "run1", 0)
+        assert query.returncode == 1 and staged == ""
+
+    def test_a_rate_limit_ends_the_run_as_an_error_through_the_batch(self, monkeypatch):
+        def limited(node_, spec, task, llm, tools, form, directory, tag, context, feedback):
+            raise RateLimited("429")
+
+        monkeypatch.setattr("mace.directed.test_session", limited)
+        with pytest.raises(RateLimited):
+            batch(Node(), [test_task()])
+
+
 def batch(node, tasks, applied_tests=None, options=None, spec=None, rtl_context="", llm=None):
     return _run_batch(
         [node] * len(tasks), spec or make_spec(), tasks, llm or FakeLLM([]), (), str(WORKLOADS_DIR), "run1", 0,
