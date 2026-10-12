@@ -59,10 +59,12 @@ The orchestrator then logs the error, which quotes a reply with no `TASK:` lines
 
 | Kind | Instruction | Execution |
 |---|---|---|
-| `config` | A configuration or RTL change | Build the task's configuration, run each gate workload |
+| `config` | A change to the build configuration | Build the task's configuration, run each gate workload |
 | `workload` | Running or fixing a gate workload | Same as `config` |
 | `unit_test` | One module's RTL path relative to the checkout root, such as `piton/design/chip/tile/pico/rtl/picorv32.v` | Scaffold a unit-test environment, adapt its testbench, build it |
 | `rtl` | What to change in the design's RTL, and why | Edit files under `piton/design/` through an edit tool, build, run each gate workload (see [Parallel Task Execution](task_execution.md)) |
 
 `config` and `workload` share one execution path; the label records intent.
+Without `LoopOptions(rtl_edits=True)`, the prompt states that no task can edit a source file, that a `config` or `workload` task changes only what its `CACHES:` and `CONFIG_RTL:` lines set, and that a build failing with changes from the defaults may fail because of one of them, so a change the objective does not ask for should be left out (`NO_RTL_RULE`).
+Without it, the planner turned triage's suggested source edits into `config` tasks that could not make them.
 The prompt offers the `rtl` kind only under `LoopOptions(rtl_edits=True)`. Offered on tasks that pass at their defaults, it made the planner write RTL tasks about files that do not exist, so the default leaves it out; without it, an `rtl` line still parses and runs as a `config` task.

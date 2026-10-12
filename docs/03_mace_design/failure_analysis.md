@@ -7,7 +7,7 @@ Other failed tasks in that level get a row in the `tasks` table and no triage.
 
 ## Triage
 
-`triage(result, llm, tools=(), objective="")` makes one LLM call.
+`triage(result, llm, tools=(), objective="", rtl_edits=False)` makes one LLM call.
 The orchestrator passes the run's objective, which leads the prompt: it can name what a build needs, such as an RTL define the failed plan left out.
 The prompt gives the task's id, kind, and instruction, the build outcome, the run verdict, and the build's `sims` flags, which name its RTL defines and cache sizes.
 A line of changes from the defaults picks out the plan's own choices among them: the RTL defines it adds, each cache whose geometry differs, and a crossbar interconnect (`changes_from_defaults()`).
@@ -15,6 +15,9 @@ A failed build adds the failure reason, its error lines (see [PitonBuildArtifact
 A failed run adds the last 1500 characters of the simulation log and up to 8000 characters of the status log.
 When the build carried RTL edits, the prompt then adds their diff, up to 3000 characters, and the feedback line below adds it too.
 For an `rtl` task whose agent recorded no edit, the prompt says so and quotes up to 600 characters of the agent's reply.
+The prompt then says what the next plan can change: the build configuration only (RTL defines, cache sizes and associativity), or, under `LoopOptions(rtl_edits=True)`, also files under `piton/design/` (`ACTIONS_NO_RTL`, `ACTIONS_RTL`).
+Without RTL edits, a failure no configuration can fix gets the label `needs_rtl_change`.
+It adds that each change from the defaults is a candidate cause, to rule out before blaming the design.
 The prompt asks for two directive lines:
 
 ```text
