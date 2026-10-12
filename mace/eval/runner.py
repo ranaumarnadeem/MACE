@@ -86,6 +86,37 @@ FAULTCHECK_METHODS = frozenset(f"{FAULTCHECK_PREFIX}{name}" for name in FAULTS)
 for _name in FAULTS:
     METHODS[f"{FAULTCHECK_PREFIX}{_name}"] = f"The expert configuration with {_name} applied; it should fail."
 
+# ---- session A (a stronger loop) -----------------------------------------------------------------------
+# The four fixed checks of mace.orchestrator are LoopOptions fields, on by default. Each ablation is the full
+# loop with one of them off: no_<part> on the bring-up tasks, and seeded_no_<part>_<fault> with a seeded fault's
+# first plan broken. Runs of these methods record the part in meta["ablation"].
+A_PARTS = ("plan_check", "raw_evidence", "narrowing", "fast_path")
+A_PREFIX = "no_"
+A_SEEDED_PREFIX = "seeded_no_"
+for _part in A_PARTS:
+    METHODS[f"{A_PREFIX}{_part}"] = f"A: the full loop with {_part} off."
+    for _name, _fault in FAULTS.items():
+        METHODS[f"{A_SEEDED_PREFIX}{_part}_{_name}"] = f"RQ3 ablation: seeded_{_name} with {_part} off."
+
+
+def a_ablation(method: str) -> tuple[str, str | None] | None:
+    """(part, fault name or None) when *method* is one of session A's ablations, else None."""
+    if method.startswith(A_SEEDED_PREFIX):
+        rest = method[len(A_SEEDED_PREFIX):]
+        for part in A_PARTS:
+            if rest.startswith(part + "_") and rest[len(part) + 1:] in FAULTS:
+                return part, rest[len(part) + 1:]
+    elif method.startswith(A_PREFIX) and method[len(A_PREFIX):] in A_PARTS:
+        return method[len(A_PREFIX):], None
+    return None
+
+
+def a_options(options: LoopOptions, method: str) -> LoopOptions:
+    """*options* with the part that session A's ablation *method* turns off set to False."""
+    ablation = a_ablation(method)
+    return dataclasses.replace(options, **{ablation[0]: False}) if ablation else options
+
+
 # Methods with no randomness run once per task unless asked otherwise.
 ONCE_METHODS = frozenset(("expert", "codesign_grid")) | FAULTCHECK_METHODS
 
@@ -95,6 +126,9 @@ NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codes
 
 def _fault_of(method: str):
     """The fault a ``seeded_`` or ``faultcheck_`` method applies, or ``None``."""
+    ablation = a_ablation(method)  # session A: seeded_no_<part>_<fault> also starts with seeded_
+    if ablation is not None and ablation[1] is not None:
+        return FAULTS[ablation[1]]
     # seeded_retry_ first: its names also start with seeded_.
     for prefix in (SEEDED_RETRY_PREFIX, SEEDED_PREFIX, FAULTCHECK_PREFIX):
         if method.startswith(prefix):
@@ -265,6 +299,9 @@ def _run_job(job: Job, env: RunEnv):
     spec = job.task.spec()
     if job.method in CODESIGN_METHODS:
         return _run_codesign_job(job, env, roots, spec, labels)
+    ablation = a_ablation(job.method)
+    if ablation is not None:
+        labels = dataclasses.replace(labels, meta={**labels.meta, "ablation": ablation[0]})
     fault = _fault_of(job.method)
     if fault is not None:
         labels = dataclasses.replace(labels, meta={**labels.meta, "fault": fault.name})
@@ -275,12 +312,13 @@ def _run_job(job: Job, env: RunEnv):
                 roots[0], spec, env.llm, env.db, labels=labels, design_hook=first_design_breaker(fault)
             )
         return run_mace_loop(
-            roots, spec, env.llm, env.db, labels=labels, options=LoopOptions(task_prompts=env.task_prompts),
+            roots, spec, env.llm, env.db, labels=labels,
+            options=a_options(LoopOptions(task_prompts=env.task_prompts), job.method),
             plan_hook=first_plan_breaker(fault),
         )
-    options = LoopOptions(task_prompts=env.task_prompts)
+    options = a_options(LoopOptions(task_prompts=env.task_prompts), job.method)
     method = job.method
-    if method == "mace" or method == "one_checkout":
+    if method == "mace" or method == "one_checkout" or ablation is not None:
         return run_mace_loop(roots, spec, env.llm, env.db, labels=labels, options=options)
     if method in ("one_shot", "one_shot_rtl"):
         return run_one_shot(
