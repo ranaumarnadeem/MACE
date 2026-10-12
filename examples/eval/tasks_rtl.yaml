@@ -116,19 +116,24 @@ tasks:
         old: "latched_is_lh: reg_out <= $signed(mem_rdata_word[15:0]);"
         new: "latched_is_lh: reg_out <= mem_rdata_word[15:0];"
 
-  - id: pico-2x2-amomax-amobug
+  # The third bug was first an `amomax` bug in l2_amo_alu.v on amomax_w.S,
+  # defined the same day. Its gate workload failed on the correct design too:
+  # an AMO test checks shared memory from every hart, and four harts race on
+  # it. It was dropped for the byte-store bug below, the fallback named in the
+  # plan, before any directed-test prompt existed.
+  - id: pico-2x2-sb-rtlbug
     core: pico
     mesh: [2, 2]
-    workloads: [amomax_w.S]
+    workloads: [sb.S]
     objective: >-
-      Verify the amomax_w.S gate workload passes on a 2x2 pico mesh in a
-      single task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define.
-      The design in this checkout has a bug under piton/design/ that makes the
+      Verify the sb.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has a bug under piton/design/ that makes the
       workload fail in simulation, and it cannot pass until the bug is fixed.
     verified: false
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
     source_fault:
-      - path: piton/design/chip/tile/l2/rtl/l2_amo_alu.v
-        old: "adder_operand_b = -$signed(amo_operand_b);\n            amo_64b_tmp = adder_sum[64] ? amo_operand_b : amo_operand_a;"
-        new: "adder_operand_b = -$signed(amo_operand_b);\n            amo_64b_tmp = adder_sum[64] ? amo_operand_a : amo_operand_b;"
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "mem_la_wstrb = 4'b0001 << reg_op1[1:0];"
+        new: "mem_la_wstrb = 4'b0001 << reg_op1[0];"

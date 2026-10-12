@@ -231,7 +231,7 @@ class TestSourceFault:
         tasks = load_suite(SUITE.parent / "tasks_rtl.yaml")
         assert [t.id for t in tasks] == [
             "ariane-2x2-hello-rtlfault", "pico-2x2-addi-rtlfault", "ariane-2x2-accu-rtlfault",
-            "ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-amomax-amobug",
+            "ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-sb-rtlbug",
         ]
         assert all(t.source_fault for t in tasks)
 
