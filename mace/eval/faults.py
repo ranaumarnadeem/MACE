@@ -5,8 +5,9 @@ before any of them runs; later plans are left alone, so a run measures
 whether the loop recovers from a failure it did not cause. The batch
 runner's ``seeded_<name>`` methods apply one each (see
 :mod:`mace.eval.runner`), and ``examples/recovery_seeded.py`` runs them
-one task at a time. A fault applies to tasks on the cores it lists, on a
-mesh with at least ``min_rows`` rows of tiles.
+one task at a time. Its ``seeded_retry_<name>`` methods apply the same
+fault to the retry agent's first design instead. A fault applies to tasks
+on the cores it lists, on a mesh with at least ``min_rows`` rows of tiles.
 
 ``verified`` marks a fault seen to break every run it was seeded into, on
 the cores it lists. A candidate stays unverified until a pilot shows it
@@ -104,5 +105,15 @@ def first_plan_breaker(fault: Fault) -> Callable[[int, tuple[Task, ...]], tuple[
         if iteration != 0:
             return tasks
         return tuple(fault.break_task(t) for t in tasks)
+
+    return hook
+
+
+def first_design_breaker(fault: Fault) -> Callable[[int, Task], Task]:
+    """A ``design_hook`` for :func:`mace.baselines.retry_agent.run_retry_agent`
+    that applies *fault* to attempt 0's design and leaves later designs alone."""
+
+    def hook(attempt: int, design: Task) -> Task:
+        return fault.break_task(design) if attempt == 0 else design
 
     return hook

@@ -34,7 +34,7 @@ from mace.baselines.retry_agent import run_retry_agent
 from mace.codesign.area import area_notes, design_area
 from mace.codesign.run import run_codesign
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
-from mace.eval.faults import FAULTS, first_plan_breaker
+from mace.eval.faults import FAULTS, first_design_breaker, first_plan_breaker
 from mace.eval.source_faults import faulted, restore
 from mace.eval.suite import SuiteTask
 from mace.loop import run_gate_programs
@@ -72,6 +72,13 @@ SEEDED_PREFIX = "seeded_"
 for _name, _fault in FAULTS.items():
     METHODS[f"{SEEDED_PREFIX}{_name}"] = f"RQ3: the loop with its first plan broken. {_fault.description}"
 
+# The same faults seeded into the retry agent's first design, on one
+# checkout, for the head-to-head with the loop's seeded runs.
+SEEDED_RETRY_PREFIX = "seeded_retry_"
+SEEDED_RETRY_METHODS = frozenset(f"{SEEDED_RETRY_PREFIX}{name}" for name in FAULTS)
+for _name, _fault in FAULTS.items():
+    METHODS[f"{SEEDED_RETRY_PREFIX}{_name}"] = f"B2 with its first design broken. {_fault.description}"
+
 # One more per fault, with no LLM: the expert configuration with the fault
 # applied. The fault is verified on a task when this run fails.
 FAULTCHECK_PREFIX = "faultcheck_"
@@ -88,7 +95,8 @@ NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codes
 
 def _fault_of(method: str):
     """The fault a ``seeded_`` or ``faultcheck_`` method applies, or ``None``."""
-    for prefix in (SEEDED_PREFIX, FAULTCHECK_PREFIX):
+    # seeded_retry_ first: its names also start with seeded_.
+    for prefix in (SEEDED_RETRY_PREFIX, SEEDED_PREFIX, FAULTCHECK_PREFIX):
         if method.startswith(prefix):
             return FAULTS[method[len(prefix):]]
     return None
@@ -238,7 +246,11 @@ def run_job(job: Job, env: RunEnv):
 
 
 def _run_job(job: Job, env: RunEnv):
-    one_root = job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert") or job.method in FAULTCHECK_METHODS
+    one_root = (
+        job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert")
+        or job.method in FAULTCHECK_METHODS
+        or job.method in SEEDED_RETRY_METHODS
+    )
     roots = env.piton_roots[:1] if one_root else env.piton_roots
     labels = RunLabels(
         method=job.method,
@@ -258,6 +270,10 @@ def _run_job(job: Job, env: RunEnv):
         labels = dataclasses.replace(labels, meta={**labels.meta, "fault": fault.name})
         if job.method in FAULTCHECK_METHODS:
             return run_expert(roots, spec, fault.break_task(job.task.expert_task()), env.db, labels=labels)
+        if job.method in SEEDED_RETRY_METHODS:
+            return run_retry_agent(
+                roots[0], spec, env.llm, env.db, labels=labels, design_hook=first_design_breaker(fault)
+            )
         return run_mace_loop(
             roots, spec, env.llm, env.db, labels=labels, options=LoopOptions(task_prompts=env.task_prompts),
             plan_hook=first_plan_breaker(fault),

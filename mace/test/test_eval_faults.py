@@ -6,7 +6,7 @@ Run:
 
 from __future__ import annotations
 
-from mace.eval.faults import BIST_DEFINE, FAULTS, FPGA_DEFINE, first_plan_breaker
+from mace.eval.faults import BIST_DEFINE, FAULTS, FPGA_DEFINE, first_design_breaker, first_plan_breaker
 from mace.spec import Task
 
 
@@ -64,3 +64,11 @@ class TestFirstPlanBreaker:
         assert first[0].config_rtl == (FPGA_DEFINE,)
         assert first[1] is plan[1]
         assert hook(1, plan) == plan
+
+
+class TestFirstDesignBreaker:
+    def test_breaks_only_the_first_design(self):
+        hook = first_design_breaker(FAULTS["fpga_synth"])
+        design = task()
+        assert hook(0, design).config_rtl == (FPGA_DEFINE,)
+        assert hook(1, design) is design

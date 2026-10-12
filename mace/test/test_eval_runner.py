@@ -404,3 +404,27 @@ class TestSeededJobs:
         assert kwargs["labels"].meta["fault"] == "fpga_synth"
         hooked = kwargs["plan_hook"](0, (Task(id="t", deps=(), kind="config", spec="s"),))
         assert hooked[0].config_rtl == ("PITON_FPGA_SYNTH",)
+
+    def test_the_retry_agent_s_seeded_runs_apply_to_the_same_tasks(self):
+        pico = suite_task("pico-task", core="pico")
+        tasks = (suite_task(), pico, codesign_task())
+        for name in ("fpga_synth", "drop_bist", "crossbar", "l1d_eight_way"):
+            loop = {(j.task.id, j.repeat) for j in runner.plan_jobs(tasks, (f"seeded_{name}",), repeats=2)}
+            retry = {(j.task.id, j.repeat) for j in runner.plan_jobs(tasks, (f"seeded_retry_{name}",), repeats=2)}
+            assert loop == retry
+
+    def test_the_retry_agent_runs_on_one_checkout_with_its_first_design_broken(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "mace.eval.runner.run_retry_agent",
+            lambda root, spec, llm, db, **kwargs: calls.append((root, kwargs)) or "done",
+        )
+        env = runner.RunEnv(piton_roots=("/a", "/b"), llm=object(), db=make_db(tmp_path), clear_cache=False)
+        assert runner.run_job(runner.Job(suite_task(), "seeded_retry_crossbar", 0), env) == "done"
+        ((root, kwargs),) = calls
+        assert root == "/a"
+        assert kwargs["labels"].meta["fault"] == "crossbar"
+        assert kwargs["labels"].meta["piton_roots"] == ["/a"]
+        design = Task(id="design", deps=(), kind="config", spec="s")
+        assert kwargs["design_hook"](0, design).network == "xbar_config"
+        assert kwargs["design_hook"](1, design) is design

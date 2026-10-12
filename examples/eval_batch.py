@@ -9,8 +9,8 @@ and repeat; examples/eval_report.py turns that database into tables.
 
 Methods (see mace/eval/runner.py): mace, mace_rtl, one_shot, one_shot_rtl,
 retry_agent, retry_agent_rtl, expert, no_triage, one_checkout, build_check, and no_reuse
-run on bring-up tasks, as do seeded_<fault> and faultcheck_<fault> for each
-seeded fault;
+run on bring-up tasks, as do seeded_<fault>, seeded_retry_<fault>, and
+faultcheck_<fault> for each seeded fault;
 codesign_mace, codesign_random, codesign_grid, and codesign_bayes run on
 co-design tasks. Each method runs only on the tasks it applies to. A batch
 of only expert, faultcheck_<fault>, codesign_random, codesign_grid, and
