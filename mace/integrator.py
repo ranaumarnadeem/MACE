@@ -35,10 +35,10 @@ from chia.base.ChiaFunction import get
 from chia.base.llm_call import QueryResult
 from chia_openpiton.openpiton_workspace import EDIT_STAGING_DIR, OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
-from mace import usage
+from mace import directed, usage
 from mace.loop import _config_for_task, run_gate_programs, run_mace_step
 from mace.replay import tag_for
-from mace.spec import LoopOptions, MaceSpec, StepResult, Task
+from mace.spec import DirectedTest, LoopOptions, MaceSpec, StepResult, Task
 from mace.tools import RtlEditTool
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
 
@@ -91,10 +91,15 @@ def inherited_edits(task: Task, applied: dict[str, dict[str, str]]) -> dict[str,
     return merged
 
 
-def rtl_prompt(spec: MaceSpec, task: Task, inherited: dict[str, str], context: str = "") -> str:
+def rtl_prompt(
+    spec: MaceSpec, task: Task, inherited: dict[str, str], context: str = "",
+    tests: tuple[DirectedTest, ...] = (),
+) -> str:
     """What an rtl task's agent is told. *context* is what earlier attempts
     in the run reported: the failure feedback and the last failed task's own
-    evidence, such as a build error with its file and line."""
+    evidence, such as a build error with its file and line. *tests* are the
+    directed tests an earlier task wrote; the changed design must pass them
+    as well as the gate workloads."""
     lines = [
         f"You are changing the RTL of OpenPiton/{spec.core} for one task of a MACE run.",
         "",
@@ -116,11 +121,20 @@ def rtl_prompt(spec: MaceSpec, task: Task, inherited: dict[str, str], context: s
         lines += ["", "What the earlier attempts in this run reported:", context.strip()]
     if inherited:
         lines += ["", "Edits from the tasks this one depends on are already applied to: " + ", ".join(sorted(inherited))]
+    if tests:
+        lines += [
+            "",
+            "Directed tests an earlier task wrote for this change. After your change, the gate workloads and "
+            "every one of these tests must pass. A test is an agent's work and can be wrong: if a test fails "
+            "because of its own mistake, say so in your closing line.",
+            directed.tests_report(tests),
+        ]
     return "\n".join(lines)
 
 
 def _rtl_session(
-    node, spec: MaceSpec, task: Task, llm, tools, inherited: dict[str, str], run_id, iteration, context: str = ""
+    node, spec: MaceSpec, task: Task, llm, tools, inherited: dict[str, str], run_id, iteration, context: str = "",
+    tests: tuple[DirectedTest, ...] = (),
 ):
     """An rtl task's agent call, with an :class:`~mace.tools.RtlEditTool`
     when Ray is up. Returns the reply and the name of the staging file the
@@ -137,7 +151,9 @@ def _rtl_session(
             task_options=node.task_options,
         )
     try:
-        query = usage.prompt(llm, "task", rtl_prompt(spec, task, inherited, context), (*tools, tool) if tool else tools)
+        query = usage.prompt(
+            llm, "task", rtl_prompt(spec, task, inherited, context, tests), (*tools, tool) if tool else tools
+        )
     except Exception as e:
         logger.warning("task %s: rtl agent call failed: %s", task.id, e)
         query = QueryResult(result="", returncode=1, stderr=str(e), stream_result="")
@@ -355,15 +371,21 @@ def integrate_parallel(
         # Each passed task's RTL edits, its dependencies' included, for the
         # tasks in later levels that depend on it.
         applied: dict[str, dict[str, str]] = {}
+        # Each passed task's directed tests that ran, its dependencies' included.
+        applied_tests: dict[str, tuple[DirectedTest, ...]] = {}
         for level in topological_levels(tasks):
             level_results = _run_level(
                 nodes, spec, level, llm, tools, root_dir, run_id, iteration, on_task_progress,
-                options, deadline, applied, rtl_context,
+                options, deadline, applied, rtl_context, applied_tests,
             )
             results.extend(level_results)
             if not all(r.passed for r in level_results):
                 break
             applied.update({r.task.id: r.edits for r in level_results if r.edits})
+            for r in level_results:
+                carried = directed.carry_tests(r.task, r.tests, applied_tests)
+                if carried:
+                    applied_tests[r.task.id] = carried
         return tuple(results)
     finally:
         if owns_nodes:
@@ -384,6 +406,7 @@ def _run_level(
     deadline: float | None = None,
     applied: dict[str, dict[str, str]] | None = None,
     rtl_context: str = "",
+    applied_tests: dict[str, tuple[DirectedTest, ...]] | None = None,
 ) -> list[StepResult]:
     """One level, batched to at most ``len(nodes)`` tasks in flight at once."""
     results: list[StepResult] = []
@@ -394,7 +417,7 @@ def _run_level(
         results.extend(
             _run_batch(
                 nodes[: len(batch)], spec, batch, llm, tools, asm_diag_root, run_id, iteration,
-                on_task_progress, options, deadline, applied, rtl_context,
+                on_task_progress, options, deadline, applied, rtl_context, applied_tests,
             )
         )
     return results
@@ -414,6 +437,7 @@ def _run_batch(
     deadline: float | None = None,
     applied: dict[str, dict[str, str]] | None = None,
     rtl_context: str = "",
+    applied_tests: dict[str, tuple[DirectedTest, ...]] | None = None,
 ) -> list[StepResult]:
     """One (node, task) pair per entry.
 
@@ -445,6 +469,13 @@ def _run_batch(
     ``PitonConfig(sys=env_name)`` run_mace_step._run_unit_test_step builds
     -- dispatching it through the remote prompt/build/run calls below would
     silently build and run the wrong thing.
+
+    A ``test``-kind task builds the design as it stands, asks its agent for
+    directed tests, and runs them (see :mod:`mace.directed`). It passes once
+    a test ran to a verdict. Its tests (*applied_tests*, by task id) are
+    inherited like RTL edits: a task that depends on it runs them after its
+    gate workloads and passes only if both pass, and an rtl task's agent is
+    shown them.
 
     Each remote task's own prompt -> build -> run is pipelined on its own
     thread, independently of its batch-mates -- a fast task dispatches its
@@ -488,13 +519,17 @@ def _run_batch(
 
     def _run_one(node, config: PitonConfig, task: Task) -> StepResult:
         inherited = inherited_edits(task, applied or {})
+        if task.kind == "test":
+            return _test_task(node, config, task, inherited)
+        inherited_dt = directed.merge_tests(task, applied_tests or {})
         rtl = task.kind == "rtl" and options.rtl_edits
         staged = ""
         query = QueryResult(result="", returncode=0, stderr="", stream_result="", success=True)
         if rtl:
             _progress((task.id,), "prompting")
             query, staged = _rtl_session(
-                node, spec, task, llm, tools, inherited, run_id, iteration, rtl_context
+                node, spec, task, llm, tools, inherited, run_id, iteration, rtl_context,
+                **({"tests": inherited_dt} if inherited_dt else {}),
             )
         elif options.task_prompts:
             _progress((task.id,), "prompting")
@@ -524,7 +559,7 @@ def _run_batch(
         try:
             if edits:
                 config = dataclasses.replace(config, source_edits=edits_digest(edits))
-            result = _check(node, config, task, query)
+            result = _check(node, config, task, query, inherited_dt)
         finally:
             if edits is not None:
                 get(node.revert_edits.chia_remote())
@@ -535,21 +570,50 @@ def _run_batch(
         result.edit_recorded = not rtl or (edits or {}) != inherited
         return result
 
-    def _check(node, config: PitonConfig, task: Task, query) -> StepResult:
-        """*task*'s build and gate runs on *config*."""
+    def _build(node, config: PitonConfig, task: Task) -> PitonBuildArtifact:
+        """*task*'s build of *config*, unless the run's time budget ran out."""
         build_timeout = timeout_before(deadline, BUILD_TIMEOUT_S)
         if build_timeout == 0:
-            build = _not_built(config)
-        else:
-            _progress((task.id,), "building")
-            build = get(
-                node.build.chia_remote(
-                    config,
-                    clean=not options.reuse_builds,
-                    timeout_seconds=build_timeout,
-                    _chia_tag=_tag(task.id, "build"),
-                )
+            return _not_built(config)
+        _progress((task.id,), "building")
+        return get(
+            node.build.chia_remote(
+                config,
+                clean=not options.reuse_builds,
+                timeout_seconds=build_timeout,
+                _chia_tag=_tag(task.id, "build"),
             )
+        )
+
+    def _run_program(node, config: PitonConfig, task: Task, program: str, root: str | None = None) -> PitonRunResult:
+        """One program on *task*'s build; *root* is where sims finds it
+        (the gate workloads' directory unless a directed test's)."""
+        run_timeout = timeout_before(deadline, RUN_TIMEOUT_S)
+        if run_timeout == 0:
+            return _not_run(program)
+        _progress((task.id,), "running")
+        # The first program keeps the tag it always had, so a replay of
+        # an older run still finds its runs.
+        phase = "run" if program == spec.workloads[0] else f"run:{program}"
+        finish_mask, run_args = spec.run_options(program)
+        return get(
+            node.run.chia_remote(
+                config,
+                program,
+                asm_diag_root=root or asm_diag_root,
+                rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
+                max_cycle=spec.max_cycle,
+                finish_mask=finish_mask,
+                extra_run_args=run_args,
+                timeout_seconds=run_timeout,
+                _chia_tag=_tag(task.id, phase),
+            )
+        )
+
+    def _check(node, config: PitonConfig, task: Task, query, tests: tuple[DirectedTest, ...] = ()) -> StepResult:
+        """*task*'s build and gate runs on *config*: the gate workloads,
+        then any directed *tests* an earlier task wrote."""
+        build = _build(node, config, task)
 
         if options.check == "build":
             return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
@@ -557,31 +621,75 @@ def _run_batch(
         if not build.success:
             return StepResult(task=task, query=query, build=build, run=None, passed=False)
 
-        def run_program(program: str) -> PitonRunResult:
-            run_timeout = timeout_before(deadline, RUN_TIMEOUT_S)
-            if run_timeout == 0:
-                return _not_run(program)
-            _progress((task.id,), "running")
-            # The first program keeps the tag it always had, so a replay of
-            # an older run still finds its runs.
-            phase = "run" if program == spec.workloads[0] else f"run:{program}"
-            finish_mask, run_args = spec.run_options(program)
-            return get(
-                node.run.chia_remote(
-                    config,
-                    program,
-                    asm_diag_root=asm_diag_root,
-                    rtl_timeout=spec.rtl_timeout or RECOMMENDED_RTL_TIMEOUT,
-                    max_cycle=spec.max_cycle,
-                    finish_mask=finish_mask,
-                    extra_run_args=run_args,
-                    timeout_seconds=run_timeout,
-                    _chia_tag=_tag(task.id, phase),
-                )
+        programs, roots = spec.workloads, {}
+        if tests:
+            directory = directed.install_tests(node, directed.test_tag(run_id, iteration, task.id) + "i", tests)
+            programs = (*spec.workloads, *(t.program for t in tests))
+            roots = {t.program: directory for t in tests}
+        runs, passed = run_gate_programs(
+            lambda program: _run_program(node, config, task, program, roots.get(program)), programs
+        )
+        return StepResult(task=task, query=query, build=build, run=runs[-1], passed=passed, runs=runs)
+
+    def _test_task(node, config: PitonConfig, task: Task, inherited: dict[str, str]) -> StepResult:
+        """A ``test`` task: the design as it stands, with the RTL edits of the
+        tasks it depends on applied, then an agent's directed tests (see
+        :mod:`mace.directed`), each run on it. The task passes when a test
+        ran to a verdict, whatever the verdict."""
+        edits: dict[str, str] | None = None
+        diff = ""
+        if inherited:
+            applied_now = get(node.apply_edits.chia_remote(inherited))
+            edits, diff = applied_now["edits"], applied_now["diff"]
+        else:
+            get(node.revert_edits.chia_remote())
+        try:
+            if edits:
+                config = dataclasses.replace(config, source_edits=edits_digest(edits))
+            result = _write_tests(node, config, task)
+        finally:
+            if edits is not None:
+                get(node.revert_edits.chia_remote())
+        if edits:
+            result.edits, result.edits_diff = edits, diff
+        return result
+
+    def _write_tests(node, config: PitonConfig, task: Task) -> StepResult:
+        form = directed.test_form(spec.core)
+        query = QueryResult(result="", returncode=0, stderr="", stream_result="", success=True)
+        build = _build(node, config, task)
+        if form is None:
+            query = QueryResult(
+                result="", returncode=1, stderr=f"directed tests are not available for {spec.core}", stream_result=""
+            )
+            return StepResult(task=task, query=query, build=build, run=None, passed=False)
+        if options.check == "build":
+            return StepResult(task=task, query=query, build=build, run=None, passed=build.success)
+        if not build.success:
+            # Nothing can run on a design that does not build; the task that
+            # repairs the design builds it, and its gates then run.
+            return StepResult(task=task, query=query, build=build, run=None, passed=True)
+
+        tag = directed.test_tag(run_id, iteration, task.id)
+
+        def session(attempt: int, directory: str, feedback: str) -> QueryResult:
+            _progress((task.id,), "prompting")
+            return directed.test_session(
+                node, spec, task, llm, tools, form, directory, f"{tag}a{attempt}", rtl_context, feedback
             )
 
-        runs, passed = run_gate_programs(run_program, spec.workloads)
-        return StepResult(task=task, query=query, build=build, run=runs[-1], passed=passed, runs=runs)
+        tests, runs, reply = directed.run_test_attempts(
+            spec, task, form, tag, node.piton_root,
+            session=session,
+            read=lambda directory: directed.read_tests(node, directory),
+            run_program=lambda program, directory: _run_program(node, config, task, program, directory),
+            explain=lambda run: directed.compile_log(node, run),
+            out_of_time=lambda: timeout_before(deadline, 1) == 0,
+        )
+        return StepResult(
+            task=task, query=reply or query, build=build, run=runs[-1] if runs else None,
+            passed=bool(directed.usable(tests)), runs=runs, tests=tests,
+        )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(remote_batch)) as pool:
         futures = [
