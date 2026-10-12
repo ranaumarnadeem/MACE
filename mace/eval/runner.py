@@ -6,6 +6,8 @@ one method. :func:`run_batch` runs each job that has no finished run in the
 database yet, so a batch stopped midway resumes where it left off. Before
 each job it empties MACE's build directories on every checkout, so every
 run starts from an empty build cache; builds are reused only inside a run.
+RTL-parameter searches are the exception: they keep the cache, since a
+design's finish time does not depend on whether its build was reused.
 
 Every method records its run in the same database, labelled with
 :class:`mace.metrics.RunLabels` (method, suite task, repeat) and with the
@@ -33,6 +35,7 @@ from mace.baselines.one_shot import run_one_shot
 from mace.baselines.retry_agent import run_retry_agent
 from mace.codesign.area import area_notes, design_area
 from mace.codesign.run import run_codesign
+from mace.codesign.rtlsearch import RtlProposer, run_rtlsearch
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
 from mace.eval.faults import FAULTS, first_design_breaker, first_plan_breaker
 from mace.eval.source_faults import faulted, restore
@@ -92,6 +95,23 @@ ONCE_METHODS = frozenset(("expert", "codesign_grid")) | FAULTCHECK_METHODS
 # Methods that never call an LLM: a batch of only these needs no backend.
 NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codesign_bayes")) | FAULTCHECK_METHODS
 
+# --- session C: RTL-parameter searches (mace.codesign.rtlsearch) --------------
+# They run on tasks with an rtlparam block, on one checkout, and keep the build
+# cache between jobs: a design's finish time does not depend on whether its
+# build was reused, and the default design is built once for every search.
+RTLPARAM_METHODS = frozenset(("rtlparam_default", "rtlparam_sweep", "rtlparam_mace", "rtlparam_bayes"))
+METHODS.update(
+    {
+        "rtlparam_default": "RP0: the default design only: its finish time and per-hart cycles, with no LLM.",
+        "rtlparam_sweep": "RP1: the default design, then each parameter alone at each other value, with no LLM.",
+        "rtlparam_mace": "RP2: MACE's LLM proposer reads the per-hart cycles and picks each design.",
+        "rtlparam_bayes": "RP3: Optuna's TPE sampler over the same parameters, seeded by the repeat.",
+    }
+)
+ONCE_METHODS = ONCE_METHODS | frozenset(("rtlparam_default", "rtlparam_sweep"))
+NO_LLM_METHODS = NO_LLM_METHODS | (RTLPARAM_METHODS - {"rtlparam_mace"})
+# --- end session C -------------------------------------------------------------
+
 
 def _fault_of(method: str):
     """The fault a ``seeded_`` or ``faultcheck_`` method applies, or ``None``."""
@@ -103,12 +123,15 @@ def _fault_of(method: str):
 
 
 def applies(method: str, task: SuiteTask) -> bool:
-    """Co-design methods run on co-design tasks, the others on bring-up
-    tasks; a fault's methods run only on tasks it breaks (see
+    """Co-design methods run on co-design tasks, RTL-parameter methods on
+    tasks with an rtlparam block, the others on bring-up tasks; a fault's
+    methods run only on tasks it breaks (see
     :meth:`mace.eval.faults.Fault.applies_to`)."""
     fault = _fault_of(method)
     if fault is not None:
         return task.kind == "bringup" and fault.applies_to(task.core, task.mesh)
+    if method in RTLPARAM_METHODS or task.kind == "rtlparam":  # session C
+        return method in RTLPARAM_METHODS and task.kind == "rtlparam"
     return (method in CODESIGN_METHODS) == (task.kind == "codesign")
 
 # A run in one of these states counts as done; a run left "running" by a
@@ -250,6 +273,7 @@ def _run_job(job: Job, env: RunEnv):
         job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert")
         or job.method in FAULTCHECK_METHODS
         or job.method in SEEDED_RETRY_METHODS
+        or job.method in RTLPARAM_METHODS  # session C
     )
     roots = env.piton_roots[:1] if one_root else env.piton_roots
     labels = RunLabels(
@@ -259,12 +283,14 @@ def _run_job(job: Job, env: RunEnv):
         meta={**env.meta, "piton_roots": list(roots), "task_prompts": env.task_prompts,
               **({"source_fault": [e.path for e in job.task.source_fault]} if job.task.source_fault else {})},
     )
-    if env.clear_cache:
+    if env.clear_cache and job.method not in RTLPARAM_METHODS:
         for root in env.piton_roots:
             clear_build_cache(root)
     spec = job.task.spec()
     if job.method in CODESIGN_METHODS:
         return _run_codesign_job(job, env, roots, spec, labels)
+    if job.method in RTLPARAM_METHODS:  # session C
+        return _run_rtlparam_job(job, env, roots, spec, labels)
     fault = _fault_of(job.method)
     if fault is not None:
         labels = dataclasses.replace(labels, meta={**labels.meta, "fault": fault.name})
@@ -344,6 +370,38 @@ def _run_codesign_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
         roots, spec, strategy, env.db, simulations=config.simulations, batch=config.batch,
         area_budget_um2=budget, labels=labels,
     )
+
+
+# --- session C: RTL-parameter searches ----------------------------------------
+
+
+def _run_rtlparam_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunLabels):
+    config = job.task.rtlparam
+    space = config.space
+    default = space.default()
+    seed, simulations, budget = job.repeat, config.simulations, config.storage_budget_bits
+    if job.method == "rtlparam_default":
+        strategy, seed, simulations, budget = GridSearch([default]), None, 1, None
+    elif job.method == "rtlparam_sweep":
+        designs = space.one_at_a_time()
+        strategy, seed, simulations, budget = GridSearch(designs), None, len(designs), None
+    elif job.method == "rtlparam_mace":
+        strategy, seed = RtlProposer(env.llm, spec, space, budget), None
+    elif job.method == "rtlparam_bayes":
+        # TPE draws its first trials at random; with ten simulations, Optuna's default of ten
+        # would leave it nothing to model, so it starts modelling after three.
+        strategy = BayesianSearch(space, seed=seed, n_startup_trials=3, first=dict(default.values))
+    else:
+        raise ValueError(f"unknown RTL-parameter method {job.method!r}")
+    labels = dataclasses.replace(
+        labels, seed=seed, meta={**labels.meta, "simulations": simulations, "storage_budget_bits": budget}
+    )
+    return run_rtlsearch(
+        roots, spec, strategy, env.db, simulations=simulations, storage_budget_bits=budget, labels=labels
+    )
+
+
+# --- end session C -------------------------------------------------------------
 
 
 def _run_program(root: str, config, program: str, spec: MaceSpec):
