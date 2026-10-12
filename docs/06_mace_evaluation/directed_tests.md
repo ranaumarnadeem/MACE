@@ -43,6 +43,7 @@ Each outcome is a row in the `test_checks` table, keyed like the test's row in `
 
 `expert_clean`, `testgen`, and `mace_rtl_test` run only on tasks that have a `source_fault`.
 `expert` on the same task is the check that the bug makes the gate workload fail.
+On a bug that breaks the build, `testgen` builds the design, fails, and writes no test, so the evaluation runs it on the held-out bugs only.
 The hook of `mace_rtl_test` adds a test only before an `rtl` task, so a plan with no `rtl` task has no test.
 
 ## The held-out bugs
