@@ -27,7 +27,7 @@ from mace.eval.report import rows_from, run_rows, summarize
 from mace.metrics import DBReader
 
 OLD_BUGS = ("ariane-2x2-hello-rtlfault", "pico-2x2-addi-rtlfault", "ariane-2x2-accu-rtlfault")
-HELD_OUT_BUGS = ("ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-sb-rtlbug")
+HELD_OUT_BUGS = ("ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-srai-rtlbug")
 OUTCOMES = ("detected", "missed", "false_alarm", "invalid", "unchecked")
 
 DETECTION_COLUMNS = [

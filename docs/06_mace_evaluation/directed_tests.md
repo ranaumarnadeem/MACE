@@ -56,7 +56,7 @@ They were defined on 2026-10-12, before any prompt of the `test` task was writte
 |---|---|---|---|
 | `ariane-2x2-barrier-amobug` | `l2_amo_alu.v` | An atomic add subtracts. | `barrier_atomic.c` |
 | `pico-2x2-sh-rtlbug` | `picorv32.v` | `lh` zero-extends in place of sign-extending. | `sh.S` |
-| `pico-2x2-sb-rtlbug` | `picorv32.v` | `sb` takes its byte lane from address bit 0 alone. | `sb.S` |
+| `pico-2x2-srai-rtlbug` | `picorv32.v` | The four-bit step of the arithmetic right shift fills with zeros. | `srai.S` |
 
 `examples/eval/tasks_tests.yaml` holds a fourth bug, a PicoRV32 `bgeu` that compares signed values, on which the prompts of the `test` task were tuned.
 No evaluation reports it.
@@ -68,7 +68,7 @@ A held-out task is `verified: true` once `expert` on it builds and then fails in
 ```bash
 export MAKEFLAGS=-j1
 python examples/eval_batch.py --piton-root ~/openpiton --suite examples/eval/tasks_rtl.yaml --include-unverified \
-    --tasks ariane-2x2-barrier-amobug,pico-2x2-sh-rtlbug,pico-2x2-sb-rtlbug \
+    --tasks ariane-2x2-barrier-amobug,pico-2x2-sh-rtlbug,pico-2x2-srai-rtlbug \
     --methods expert,expert_clean --db-path runs/heldout_check.db
 python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-2 --backend vertex \
     --suite examples/eval/tasks_rtl.yaml --include-unverified --repeats 5 \
