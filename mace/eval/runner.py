@@ -92,6 +92,17 @@ ONCE_METHODS = frozenset(("expert", "codesign_grid")) | FAULTCHECK_METHODS
 # Methods that never call an LLM: a batch of only these needs no backend.
 NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codesign_bayes")) | FAULTCHECK_METHODS
 
+# --- session B: directed tests (docs/06_mace_evaluation/directed_tests.md) ---
+# These methods run only on tasks with a source fault. A method in
+# CLEAN_METHODS runs on the design without that fault.
+EXPERT_CLEAN = "expert_clean"
+METHODS[EXPERT_CLEAN] = "The expert configuration on the design without the task's source fault; it should pass."
+SESSION_B_METHODS = frozenset((EXPERT_CLEAN,))
+CLEAN_METHODS = frozenset((EXPERT_CLEAN,))
+ONCE_METHODS = ONCE_METHODS | frozenset((EXPERT_CLEAN,))
+NO_LLM_METHODS = NO_LLM_METHODS | frozenset((EXPERT_CLEAN,))
+# --- end session B ---
+
 
 def _fault_of(method: str):
     """The fault a ``seeded_`` or ``faultcheck_`` method applies, or ``None``."""
@@ -106,6 +117,8 @@ def applies(method: str, task: SuiteTask) -> bool:
     """Co-design methods run on co-design tasks, the others on bring-up
     tasks; a fault's methods run only on tasks it breaks (see
     :meth:`mace.eval.faults.Fault.applies_to`)."""
+    if method in SESSION_B_METHODS:  # session B
+        return task.kind == "bringup" and bool(task.source_fault)
     fault = _fault_of(method)
     if fault is not None:
         return task.kind == "bringup" and fault.applies_to(task.core, task.mesh)
@@ -236,8 +249,9 @@ def run_job(job: Job, env: RunEnv):
     """Run *job* on an empty build cache, and record it. A task with a
     ``source_fault`` runs on checkouts that carry the fault, restored after.
     Any other job first restores a fault or RTL edits a killed job left, so
-    it never builds them."""
-    if job.task.source_fault:
+    it never builds them. A session B clean method runs on the design
+    without the fault."""
+    if job.task.source_fault and job.method not in CLEAN_METHODS:
         with faulted(env.piton_roots, job.task.source_fault):
             return _run_job(job, env)
     for root in env.piton_roots:
@@ -247,7 +261,7 @@ def run_job(job: Job, env: RunEnv):
 
 def _run_job(job: Job, env: RunEnv):
     one_root = (
-        job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert")
+        job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert", EXPERT_CLEAN)
         or job.method in FAULTCHECK_METHODS
         or job.method in SEEDED_RETRY_METHODS
     )
@@ -257,7 +271,8 @@ def _run_job(job: Job, env: RunEnv):
         task=job.task.id,
         repeat=job.repeat,
         meta={**env.meta, "piton_roots": list(roots), "task_prompts": env.task_prompts,
-              **({"source_fault": [e.path for e in job.task.source_fault]} if job.task.source_fault else {})},
+              **({"source_fault": [e.path for e in job.task.source_fault]}
+                 if job.task.source_fault and job.method not in CLEAN_METHODS else {})},
     )
     if env.clear_cache:
         for root in env.piton_roots:
@@ -289,7 +304,7 @@ def _run_job(job: Job, env: RunEnv):
         )
     if method == "retry_agent":
         return run_retry_agent(roots[0], spec, env.llm, env.db, labels=labels)
-    if method == "expert":
+    if method == "expert" or method == EXPERT_CLEAN:
         return run_expert(roots, spec, job.task.expert_task(), env.db, labels=labels)
     if method == "no_triage":
         return run_mace_loop(
