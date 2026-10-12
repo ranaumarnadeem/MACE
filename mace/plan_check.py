@@ -302,6 +302,23 @@ def check_plan(
     return tuple(problems)
 
 
+UNUSABLE_REPLY = "unusable_reply"
+
+
+def format_unusable_reply(error: str, rtl_edits: bool = False) -> str:
+    """The note a re-plan call gets when the planner's last reply held no
+    usable plan, such as a ``TASK:`` line without its ``kind=`` field or an
+    empty reply: what was wrong, and the line format again. *error* is the
+    :class:`~mace.planner.PlanningError` message."""
+    kinds = "config|workload|unit_test|rtl" if rtl_edits else "config|workload|unit_test"
+    return (
+        f"Your last reply could not be read as a plan: {error[:400]}\n"
+        "Reply with one line per task, in exactly this format:\n"
+        f"TASK: <id> | deps=<comma-separated task ids, or empty> | kind=<{kinds}> | <short instruction>\n"
+        "Every task line needs all four fields, and the third starts with kind=."
+    )
+
+
 def format_rejection(problems: tuple[PlanProblem, ...]) -> str:
     """*problems* as the note a re-plan call gets: what was wrong, and that
     no build or simulation was spent on it."""

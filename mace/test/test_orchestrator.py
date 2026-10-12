@@ -235,7 +235,7 @@ class TestNodeLifecycleAcrossIterations:
             "mace.orchestrator.open_nodes", lambda piton_roots: open_calls.append(piton_roots)
         )
 
-        def raising_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
+        def raising_plan(spec, llm, tools=(), feedback="", rtl_edits=True, **kwargs):
             raise PlanningError("no TASK: lines in the planner's response")
 
         monkeypatch.setattr("mace.orchestrator.plan", raising_plan)
@@ -280,7 +280,7 @@ class TestStatusTransitions:
     def test_planning_error_stops_with_planning_failed(self, tmp_path, monkeypatch):
         from mace.planner import PlanningError
 
-        def raising_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
+        def raising_plan(spec, llm, tools=(), feedback="", rtl_edits=True, **kwargs):
             raise PlanningError("no TASK: lines in the planner's response")
 
         monkeypatch.setattr("mace.orchestrator.plan", raising_plan)
@@ -294,11 +294,32 @@ class TestStatusTransitions:
         reply = "TASK: t1 | deps= | workload | addi.S"  # no kind=, so no task parses
         db = make_db(tmp_path)
 
-        result = run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[reply]), db=db)
+        # The planner is asked again twice, with the format; all three calls are recorded.
+        result = run_mace_loop(("/fake/root",), make_spec(), FakeLLM(responses=[reply] * 3), db=db)
 
         assert result.status == "planning_failed"
-        rows = db.query("SELECT iteration, phase, reply FROM llm_calls WHERE run_id = ?", (result.run_id,))
-        assert [(r["iteration"], r["phase"], r["reply"]) for r in rows] == [(0, "plan", reply)]
+        rows = db.query("SELECT iteration, phase, reply FROM llm_calls WHERE run_id = ? ORDER BY seq", (result.run_id,))
+        assert [(r["iteration"], r["phase"], r["reply"]) for r in rows] == [
+            (0, "plan", reply), (0, "plan_retry", reply), (0, "plan_retry", reply),
+        ]
+
+    def test_a_reply_with_no_plan_is_asked_again_with_the_line_format_and_the_run_goes_on(self, tmp_path, monkeypatch):
+        bad = "TASK: t1 | deps= | workload | hello_world.c"
+        good = "TASK: t1 | deps= | kind=workload | hello_world.c"
+        llm = FakeLLM(responses=[bad, good])
+        db = make_db(tmp_path)
+        ran = []
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda piton_roots, spec, tasks, llm_, **kwargs: ran.append(tasks) or (step_result("t1"),),
+        )
+
+        result = run_mace_loop(("/fake/root",), make_spec(budget=Budget(max_iterations=1)), llm, db=db)
+
+        assert result.status == "passed" and [t.id for t in ran[0]] == ["t1"]
+        second_prompt = llm.calls[1][0]
+        assert "could not be read as a plan" in second_prompt and "kind=<config|workload|unit_test>" in second_prompt
+        assert bad in second_prompt  # the model sees its own malformed line
 
     def test_exhausting_max_iterations_without_passing_is_budget_exceeded(self, tmp_path, monkeypatch):
         monkeypatch.setattr(

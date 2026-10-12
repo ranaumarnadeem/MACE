@@ -54,7 +54,8 @@ An override line applies to the task it names.
 `Task.__post_init__` in `mace/spec.py` rejects an empty id, a kind outside `TASK_KINDS`, an empty dependency id, an unknown or duplicated cache name, a non-positive cache size or associativity, and a malformed or duplicated `config_rtl` flag.
 `parse_tasks()` drops any line whose `Task` fails these checks.
 `plan()` raises `PlanningError` when no task remains, or when `topological_levels()` finds a duplicate id, a dependency on an unknown id, or a cycle.
-The orchestrator then logs the error, which quotes a reply with no `TASK:` lines or names the graph problem, records the planner's call with its reply, and ends the run with status `planning_failed`.
+The orchestrator then asks the planner again, up to twice, with the error and the line format (see [Fixed Checks](fixed_checks.md)).
+When the retries are spent, it logs the error, which quotes a reply with no `TASK:` lines or names the graph problem, records the planner's calls with their replies, and ends the run with status `planning_failed`.
 
 A valid DAG can still be a plan the loop cannot carry out, such as a task that asks for a source edit in a run without RTL edits.
 The orchestrator checks each plan for those before it builds anything, and sends one back to the planner with the reasons (see [Fixed Checks](fixed_checks.md)).

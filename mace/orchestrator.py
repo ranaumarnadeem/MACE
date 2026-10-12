@@ -54,9 +54,11 @@ from mace.metrics import (
 )
 from mace.narrowing import SKIPPED, Change, Narrowing, narrow
 from mace.plan_check import (
+    UNUSABLE_REPLY,
     check_plan,
     define_index,
     format_rejection,
+    format_unusable_reply,
     note_failed_config,
     objective_defines,
     strip_unknown_defines,
@@ -122,43 +124,59 @@ def _plan_checked(
 
     Defines no file of *checkout* mentions are removed, as they change
     nothing. A plan the loop cannot carry out goes back to the planner with
-    the reasons, up to :data:`MAX_PLAN_REJECTIONS` times; a planner reply
-    with no usable plan then leaves the plan it was asked to replace in
-    force. Every look that rejected a plan or removed a define is recorded.
+    the reasons, and so does a reply that holds no plan at all (a ``TASK:``
+    line without its ``kind=`` field, or an empty reply), which would
+    otherwise end the run. Both kinds of retry share one cap,
+    :data:`MAX_PLAN_REJECTIONS` per iteration. When the cap is spent, a plan
+    still rejected runs as it stands, and a reply with no plan raises
+    :class:`~mace.planner.PlanningError`; a retry that gives no plan leaves
+    the rejected plan it was asked to replace in force. Every look that
+    rejected a plan, removed a define, or found a reply unusable is recorded.
     """
-    tasks = plan(spec, llm, tools=tools, feedback=feedback, rtl_edits=options.rtl_edits)
-    if not options.plan_check:
-        return tasks
-    known = define_index(checkout) if checkout else None
+    retries = 0
+    rejection = ""
+    rejected_plan: tuple[Task, ...] | None = None
+    rejected_problems: tuple = ()
+    known = define_index(checkout) if checkout and options.plan_check else None
     path_exists = (lambda path: os.path.exists(os.path.join(checkout, path))) if checkout else None
     keep = objective_defines(spec.objective)
-    for attempt in range(MAX_PLAN_REJECTIONS + 1):
+    while True:
+        # The first call is the planner's plain call; a retry carries the note and its own phase.
+        retry = {"rejection": rejection, "phase": "plan_retry"} if retries else {}
+        try:
+            tasks = plan(spec, llm, tools=tools, feedback=feedback, rtl_edits=options.rtl_edits, **retry)
+        except PlanningError as e:
+            if not options.plan_check:
+                raise
+            if rejected_plan is not None:
+                logger.warning("run %s: no usable plan after a rejection, running the rejected one: %s", run_id, e)
+                record_plan_check(db, run_id, iteration, retries, "kept", rejected_problems, ())
+                return rejected_plan
+            if retries >= MAX_PLAN_REJECTIONS:
+                raise
+            logger.warning("run %s: the planner's reply held no plan, asking again: %s", run_id, e)
+            record_plan_check(
+                db, run_id, iteration, retries, "unusable", ((UNUSABLE_REPLY, "", str(e)[:400]),), (),
+            )
+            rejection = format_unusable_reply(str(e), options.rtl_edits)
+            retries += 1
+            continue
+        if not options.plan_check:
+            return tasks
         tasks, stripped = strip_unknown_defines(tasks, known, keep)
         problems = check_plan(
             spec, tasks, rtl_edits=options.rtl_edits, path_exists=path_exists, failed_configs=failed_configs,
             bad_changes=bad_changes,
         )
-        rejected = bool(problems) and attempt < MAX_PLAN_REJECTIONS
-        if problems or stripped or attempt:
-            record_plan_check(
-                db, run_id, iteration, attempt, "rejected" if rejected else "accepted",
-                tuple((p.rule, p.task_id, p.reason) for p in problems), stripped,
-            )
+        recorded = tuple((p.rule, p.task_id, p.reason) for p in problems)
+        rejected = bool(problems) and retries < MAX_PLAN_REJECTIONS
+        if problems or stripped or retries:
+            record_plan_check(db, run_id, iteration, retries, "rejected" if rejected else "accepted", recorded, stripped)
         if not rejected:
             return tasks
-        try:
-            tasks = plan(
-                spec, llm, tools=tools, feedback=feedback, rtl_edits=options.rtl_edits,
-                rejection=format_rejection(problems), phase="plan_retry",
-            )
-        except PlanningError as e:
-            logger.warning("run %s: no usable plan after a rejection, running the rejected one: %s", run_id, e)
-            record_plan_check(
-                db, run_id, iteration, attempt + 1, "kept",
-                tuple((p.rule, p.task_id, p.reason) for p in problems), (),
-            )
-            return tasks
-    return tasks
+        rejected_plan, rejected_problems = tasks, recorded
+        rejection = format_rejection(problems)
+        retries += 1
 
 
 def _rtl_context(feedback_history: list[str], last_evidence: str) -> str:

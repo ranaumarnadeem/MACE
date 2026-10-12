@@ -38,12 +38,15 @@ A task that builds on `rtl` edits skips the last two rules, since its flags do n
 The `missing_module` rule needs a checkout, and the other rules need only the plan and the run's history.
 
 A rejected plan goes back to `plan()` with the reasons in its `rejection` argument, as a call in the `plan_retry` phase.
-An iteration sends its plan back at most `MAX_PLAN_REJECTIONS` times, which is 2.
+A planner reply that holds no plan at all goes back the same way, with the line format in `rejection`: a `TASK:` line without its `kind=` field, an empty reply, or a graph with a cycle.
+Such a reply used to end the run as `planning_failed`, and one that arrived right after an expensive narrowing lost the probes' work.
+An iteration sends its plan back at most `MAX_PLAN_REJECTIONS` times, which is 2, and the two kinds of retry share that count.
 A plan still rejected after that runs as it stands, and so does the rejected plan when the retry gives no usable plan.
+A reply with no plan after the last retry ends the run as `planning_failed`.
 The seeded-fault `plan_hook` runs after the check, so a fault always reaches a build.
 
 `record_plan_check()` writes one row of the `plan_checks` table for each look that found a problem or removed a define, and for each retry's look.
-`action` is `rejected`, `accepted`, or `kept`, and the row holds the rules, tasks, and reasons as JSON, and the stripped defines.
+`action` is `rejected`, `accepted`, `kept`, or `unusable` (a reply with no plan), and the row holds the rules, tasks, and reasons as JSON, and the stripped defines.
 `mace.eval.plan_replay.replay_plans()` runs the same check over the plans recorded in a database, with no LLM call and no build.
 
 ## Raw Evidence

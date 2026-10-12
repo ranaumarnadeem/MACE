@@ -343,6 +343,21 @@ def test_a_normal_plan_for_a_normal_objective_has_no_problem():
     assert check_plan(s, plan, path_exists=lambda p: False, failed_configs={}) == ()
 
 
+class TestFormatUnusableReply:
+    def test_it_quotes_the_error_and_gives_the_line_format(self):
+        note = plan_check.format_unusable_reply("no TASK: lines in the planner's response: 'TASK: a | deps= | workload | x'")
+        assert "could not be read as a plan: no TASK: lines" in note and "'TASK: a | deps= | workload | x'" in note
+        assert "TASK: <id> | deps=<comma-separated task ids, or empty> | kind=<config|workload|unit_test> |" in note
+        assert "the third starts with kind=" in note
+
+    def test_the_rtl_kind_is_offered_only_in_a_run_with_rtl_edits(self):
+        assert "|rtl>" not in plan_check.format_unusable_reply("e")
+        assert "kind=<config|workload|unit_test|rtl>" in plan_check.format_unusable_reply("e", rtl_edits=True)
+
+    def test_a_long_error_is_cut(self):
+        assert len(plan_check.format_unusable_reply("x" * 5000)) < 700
+
+
 def test_format_rejection_lists_every_reason_and_says_no_build_was_spent():
     problems = (plan_check.PlanProblem(SOURCE_EDIT, "a", "first reason."), plan_check.PlanProblem(WAY_RULE, "b", "second."))
     text = format_rejection(problems)

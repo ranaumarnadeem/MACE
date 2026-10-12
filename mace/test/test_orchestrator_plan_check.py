@@ -121,6 +121,58 @@ class TestRejection:
         assert len(seen) == 1 and ran == [bad] and check_rows(db, result.run_id) == []
 
 
+class TestUnusableReplies:
+    BAD_LINE = "no TASK: lines in the planner's response: 'TASK: verify | deps= | workload | Run barrier_atomic.c'"
+
+    def test_a_reply_with_no_plan_is_asked_again_with_the_format(self, tmp_path, monkeypatch):
+        good = (base_task(config_rtl=(BIST,)),)
+        result, db, seen, ran = run(tmp_path, monkeypatch, [PlanningError(self.BAD_LINE), good])
+        assert [s["phase"] for s in seen] == ["plan", "plan_retry"]
+        note = seen[1]["rejection"]
+        assert "could not be read as a plan" in note and "TASK: verify | deps= | workload" in note
+        assert "kind=<config|workload|unit_test>" in note
+        assert ran == [good] and result.status == "passed"
+        assert check_rows(db, result.run_id) == [
+            (0, 0, "unusable", ["unusable_reply"], []),
+            (0, 1, "accepted", [], []),
+        ]
+
+    def test_replies_with_no_plan_end_the_run_once_the_retries_are_spent(self, tmp_path, monkeypatch):
+        replies = [PlanningError(self.BAD_LINE)] * (MAX_PLAN_REJECTIONS + 1)
+        result, db, seen, ran = run(tmp_path, monkeypatch, replies)
+        assert result.status == "planning_failed" and ran == []
+        assert len(seen) == MAX_PLAN_REJECTIONS + 1
+        assert [row[2] for row in check_rows(db, result.run_id)] == ["unusable"] * MAX_PLAN_REJECTIONS
+
+    def test_rejected_plans_and_unusable_replies_share_the_retries(self, tmp_path, monkeypatch):
+        bad, good = (base_task(),), (base_task(config_rtl=(BIST,)),)
+        result, db, seen, ran = run(tmp_path, monkeypatch, [PlanningError(self.BAD_LINE), bad, good])
+        assert [s["phase"] for s in seen] == ["plan", "plan_retry", "plan_retry"]
+        assert ran == [good]
+        assert check_rows(db, result.run_id) == [
+            (0, 0, "unusable", ["unusable_reply"], []),
+            (0, 1, "rejected", ["required_define"], []),
+            (0, 2, "accepted", [], []),
+        ]
+
+    def test_without_the_check_a_reply_with_no_plan_still_ends_the_run(self, tmp_path, monkeypatch):
+        result, db, seen, _ = run(
+            tmp_path, monkeypatch, [PlanningError(self.BAD_LINE)], options=LoopOptions(plan_check=False)
+        )
+        assert result.status == "planning_failed" and len(seen) == 1 and check_rows(db, result.run_id) == []
+
+    def test_a_reply_with_no_plan_after_a_failure_does_not_lose_the_run(self, tmp_path, monkeypatch):
+        # The Ariane crossbar pilot run: narrowing named the culprit, then the re-plan call came back empty.
+        first, second = (base_task(config_rtl=(BIST,)),), (base_task("t2", config_rtl=(BIST,), caches=(("l2", (32768, 4)),)),)
+        result, db, seen, ran = run(
+            tmp_path, monkeypatch, [first, PlanningError("no TASK: lines in the planner's response: ''"), second],
+            passes=[False, True],
+        )
+        assert result.status == "passed" and ran == [first, second]
+        assert [s["phase"] for s in seen] == ["plan", "plan", "plan_retry"]
+        assert seen[2]["feedback"] == seen[1]["feedback"] != ""
+
+
 class TestSeededFaults:
     def test_a_fault_breaks_the_plan_after_the_check_not_before(self, tmp_path, monkeypatch):
         good = (base_task(config_rtl=(BIST,)),)
