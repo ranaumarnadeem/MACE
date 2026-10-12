@@ -80,6 +80,59 @@ class TestUsageVertexLLM:
         assert reply.usage["output_tokens"] == 15
         assert reply.usage["thinking_tokens"] == 40
 
+    def captured_configs(self, llm, monkeypatch, budget):
+        """The config of each generate_content request made while *budget* is in force."""
+        from google.genai import types
+
+        from mace.llm import thinking_budget
+
+        seen = []
+
+        def fake_generate_content(self, **kwargs):
+            seen.append(kwargs.get("config"))
+            return response(1, 1, 1)
+
+        def one_request(self, user_message, tools=None):
+            config = types.GenerateContentConfig(max_output_tokens=100)
+            genai_models.Models.generate_content(None, model=self.model, contents=user_message, config=config)
+            return QueryResult(result="", returncode=0, stderr="", stream_result="")
+
+        monkeypatch.setattr(genai_models.Models, "generate_content", fake_generate_content)
+        monkeypatch.setattr(VertexGeminiLLM, "_run_generate", one_request)
+        with thinking_budget(budget):
+            llm._run_generate("hello")
+        return seen
+
+    def test_a_thinking_cap_goes_on_the_request(self, llm, monkeypatch):
+        (config,) = self.captured_configs(llm, monkeypatch, 256)
+        assert config.thinking_config.thinking_budget == 256
+        assert config.max_output_tokens == 100  # the rest of CHIA's config is kept
+
+    def test_a_cap_of_zero_is_sent_and_not_mistaken_for_no_cap(self, llm, monkeypatch):
+        (config,) = self.captured_configs(llm, monkeypatch, 0)
+        assert config.thinking_config.thinking_budget == 0
+
+    def test_without_a_cap_the_request_is_untouched(self, llm, monkeypatch):
+        (config,) = self.captured_configs(llm, monkeypatch, None)
+        assert config.thinking_config is None
+
+    def test_the_callers_config_is_not_changed(self, llm, monkeypatch):
+        from google.genai import types
+
+        original = types.GenerateContentConfig(max_output_tokens=100)
+
+        def one_request(self, user_message, tools=None):
+            genai_models.Models.generate_content(None, model=self.model, contents=user_message, config=original)
+            return QueryResult(result="", returncode=0, stderr="", stream_result="")
+
+        monkeypatch.setattr(genai_models.Models, "generate_content", lambda self, **kwargs: response(1, 1, 1))
+        monkeypatch.setattr(VertexGeminiLLM, "_run_generate", one_request)
+        from mace.llm import thinking_budget
+
+        with thinking_budget(64):
+            llm._run_generate("hello")
+        assert original.thinking_config is None
+
     def test_generate_content_is_restored_after_the_call(self, llm, monkeypatch):
         def fake_generate_content(self, **kwargs):
             return response(1, 1, 1)

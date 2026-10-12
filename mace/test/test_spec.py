@@ -272,6 +272,26 @@ class TestLoopOptions:
         with pytest.raises(ValueError, match=field):
             LoopOptions(**{field: value})
 
+    def test_the_planner_s_thinking_is_capped_by_default_and_can_be_left_to_the_model(self):
+        from mace.spec import PLANNER_THINKING_BUDGET, LoopOptions
+
+        assert PLANNER_THINKING_BUDGET == 512
+        assert LoopOptions().planner_thinking == PLANNER_THINKING_BUDGET
+        assert LoopOptions(planner_thinking=None).planner_thinking is None
+
+    @pytest.mark.parametrize("value", [0, 1, 256, 24576])
+    def test_a_planner_thinking_cap_is_a_non_negative_int(self, value):
+        from mace.spec import LoopOptions
+
+        assert LoopOptions(planner_thinking=value).planner_thinking == value
+
+    @pytest.mark.parametrize("bad", [-1, 1.5, "256", True])
+    def test_anything_else_raises(self, bad):
+        from mace.spec import LoopOptions
+
+        with pytest.raises(ValueError, match="planner_thinking"):
+            LoopOptions(planner_thinking=bad)
+
 
 class TestRtlTimeout:
     def test_defaults_to_none(self):

@@ -15,15 +15,39 @@ import of google-genai.
 
 from __future__ import annotations
 
+import contextvars
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterator, Optional
 
 from chia.base.llm_call import LLMCallBase, QueryResult
 
 
 class UnknownLLMBackendError(ValueError):
     """MACE_LLM (or the backend argument) named something not recognized."""
+
+
+# The most thinking tokens the Vertex calls made in the current context may spend; None leaves the amount to
+# the model. CHIA builds each request's config itself, so mace.vertex reads this when it makes the request.
+_THINKING_BUDGET: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("mace_thinking_budget", default=None)
+
+
+def current_thinking_budget() -> Optional[int]:
+    """The thinking-token cap in force for Vertex calls made now, or ``None``."""
+    return _THINKING_BUDGET.get()
+
+
+@contextmanager
+def thinking_budget(tokens: Optional[int]) -> Iterator[None]:
+    """Cap the thinking tokens of every Vertex call made in this block at
+    *tokens*; ``None`` leaves the model's own choice. A backend that cannot
+    cap thinking ignores it, and the previous cap returns on exit."""
+    token = _THINKING_BUDGET.set(tokens)
+    try:
+        yield
+    finally:
+        _THINKING_BUDGET.reset(token)
 
 
 # Vertex list prices in US dollars per million tokens, as (input, output),

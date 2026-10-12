@@ -73,6 +73,7 @@ Claude keeps its cost on the LLM instance, which a remote call does not return, 
 Each reply of `UsageVertexLLM` is a `mace.llm.VertexQueryResult`.
 Its `usage` holds the input, output, and thinking tokens of every model turn of the call, summed, and their cost at the prices in `mace.llm.VERTEX_USD_PER_M_TOKENS`.
 Gemini bills thinking tokens at the output price.
+The loop caps the thinking of each planner call at 512 tokens (`LoopOptions.planner_thinking`; see [Planner](../03_mace_design/planner.md)), and no other call is capped.
 The table holds the prices, for prompts up to 200k tokens, of `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, and `gemini-3.8-flash`.
 A model missing from that table costs 0, and its tokens are still counted.
 The Gemini 3 models above answer only through Vertex's `global` endpoint; set `GOOGLE_CLOUD_LOCATION=global` to use them.

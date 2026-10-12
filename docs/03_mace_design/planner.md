@@ -73,3 +73,11 @@ The orchestrator checks each plan for those before it builds anything, and sends
 Without `LoopOptions(rtl_edits=True)`, the prompt states that no task can edit a source file, that a `config` or `workload` task changes only what its `CACHES:` and `CONFIG_RTL:` lines set, and that a build failing with changes from the defaults may fail because of one of them, so a change the objective does not ask for should be left out (`NO_RTL_RULE`).
 Without it, the planner turned triage's suggested source edits into `config` tasks that could not make them.
 The prompt offers the `rtl` kind only under `LoopOptions(rtl_edits=True)`. Offered on tasks that pass at their defaults, it made the planner write RTL tasks about files that do not exist, so the default leaves it out; without it, an `rtl` line still parses and runs as a `config` task.
+
+## Thinking Cap
+
+Gemini bills thinking tokens at the output price, and they were most of a planner call's cost.
+`LoopOptions.planner_thinking` caps the thinking tokens of each planner call at `PLANNER_THINKING_BUDGET`, which is 512 tokens.
+The orchestrator sets the cap with `mace.llm.thinking_budget()` around every planner call, first plans and retries alike, and `mace.vertex` puts it on the Vertex request as a thinking budget.
+A value of `None` leaves the amount to the model, and a backend that cannot cap thinking ignores the cap.
+Only the planner is capped: triage, the task calls, the post-mortem, and the retry agent think as the model chooses.

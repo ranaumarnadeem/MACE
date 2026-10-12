@@ -77,7 +77,8 @@ The defaults are the full loop.
 | `plan_check` | `True` | `False`: each plan runs as the planner wrote it. |
 | `raw_evidence` | `True` | `False`: the next plan gets triage's label and fix without the build's own report. |
 | `narrowing` | `True` | `False`: a failed task goes to triage without any probe. |
-| `fast_path` | `True` | `False`: a plan of one design keeps all its tasks and their LLM calls. |
+| `fast_path` | `True` | `False`: every plan keeps all its tasks and their LLM calls. |
+| `planner_thinking` | `512` | The most thinking tokens one planner call may spend, set on the Vertex request. `None` leaves the amount to the model. |
 
 ## Package Boundary
 

@@ -38,6 +38,7 @@ from chia_openpiton.tools import PitonToolServer
 from mace import usage
 from mace.fast_path import collapse_single_design
 from mace.integrator import close_nodes, integrate_parallel, open_nodes
+from mace.llm import thinking_budget
 from mace.metrics import (
     RunLabels,
     add_iteration_usd,
@@ -144,7 +145,8 @@ def _plan_checked(
         # The first call is the planner's plain call; a retry carries the note and its own phase.
         retry = {"rejection": rejection, "phase": "plan_retry"} if retries else {}
         try:
-            tasks = plan(spec, llm, tools=tools, feedback=feedback, rtl_edits=options.rtl_edits, **retry)
+            with thinking_budget(options.planner_thinking):
+                tasks = plan(spec, llm, tools=tools, feedback=feedback, rtl_edits=options.rtl_edits, **retry)
         except PlanningError as e:
             if not options.plan_check:
                 raise

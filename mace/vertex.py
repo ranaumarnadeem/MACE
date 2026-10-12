@@ -10,7 +10,8 @@ leaves out thinking tokens, which Gemini bills at the output price. For a
 The counts come from each ``generate_content`` response's
 ``usage_metadata``. CHIA creates its ``genai.Client`` inside the call, so
 the class method is wrapped for the duration of one call, under a lock that
-keeps two calls in one process from wrapping it at once. A call that raises
+keeps two calls in one process from wrapping it at once. The same wrapper
+puts the thinking cap of :func:`mace.llm.thinking_budget` on each request. A call that raises
 records nothing: a reply cut off at the output limit, or every retry
 failing, spends tokens that these counts miss.
 """
@@ -21,7 +22,7 @@ import threading
 
 from chia.models.vertex import VertexGeminiLLM
 
-from mace.llm import VertexQueryResult, vertex_cost_usd
+from mace.llm import VertexQueryResult, current_thinking_budget, vertex_cost_usd
 
 _WRAP_LOCK = threading.Lock()
 
@@ -55,12 +56,20 @@ class UsageVertexLLM(VertexGeminiLLM):
 
     def _run_generate(self, user_message, tools=None):
         from google.genai import models as genai_models
+        from google.genai import types
 
         responses: list = []
+        budget = current_thinking_budget()
         with _WRAP_LOCK:
             original = genai_models.Models.generate_content
 
             def recording_generate_content(models_self, *args, **kwargs):
+                config = kwargs.get("config")
+                if budget is not None and config is not None:
+                    # CHIA builds the config; the cap goes on a copy of it.
+                    kwargs["config"] = config.model_copy(
+                        update={"thinking_config": types.ThinkingConfig(thinking_budget=budget)}
+                    )
                 response = original(models_self, *args, **kwargs)
                 responses.append(response)
                 return response

@@ -132,6 +132,12 @@ class MaceSpec:
 TRIAGE_MODES: frozenset[str] = frozenset(("llm", "raw", "off"))
 CHECK_MODES: frozenset[str] = frozenset(("sim", "build"))
 
+# The most thinking tokens one planner call may spend, by default. Uncapped, Gemini 2.5 Flash thought a median of
+# 1564 tokens per planner call in the recorded main comparison, against 283 per retry-agent call, and thinking was
+# most of a planner call's cost. A planner-only experiment on 2026-10-12 (see runs/eval_backup/FINDINGS_A.md) found
+# caps from 128 to 512 cut the cost of a call by 70 to 90% with no clear change in how often the plan was usable.
+PLANNER_THINKING_BUDGET = 512
+
 
 @dataclass(frozen=True)
 class LoopOptions:
@@ -164,8 +170,15 @@ class LoopOptions:
     - ``narrowing``: ``False`` triages a failed task without first rebuilding
       it with each change from the defaults undone (see :mod:`mace.narrowing`).
     - ``fast_path``: ``False`` runs every plan as the planner wrote it, with
-      each task's own LLM call; the default runs a plan that builds one
-      design as a single task without those calls (see :mod:`mace.fast_path`).
+      each task's own LLM call; the default runs every plan without those
+      calls, and a plan that builds one design as a single task (see
+      :mod:`mace.fast_path`).
+    - ``planner_thinking``: the most thinking tokens one planner call may
+      spend, set on the Vertex request (see :func:`mace.llm.thinking_budget`);
+      :data:`PLANNER_THINKING_BUDGET` by default, and ``None`` leaves the
+      amount to the model. A backend that cannot cap thinking ignores it. The
+      cap applies to the planner only, so every method that runs the planner
+      (``one_shot``, the ablations) has it, and the retry agent does not.
     """
 
     triage: str = "llm"
@@ -178,8 +191,13 @@ class LoopOptions:
     raw_evidence: bool = True
     narrowing: bool = True
     fast_path: bool = True
+    planner_thinking: int | None = PLANNER_THINKING_BUDGET
 
     def __post_init__(self) -> None:
+        if self.planner_thinking is not None and (
+            not isinstance(self.planner_thinking, int) or isinstance(self.planner_thinking, bool) or self.planner_thinking < 0
+        ):
+            raise ValueError(f"planner_thinking must be a non-negative int or None, got {self.planner_thinking!r}")
         if self.triage not in TRIAGE_MODES:
             raise ValueError(f"triage must be one of {sorted(TRIAGE_MODES)}, got {self.triage!r}")
         if self.check not in CHECK_MODES:

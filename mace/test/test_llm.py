@@ -16,10 +16,49 @@ from chia.base.llm_call import LLMCallBase, QueryResult
 from mace.llm import (
     DEFAULT_VERTEX_MODEL,
     UnknownLLMBackendError,
+    current_thinking_budget,
     default_model_for_backend,
     extract_cost_usd,
     make_llm,
+    thinking_budget,
 )
+
+
+class TestThinkingBudget:
+    def test_no_cap_by_default(self):
+        assert current_thinking_budget() is None
+
+    def test_the_cap_holds_inside_the_block_and_is_gone_after(self):
+        with thinking_budget(256):
+            assert current_thinking_budget() == 256
+        assert current_thinking_budget() is None
+
+    def test_a_block_nests_and_restores_the_outer_cap(self):
+        with thinking_budget(512):
+            with thinking_budget(0):
+                assert current_thinking_budget() == 0
+            assert current_thinking_budget() == 512
+
+    def test_none_inside_a_block_lifts_the_outer_cap(self):
+        with thinking_budget(512):
+            with thinking_budget(None):
+                assert current_thinking_budget() is None
+
+    def test_the_cap_is_restored_when_the_block_raises(self):
+        with pytest.raises(RuntimeError):
+            with thinking_budget(128):
+                raise RuntimeError("quota")
+        assert current_thinking_budget() is None
+
+    def test_another_thread_does_not_see_the_cap(self):
+        import threading
+
+        seen = []
+        with thinking_budget(256):
+            t = threading.Thread(target=lambda: seen.append(current_thinking_budget()))
+            t.start()
+            t.join()
+        assert seen == [None]
 
 
 class TestBackendSelection:

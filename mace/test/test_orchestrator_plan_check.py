@@ -15,6 +15,7 @@ import json
 import pytest
 
 from mace import plan_check
+from mace.llm import current_thinking_budget
 from mace.orchestrator import MAX_PLAN_REJECTIONS, run_mace_loop
 from mace.planner import PlanningError
 from mace.spec import Budget, LoopOptions, Task, Triage
@@ -40,7 +41,9 @@ def scripted_planner(replies, seen):
     queue = list(replies)
 
     def _plan(spec, llm, tools=(), feedback="", rtl_edits=False, rejection="", phase="plan"):
-        seen.append({"feedback": feedback, "rejection": rejection, "phase": phase})
+        seen.append({
+            "feedback": feedback, "rejection": rejection, "phase": phase, "thinking": current_thinking_budget(),
+        })
         reply = queue.pop(0)
         if isinstance(reply, Exception):
             raise reply
@@ -171,6 +174,49 @@ class TestUnusableReplies:
         assert result.status == "passed" and ran == [first, second]
         assert [s["phase"] for s in seen] == ["plan", "plan", "plan_retry"]
         assert seen[2]["feedback"] == seen[1]["feedback"] != ""
+
+
+class TestPlannerThinkingCap:
+    def test_every_planner_call_carries_the_cap_the_first_and_the_retries(self, tmp_path, monkeypatch):
+        bad, good = (base_task(),), (base_task(config_rtl=(BIST,)),)
+        _, _, seen, _ = run(
+            tmp_path, monkeypatch, [PlanningError("no plan"), bad, good], options=LoopOptions(planner_thinking=300)
+        )
+        assert [s["phase"] for s in seen] == ["plan", "plan_retry", "plan_retry"]
+        assert [s["thinking"] for s in seen] == [300, 300, 300]
+
+    def test_a_replan_after_a_failure_carries_it_too(self, tmp_path, monkeypatch):
+        first, second = (base_task(config_rtl=(BIST,)),), (base_task("t2", config_rtl=(BIST,), caches=(("l2", (32768, 4)),)),)
+        _, _, seen, _ = run(
+            tmp_path, monkeypatch, [first, second], passes=[False, True], options=LoopOptions(planner_thinking=128)
+        )
+        assert [s["thinking"] for s in seen] == [128, 128]
+
+    def test_by_default_the_planner_is_capped_at_the_default_budget(self, tmp_path, monkeypatch):
+        _, _, seen, _ = run(tmp_path, monkeypatch, [(base_task(config_rtl=(BIST,)),)])
+        assert [s["thinking"] for s in seen] == [512]
+
+    def test_the_planner_can_be_left_to_the_model(self, tmp_path, monkeypatch):
+        _, _, seen, _ = run(
+            tmp_path, monkeypatch, [(base_task(config_rtl=(BIST,)),)], options=LoopOptions(planner_thinking=None)
+        )
+        assert [s["thinking"] for s in seen] == [None]
+
+    def test_a_cap_of_zero_reaches_the_planner(self, tmp_path, monkeypatch):
+        _, _, seen, _ = run(
+            tmp_path, monkeypatch, [(base_task(config_rtl=(BIST,)),)], options=LoopOptions(planner_thinking=0)
+        )
+        assert [s["thinking"] for s in seen] == [0]
+
+    def test_the_cap_is_gone_once_the_loop_returns(self, tmp_path, monkeypatch):
+        run(tmp_path, monkeypatch, [(base_task(config_rtl=(BIST,)),)], options=LoopOptions(planner_thinking=256))
+        assert current_thinking_budget() is None
+
+    def test_the_check_off_path_still_carries_it(self, tmp_path, monkeypatch):
+        _, _, seen, _ = run(
+            tmp_path, monkeypatch, [(base_task(),)], options=LoopOptions(plan_check=False, planner_thinking=64)
+        )
+        assert [s["thinking"] for s in seen] == [64]
 
 
 class TestSeededFaults:
