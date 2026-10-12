@@ -142,3 +142,25 @@ tasks:
       - path: piton/design/chip/tile/pico/rtl/picorv32.v
         old: "instr_srai || instr_sra: reg_op1 <= $signed(reg_op1) >>> 4;"
         new: "instr_srai || instr_sra: reg_op1 <= reg_op1 >> 4;"
+
+  # Added 2026-10-12 after the Ariane bug above turned out to hang every program,
+  # the C runtime's exit barrier included, so it cannot show whether a test
+  # found the bug (the null test of mace.eval.directed shows it). This one is
+  # defined after the first version of the test task's prompt, but that prompt
+  # was tuned on the development bug and the first three tasks only.
+  - id: pico-2x2-mulhsu-rtlbug
+    core: pico
+    mesh: [2, 2]
+    workloads: [mulhsu.S]
+    objective: >-
+      Verify the mulhsu.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has a bug under piton/design/ that makes the
+      workload fail in simulation, and it cannot pass until the bug is fixed.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "wire instr_rs2_signed = |{instr_mulh};\n\n\treg pcpi_wait_q;"
+        new: "wire instr_rs2_signed = |{instr_mulh, instr_mulhsu};\n\n\treg pcpi_wait_q;"
