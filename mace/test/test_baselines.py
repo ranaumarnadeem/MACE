@@ -10,6 +10,8 @@ baseline asks, what it records, and when it stops.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
@@ -155,6 +157,23 @@ class TestRetryAgentRun:
         )
         assert result.status == "budget_exceeded"
         assert len(result.iterations) == 2
+
+    def test_the_design_hook_replaces_each_attempt_s_design(self, tmp_path, monkeypatch):
+        received = []
+        self._integrate(monkeypatch, [(False, "fail"), (True, "pass")], received)
+        seen = []
+
+        def hook(attempt, design):
+            seen.append(attempt)
+            return dataclasses.replace(design, network="xbar_config") if attempt == 0 else design
+
+        result = retry_agent.run_retry_agent(
+            "/root", make_spec(), FakeLLM(responses=[DESIGN, DESIGN]), make_db(tmp_path), design_hook=hook,
+        )
+        assert result.status == "passed"
+        assert seen == [0, 1]
+        assert received[0][1][0].network == "xbar_config"
+        assert received[1][1][0].network is None
 
     def test_a_changed_gate_program_stops_before_any_attempt(self, tmp_path, monkeypatch):
         def mismatch():

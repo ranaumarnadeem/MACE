@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from typing import Callable
 
 from chia.database.sqlite_node import SQLiteNode
 
@@ -116,11 +117,17 @@ def run_retry_agent(
     db: SQLiteNode,
     labels: RunLabels | None = None,
     rtl_edits: bool = False,
+    design_hook: Callable[[int, Task], Task] | None = None,
 ) -> LoopResult:
     """Up to ``spec.budget.max_iterations`` attempts on *piton_root*.
 
     With *rtl_edits*, a design may be an ``rtl`` task, which edits the RTL
     through the loop's own edit tool.
+
+    *design_hook*, when given, replaces each attempt's design with what it
+    returns for ``(attempt, design)``; the seeded-failure runs use it to
+    break the first design, as the loop's ``plan_hook`` breaks its first
+    plan.
 
     Stops on the same wall-clock and cost limits the loop checks, before
     each attempt. A reply that names no design uses up its attempt, and
@@ -131,13 +138,15 @@ def run_retry_agent(
     calls = usage.UsageLog()
     try:
         with usage.recording(calls):
-            return _attempts(run_id, piton_root, spec, llm, db, calls, rtl_edits)
+            return _attempts(run_id, piton_root, spec, llm, db, calls, rtl_edits, design_hook)
     except BaseException:
         finish_run(db, run_id, "error")
         raise
 
 
-def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog, rtl_edits: bool = False) -> LoopResult:
+def _attempts(
+    run_id, piton_root, spec, llm, db, calls: usage.UsageLog, rtl_edits: bool = False, design_hook=None
+) -> LoopResult:
     try:
         verify_checksums()
     except ValueError:
@@ -160,6 +169,8 @@ def _attempts(run_id, piton_root, spec, llm, db, calls: usage.UsageLog, rtl_edit
             attempt_started = time.monotonic()
             query = usage.prompt(llm, PHASE, build_prompt(spec, history, rtl_edits))
             design = parse_design(query.result)
+            if design is not None and design_hook is not None:
+                design = design_hook(attempt, design)
             results: tuple[StepResult, ...] = ()
             if design is not None:
                 if nodes is None:
