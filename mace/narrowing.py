@@ -230,7 +230,10 @@ class Narrowing:
         else:
             conclusion = {
                 CULPRIT: "A build that passes shows the change it put back breaks the design. " + self.fix() + ".",
-                COMBINATION: "No single change breaks the design, but the changes together do. " + self.fix() + ".",
+                COMBINATION: (
+                    "Putting back any single change still leaves the design failing, but putting back all of them "
+                    "makes it pass, so the changes break it in more than one way. " + self.fix() + "."
+                ),
                 NOT_CONFIG: "The default configuration fails the same way, so none of this task's changes is the cause.",
                 UNRESOLVED: "The run's time ran out before the probes could settle which change breaks the design.",
             }.get(self.verdict, "")

@@ -87,7 +87,7 @@ A probe starts only while twice the failed task's own build and run time remains
 | Verdict | Meaning | Triage |
 |---|---|---|
 | `culprit` | Undoing a change makes the task pass | Skipped; the failure is recorded as `config_change` with a fix that names the change |
-| `combination` | No change alone breaks the design, but undoing all of them passes | Skipped; the fix is the default configuration |
+| `combination` | Undoing any one change leaves the task failing, but undoing all of them passes | Skipped; the fix is the default configuration |
 | `not_config` | The reference fails too | Runs, and its prompt carries the probes' note |
 | `unresolved` | The run's time ran out first | Runs, and its prompt carries the note |
 | `no_changes`, `skipped` | Nothing to undo, or the failure is not a configuration's (`way_rule`, a build that never started, RTL edits, another kind of task) | Runs |

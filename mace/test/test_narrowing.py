@@ -220,7 +220,7 @@ class TestNarrow:
         assert outcome.verdict == CULPRIT and len(outcome.culprits) == 2
         assert outcome.fix() == f"leave out the RTL define {FPGA}; keep the default interconnect"
 
-    def test_changes_that_break_the_design_only_together_are_a_combination(self):
+    def test_when_no_single_undo_passes_but_undoing_all_does_the_verdict_is_a_combination(self):
         # The retry agent's l1d_eight_way recovery: an 8-way L1.5 times out alone, an 8-way L1D alone is refused.
         cfg = config(caches={"l1d": (8192, 8), "l15": (8192, 8)})
         outcome, runner = run_narrow(cfg, lambda c: c.caches["l1d"] == (8192, 4) and c.caches["l15"] == (8192, 4))
@@ -228,6 +228,15 @@ class TestNarrow:
         assert outcome.culprits == (config_changes(cfg, reference_config(spec())),)
         assert len(runner.tasks) == 3  # two alone, then both
         assert outcome.fix().startswith("build the default configuration instead of this combination")
+
+    def test_the_combination_note_claims_only_what_the_probes_showed(self):
+        # Two changes that each break the design alone give the same probes as two that break it only together:
+        # every single undo still fails, and undoing both passes.
+        cfg = config(defines=("MINIMAL_MONITORING", FPGA, "A_B"))
+        outcome, _ = run_narrow(cfg, lambda c: c.sims_flags() == reference_config(spec()).sims_flags())
+        note = outcome.summary()
+        assert "still leaves the design failing" in note and "makes it pass" in note
+        assert "No single change breaks" not in note and "together do" not in note
 
     def test_when_the_defaults_fail_too_the_changes_are_not_the_cause(self):
         cfg = config(defines=("MINIMAL_MONITORING", FPGA), caches={"l1d": (4096, 2)})
