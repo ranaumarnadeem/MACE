@@ -66,11 +66,14 @@ class TestTheRtlParamSuite:
     def test_loads_one_task_per_mesh_with_the_scaled_program(self):
         tasks = load_suite(self.RTLPARAM_SUITE)
         assert [t.id for t in tasks] == [
-            "ariane-1x1-matmul-scaled", "ariane-2x2-matmul-scaled", "ariane-4x2-matmul-scaled",
-            "ariane-4x4-matmul-scaled",
+            "ariane-2x2-matmul-scaled", "ariane-4x2-matmul-scaled", "ariane-4x4-matmul-scaled",
         ]
-        assert [t.mesh for t in tasks] == [(1, 1), (2, 2), (4, 2), (4, 4)]
+        assert [t.mesh for t in tasks] == [(2, 2), (4, 2), (4, 4)]
         assert all(t.kind == "rtlparam" and t.workloads == ("matmul_scaled.c",) for t in tasks)
+
+    def test_no_task_is_a_single_core_chip(self):
+        """A 1x1 mesh has no interconnect to contend for, so it is not part of the study."""
+        assert all(t.mesh[0] * t.mesh[1] > 1 for t in load_suite(self.RTLPARAM_SUITE))
 
     def test_every_task_searches_the_same_space_with_the_same_budget(self):
         first, *rest = [t.rtlparam for t in load_suite(self.RTLPARAM_SUITE)]

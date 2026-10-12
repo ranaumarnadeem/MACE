@@ -89,7 +89,7 @@ MAKEFLAGS=-j1 python examples/eval_batch.py --suite examples/eval/tasks_rtlparam
   --backend vertex --db-path runs/rtlparam.db
 ```
 
-`examples/eval/tasks_rtlparam.yaml` has one task per mesh: 1x1, 2x2, 4x2, and 4x4 Ariane. Each task's `rtlparam` block gives the values each searched parameter may take, the number of simulations per search, and the storage budget ratio. A parameter left out of the space keeps its default, and the values must include the default. The searches use one checkout.
+`examples/eval/tasks_rtlparam.yaml` has one task per mesh: 2x2, 4x2, and 4x4 Ariane. A 1x1 mesh is a single core with no interconnect, so it is left out. Each task's `rtlparam` block gives the values each searched parameter may take, the number of simulations per search, and the storage budget ratio. A parameter left out of the space keeps its default, and the values must include the default. The searches use one checkout.
 
 ```yaml
 rtlparam:

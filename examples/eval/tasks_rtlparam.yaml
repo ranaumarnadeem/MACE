@@ -20,15 +20,15 @@ version: 1
 defaults:
   budget: {max_iterations: 1, max_wall_s: 3600}
 tasks:
-  - id: ariane-1x1-matmul-scaled
+  - id: ariane-2x2-matmul-scaled
     core: ariane
-    mesh: [1, 1]
+    mesh: [2, 2]
     workloads: [matmul_scaled.c]
-    objective: Finish matmul_scaled.c soonest on a 1x1 Ariane mesh with every tile passing.
+    objective: Finish matmul_scaled.c soonest on a 2x2 Ariane mesh with every tile passing.
     verified: false
     rtl_timeout: 5000000
     max_cycle: 5000000
-    budget: {max_wall_s: 7200}
+    budget: {max_wall_s: 21600}
     rtlparam: &rtlparam
       simulations: 10
       storage_budget_ratio: 1.0
@@ -40,17 +40,6 @@ tasks:
         store_buffer: [2, 4, 8]
         scoreboard: [4, 8, 16]
         home_alloc: [LOW, MIDDLE, HIGH, MIXED]
-
-  - id: ariane-2x2-matmul-scaled
-    core: ariane
-    mesh: [2, 2]
-    workloads: [matmul_scaled.c]
-    objective: Finish matmul_scaled.c soonest on a 2x2 Ariane mesh with every tile passing.
-    verified: false
-    rtl_timeout: 5000000
-    max_cycle: 5000000
-    budget: {max_wall_s: 21600}
-    rtlparam: *rtlparam
 
   - id: ariane-4x2-matmul-scaled
     core: ariane
