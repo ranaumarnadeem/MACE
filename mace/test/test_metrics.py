@@ -772,3 +772,66 @@ class TestEvidenceColumn:
 
     def test_a_passed_task_keeps_none(self, tmp_path):
         assert self._evidence(tmp_path, make_result("a", True)) is None
+
+
+class TestDirectedTests:
+    def a_test(self, name="lh_sign", attempt=1, verdict="fail", evidence="expected 0xffffaa00"):
+        from mace.spec import DirectedTest
+
+        return DirectedTest(
+            name, "piton/design/x.v", "S", "RVTEST_CODE_BEGIN\n", attempt=attempt, verdict=verdict,
+            wall_s=3.5, evidence=evidence,
+        )
+
+    def test_a_test_task_records_a_row_per_test_and_attempt(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        result = make_result("t", True, kind="test", spec="write a test")
+        result.tests = (self.a_test(attempt=1, verdict="no_verdict", evidence="bad opcode"), self.a_test(attempt=2))
+        metrics.record_iteration(db, run_id, 1, (result, make_result("r", True)), wall_s=1.0)
+
+        rows = db.query(
+            "SELECT iteration, task_id, attempt, name, target, form, source, verdict, wall_s, evidence "
+            "FROM directed_tests WHERE run_id = ? ORDER BY attempt",
+            (run_id,),
+        )
+        assert [(r["iteration"], r["task_id"], r["attempt"], r["verdict"]) for r in rows] == [
+            (1, "t", 1, "no_verdict"), (1, "t", 2, "fail"),
+        ]
+        assert rows[0]["evidence"] == "bad opcode" and rows[1]["wall_s"] == 3.5
+        assert (rows[1]["name"], rows[1]["target"], rows[1]["form"], rows[1]["source"]) == (
+            "lh_sign", "piton/design/x.v", "S", "RVTEST_CODE_BEGIN\n",
+        )
+
+    def test_a_task_without_tests_records_none(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_iteration(db, run_id, 0, (make_result("a", True),), wall_s=1.0)
+        assert db.query_value("SELECT COUNT(*) FROM directed_tests") == 0
+
+    def test_recording_an_iteration_again_replaces_the_rows(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        result = make_result("t", True, kind="test")
+        result.tests = (self.a_test(),)
+        for _ in range(2):
+            metrics.record_iteration(db, run_id, 0, (result,), wall_s=1.0)
+        assert db.query_value("SELECT COUNT(*) FROM directed_tests") == 1
+
+    def test_a_check_is_keyed_like_its_test(self, tmp_path):
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_test_check(db, run_id, 1, "t", 2, "lh_sign", "fail", "pass", "detected", 40.0)
+        metrics.record_test_check(db, run_id, 1, "t", 2, "lh_sign", "pass", "pass", "missed", 41.0)
+        rows = db.query("SELECT fault_verdict, clean_verdict, outcome, wall_s FROM test_checks")
+        assert rows == [{"fault_verdict": "pass", "clean_verdict": "pass", "outcome": "missed", "wall_s": 41.0}]
+
+    def test_an_older_database_gains_the_tables_when_opened(self, tmp_path):
+        db_path = tmp_path / "old.db"
+        con = sqlite3.connect(str(db_path))
+        con.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY, objective TEXT, core TEXT)")
+        con.commit()
+        con.close()
+        reader = metrics.DBReader(str(db_path))
+        assert reader.query("SELECT COUNT(*) AS n FROM directed_tests") == [{"n": 0}]
+        assert reader.query("SELECT COUNT(*) AS n FROM test_checks") == [{"n": 0}]
