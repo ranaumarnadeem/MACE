@@ -348,11 +348,18 @@ class TestTestTask:
         batch(node, [test_task()])
         assert [args[1] for args, _ in node.run.calls] == ["dt_lh_sign.S"]
 
-    def test_a_task_that_got_no_working_test_fails(self, monkeypatch):
+    def test_a_task_that_got_no_working_test_still_passes_with_its_attempts_on_record(self, monkeypatch):
         node = Node({"dt_bad.S": "none"})
         self.patch_session(monkeypatch, node, *[[a_test("bad")]] * 3)
         (result,) = batch(node, [test_task()])
-        assert result.passed is False and [t.verdict for t in result.tests] == ["no_verdict"] * 3
+        assert result.passed is True and [t.verdict for t in result.tests] == ["no_verdict"] * 3
+        assert [t.attempt for t in result.tests] == [1, 2, 3]
+
+    def test_a_task_whose_agent_wrote_nothing_still_passes(self, monkeypatch):
+        node = Node()
+        seen = self.patch_session(monkeypatch, node, [], [], [])
+        (result,) = batch(node, [test_task()])
+        assert result.passed is True and result.tests == () and result.run is None and len(seen) == 3
 
     def test_a_design_that_does_not_build_passes_without_calling_the_agent(self, monkeypatch):
         node = Node(build_ok=False)
@@ -490,13 +497,24 @@ class TestAcrossLevels:
             "dt_lh_sign.S", "sh.S", "dt_lh_sign.S", "sh.S", "dt_lh_sign.S",
         ]
 
-    def test_a_failed_test_task_stops_the_run_before_the_repair(self, monkeypatch):
+    def test_a_test_task_that_got_no_working_test_does_not_block_the_repair(self, monkeypatch):
         node = Node({"dt_bad.S": "none"})
         write, _ = leaves(node, *[[a_test("bad")]] * 3)
         monkeypatch.setattr("mace.directed.test_session", write)
+        shown = []
+
+        def fake_session(node_, spec, task, llm, tools, inherited, run_id, iteration, context="", **kwargs):
+            shown.append(kwargs)
+            return reply("changed"), ""
+
+        monkeypatch.setattr("mace.integrator._rtl_session", fake_session)
         tasks = (test_task("t"), Task(id="r", deps=("t",), kind="rtl", spec="fix it"))
         results = integrate_parallel(
-            (ROOT,), make_spec(), tasks, FakeLLM([]), nodes=[node], run_id="run1", options=LoopOptions(rtl_edits=True, task_prompts=False)
+            (ROOT,), make_spec(), tasks, FakeLLM([]), nodes=[node], run_id="run1",
+            options=LoopOptions(rtl_edits=True, task_prompts=False),
         )
-        assert [(r.task.id, r.passed) for r in results] == [("t", False)]
+        assert [(r.task.id, r.passed) for r in results] == [("t", True), ("r", True)]
+        # No test ran, so the repair task has none to show or to run.
+        assert shown == [{}]
+        assert [args[1] for args, _ in node.run.calls[-1:]] == ["sh.S"]
 

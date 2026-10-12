@@ -471,8 +471,9 @@ def _run_batch(
     silently build and run the wrong thing.
 
     A ``test``-kind task builds the design as it stands, asks its agent for
-    directed tests, and runs them (see :mod:`mace.directed`). It passes once
-    a test ran to a verdict. Its tests (*applied_tests*, by task id) are
+    directed tests, and runs them (see :mod:`mace.directed`). It passes
+    whatever the tests' verdicts, even when none ran, so writing tests never
+    blocks the tasks that depend on it. Its tests (*applied_tests*, by task id) are
     inherited like RTL edits: a task that depends on it runs them after its
     gate workloads and passes only if both pass, and an rtl task's agent is
     shown them.
@@ -634,8 +635,9 @@ def _run_batch(
     def _test_task(node, config: PitonConfig, task: Task, inherited: dict[str, str]) -> StepResult:
         """A ``test`` task: the design as it stands, with the RTL edits of the
         tasks it depends on applied, then an agent's directed tests (see
-        :mod:`mace.directed`), each run on it. The task passes when a test
-        ran to a verdict, whatever the verdict."""
+        :mod:`mace.directed`), each run on it. The task passes whatever the
+        verdicts, and even when no test ran; only a core with no test form
+        fails it."""
         edits: dict[str, str] | None = None
         diff = ""
         if inherited:
@@ -686,9 +688,12 @@ def _run_batch(
             explain=lambda run: directed.compile_log(node, run),
             out_of_time=lambda: timeout_before(deadline, 1) == 0,
         )
+        # Best effort: a task that got no working test still passes, with its
+        # attempts on record, so a failed test-writer never costs the run the
+        # iteration its repair task needs.
         return StepResult(
             task=task, query=reply or query, build=build, run=runs[-1] if runs else None,
-            passed=bool(directed.usable(tests)), runs=runs, tests=tests,
+            passed=True, runs=runs, tests=tests,
         )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(remote_batch)) as pool:

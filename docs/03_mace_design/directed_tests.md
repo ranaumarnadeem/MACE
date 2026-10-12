@@ -11,7 +11,8 @@ A directed test adds a check and never replaces a gate workload.
 
 A `test` task builds the design as it stands, with the RTL edits of the tasks it depends on applied.
 It asks its agent for up to three test programs, runs each on every tile of the build, and records the verdicts.
-The task passes once one test ran to a verdict, whatever the verdict was: a test that fails on a design with a bug is a result, and the task that repairs the design is the one that must make it pass.
+The task passes whatever the verdicts were: a test that fails on a design with a bug is a result, and the task that repairs the design is the one that must make it pass.
+It also passes when no test ran to a verdict, with its attempts on record, so a failed test-writer never costs the run the iteration its repair task needs.
 A design that does not build passes the task without a test, because nothing can run on it.
 A build-only check (`LoopOptions(check="build")`) writes no tests.
 
@@ -48,7 +49,7 @@ An attempt is one agent call.
 The loop reads the tests it wrote from the sidecar and runs each one with `-asm_diag_root` set to the attempt's directory.
 OpenPiton's `sims` stops when one directory holds two diag programs of one name, so each attempt, and each set of inherited tests, has a directory of its own.
 
-A test that ran to a verdict ends the task.
+A test that ran to a verdict ends the attempts.
 If no test ran, the next attempt gets the reason: that nothing was written, or the assembler or compiler log of each test that gave no verdict.
 The task makes at most three attempts, and none starts after the run's time budget has passed.
 
