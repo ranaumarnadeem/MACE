@@ -158,6 +158,9 @@ class LoopOptions:
       bugs in files that do not exist.
     - ``plan_check``: ``False`` runs each plan as the planner wrote it,
       without :mod:`mace.plan_check` rejecting or cleaning it first.
+    - ``raw_evidence``: ``False`` gives the re-plan triage's label and fix
+      only; the default adds the build's or simulation's own report (see
+      :func:`mace.triage.replan_feedback`).
     """
 
     triage: str = "llm"
@@ -167,6 +170,7 @@ class LoopOptions:
     post_mortem: bool = True
     rtl_edits: bool = False
     plan_check: bool = True
+    raw_evidence: bool = True
 
     def __post_init__(self) -> None:
         if self.triage not in TRIAGE_MODES:

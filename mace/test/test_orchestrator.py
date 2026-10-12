@@ -25,7 +25,7 @@ from chia_openpiton.tools import PitonToolServer
 from mace import metrics
 from mace.orchestrator import run_mace_loop
 from mace.report import ReportError
-from mace.spec import Budget, MaceSpec, StepResult, Task, Triage
+from mace.spec import Budget, LoopOptions, MaceSpec, StepResult, Task, Triage
 from mace.test.conftest import FakeLLM
 
 
@@ -355,6 +355,40 @@ class TestStatusTransitions:
         assert seen_feedback[0] == ""  # nothing to feed back on the first call
         assert "rtl_suspect" in seen_feedback[1]
         assert "try a different mesh" in seen_feedback[1]
+
+    @pytest.mark.parametrize("raw_evidence", [True, False])
+    def test_the_next_plan_sees_the_build_s_own_report_with_the_diagnosis_unless_that_is_off(
+        self, tmp_path, monkeypatch, raw_evidence
+    ):
+        from mace.spec import LoopOptions
+
+        seen_feedback = []
+
+        def recording_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
+            seen_feedback.append(feedback)
+            return (Task(id="t1", deps=(), kind="workload", spec="hello_world.c"),)
+
+        failed = step_result("t1", passed=False, build_success=False)
+        failed.build.errors = ("%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'",)
+        failed.build.failure_reason = "verilog_error"
+        monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
+        monkeypatch.setattr(
+            "mace.orchestrator.integrate_parallel",
+            lambda piton_roots, spec, tasks, llm, tools=(), run_id=None, iteration=0, on_task_progress=None, nodes=None, **kwargs: (failed,),
+        )
+        monkeypatch.setattr(
+            "mace.orchestrator.triage",
+            lambda result, llm, tools=(), **kwargs: Triage(diagnosis="rtl_suspect", fix="edit manycore_top.v"),
+        )
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        run_mace_loop(
+            ("/fake/root",), make_spec(budget=Budget(max_iterations=2)), FakeLLM(responses=[]),
+            db=make_db(tmp_path), options=LoopOptions(raw_evidence=raw_evidence),
+        )
+
+        assert "diagnosis=rtl_suspect, suggested fix=edit manycore_top.v" in seen_feedback[1]
+        assert ("Pin not found: 'async_mux'" in seen_feedback[1]) is raw_evidence
 
     def test_a_third_plan_call_sees_every_earlier_iteration_s_diagnosis_not_just_the_latest(
         self, tmp_path, monkeypatch
@@ -907,8 +941,32 @@ class TestFeedbackNamesThePlansChanges:
 
         run_mace_loop(("/fake",), make_spec(budget=Budget(max_iterations=2)), FakeLLM([]), make_db(tmp_path))
 
-        assert "changes from the defaults: RTL defines added: PITON_FPGA_SYNTH; l2=32768,4 (default 65536,4)" in feedback_seen[1]
+        assert "Changes from the defaults: RTL defines added: PITON_FPGA_SYNTH; l2=32768,4 (default 65536,4)" in feedback_seen[1]
         assert "diagnosis=config_error, suggested fix=drop it" in feedback_seen[1]
+
+    def test_without_raw_evidence_the_changes_stay_inside_the_task_line(self, tmp_path, monkeypatch):
+        feedback_seen = []
+
+        def recording_plan(spec, llm, tools=(), feedback="", rtl_edits=True):
+            feedback_seen.append(feedback)
+            return (Task(id="t1", deps=(), kind="workload", spec="w"),)
+
+        failed = step_result("t1", passed=False, verdict="timeout")
+        failed.build.config = PitonConfig(config_rtl=("MINIMAL_MONITORING", "PITON_FPGA_SYNTH"))
+        monkeypatch.setattr("mace.orchestrator.plan", recording_plan)
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", lambda *a, **k: (failed,))
+        monkeypatch.setattr("mace.orchestrator.triage", lambda result, llm, tools=(), **kwargs: Triage("config_error", "drop it"))
+        monkeypatch.setattr("mace.orchestrator.generate_post_mortem", _no_post_mortem)
+
+        run_mace_loop(
+            ("/fake",), make_spec(budget=Budget(max_iterations=2)), FakeLLM([]), make_db(tmp_path),
+            options=LoopOptions(raw_evidence=False),
+        )
+
+        assert feedback_seen[1] == (
+            "Task t1 (hello_world.c; changes from the defaults: RTL defines added: PITON_FPGA_SYNTH) failed: "
+            "diagnosis=config_error, suggested fix=drop it"
+        )
 
 
 class TestPlanHook:

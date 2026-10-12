@@ -144,6 +144,115 @@ class TestTestbenchMismatchShortCircuit:
         assert len(llm.calls) == 1
 
 
+class TestCollapseSimilarLines:
+    def test_lines_that_differ_only_in_their_numbers_become_one_with_a_count(self):
+        from mace.triage import collapse_similar_lines
+
+        lines = [f"Info: spc({i}) thread({j}) -> timeout happen" for i in range(2) for j in range(2)]
+        assert collapse_similar_lines(lines) == ["Info: spc(0) thread(0) -> timeout happen  (and 3 similar lines)"]
+
+    def test_different_lines_stay_and_blanks_go(self):
+        from mace.triage import collapse_similar_lines
+
+        assert collapse_similar_lines(["a 1", "", "b 2", "  ", "a 3"]) == ["a 1", "b 2", "a 3"]
+
+    def test_nothing_in_nothing_out(self):
+        from mace.triage import collapse_similar_lines
+
+        assert collapse_similar_lines([]) == []
+
+
+class TestEvidenceDigest:
+    def test_a_failed_build_gives_its_error_lines_and_reason(self):
+        from mace.triage import evidence_digest
+
+        failed = make_failed_result(build_success=False)
+        error = "%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'"
+        failed.build.errors = (error,)
+        digest = evidence_digest(failed)
+        assert digest.startswith("the build failed (verilator_bad_option):") and error in digest
+
+    def test_a_build_with_no_error_lines_falls_back_to_the_end_of_its_output(self):
+        from mace.triage import evidence_digest
+
+        failed = make_failed_result(build_success=False)
+        failed.build.stderr = "line one\nline two\nline three"
+        assert "line three" in evidence_digest(failed)
+
+    def test_a_failed_simulation_gives_the_program_verdict_status_and_log_end(self):
+        from mace.triage import evidence_digest
+
+        failed = make_failed_result(verdict="timeout")
+        failed.run.sim_log_tail = "\n".join(f"Info: spc({i}) thread(1) -> timeout happen" for i in range(8))
+        digest = evidence_digest(failed)
+        assert digest.startswith("hello_world.c ended timeout (status: Diag: hello_world.c Timeout (TIMEOUT)):")
+        assert "(and 7 similar lines)" in digest
+
+    def test_the_digest_stays_within_its_limit(self):
+        from mace.triage import evidence_digest
+
+        failed = make_failed_result(build_success=False)
+        failed.build.errors = tuple(f"%Error: file{i}.v:{i}:1: a rather long message about problem number {i}" for i in range(60))
+        assert len(evidence_digest(failed, limit=300)) <= 304
+        sim = make_failed_result(verdict="fail")
+        sim.run.sim_log_tail = "\n".join(f"distinct line {chr(97 + i % 26)}{'x' * i}" for i in range(12))
+        assert len(evidence_digest(sim, limit=300)) <= 304
+
+    def test_a_cut_simulation_log_keeps_its_end(self):
+        from mace.triage import evidence_digest
+
+        sim = make_failed_result(verdict="fail")
+        sim.run.sim_log_tail = "\n".join(f"early noise {chr(97 + i)}" for i in range(11)) + "\nthe line that matters"
+        assert evidence_digest(sim, limit=120).endswith("the line that matters")
+
+
+class TestReplanFeedback:
+    def diagnosis(self):
+        from mace.spec import Triage
+
+        return Triage(diagnosis="rtl_suspect", fix="Update manycore_top.v")
+
+    def test_the_default_gives_the_evidence_beside_the_diagnosis(self):
+        from mace.triage import replan_feedback
+
+        failed = make_failed_result(build_success=False)
+        failed.build.errors = ("%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'",)
+        failed.build.config = PitonConfig(config_rtl=("MINIMAL_MONITORING", "PITON_FPGA_SYNTH"))
+        text = replan_feedback(failed, self.diagnosis())
+        assert "Task t1 (hello_world.c) failed (build succeeded: False, run verdict: None)." in text
+        assert "Changes from the defaults: RTL defines added: PITON_FPGA_SYNTH" in text
+        assert "Pin not found: 'async_mux'" in text
+        assert text.endswith("diagnosis=rtl_suspect, suggested fix=Update manycore_top.v")
+        assert text.index("Pin not found") < text.index("diagnosis=")  # the evidence comes first
+
+    def test_a_wrong_diagnosis_cannot_hide_the_error_line(self):
+        from mace.triage import replan_feedback
+
+        failed = make_failed_result(build_success=False)
+        failed.build.errors = ("%Error: Duplicate pin connection: 'dataIn_0'",)
+        text = replan_feedback(failed, self.diagnosis())
+        assert "Duplicate pin connection" in text and "an LLM's reading of this evidence" in text
+
+    def test_without_raw_evidence_it_is_the_changes_label_and_fix_only(self):
+        from mace.triage import replan_feedback
+
+        failed = make_failed_result(build_success=False)
+        failed.build.errors = ("%Error: something specific",)
+        text = replan_feedback(failed, self.diagnosis(), raw_evidence=False)
+        assert text == (
+            "Task t1 (hello_world.c; changes from the defaults: none) failed: "
+            "diagnosis=rtl_suspect, suggested fix=Update manycore_top.v"
+        )
+
+    def test_the_rtl_edits_a_build_carried_follow_the_note(self):
+        from mace.triage import replan_feedback
+
+        failed = make_failed_result(verdict="fail")
+        failed.edits_diff = "--- a.v\n+++ a.v\n"
+        for raw in (True, False):
+            assert replan_feedback(failed, self.diagnosis(), raw).endswith("The RTL edits it was built with:\n--- a.v\n+++ a.v\n")
+
+
 class TestChangesFromDefaults:
     def test_a_default_config_changes_nothing(self):
         from chia_openpiton.state_def import PitonConfig

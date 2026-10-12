@@ -14,6 +14,8 @@ later task the Planner produces from this diagnosis.
 
 from __future__ import annotations
 
+import re
+
 from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace import usage
 from mace.agents import is_testbench_port_mismatch, parse_diagnosis, parse_fix
@@ -90,6 +92,87 @@ def edits_feedback(result: StepResult) -> str:
     if not result.edits_diff:
         return ""
     return f"\nThe RTL edits it was built with:\n{result.edits_diff[:EDIT_DIFF_CHARS]}"
+
+
+# How much of a failure's own evidence the re-plan's feedback quotes.
+EVIDENCE_DIGEST_CHARS = 800
+_NUMBERS = re.compile(r"\d+")
+
+
+def collapse_similar_lines(lines: list[str]) -> list[str]:
+    """*lines* without blanks, where a run of lines that differ only in their
+    numbers is its first line and a count: the simulation's sixteen
+    ``spc(n) thread(m) -> timeout happen`` lines become one."""
+    out: list[str] = []
+    previous, first, count = None, "", 0
+
+    def flush() -> None:
+        if previous is not None:
+            out.append(first if count == 1 else f"{first}  (and {count - 1} similar lines)")
+
+    for line in lines:
+        text = line.strip()
+        if not text:
+            continue
+        key = _NUMBERS.sub("#", text)
+        if key == previous:
+            count += 1
+            continue
+        flush()
+        previous, first, count = key, text, 1
+    flush()
+    return out
+
+
+def evidence_digest(result: StepResult, limit: int = EVIDENCE_DIGEST_CHARS) -> str:
+    """What a failed task's build or simulation reported, in about *limit*
+    characters: the build's error lines, or the failing program's verdict,
+    first status line, and the end of its simulation log.
+
+    Triage's prompt carries the long form (:func:`failure_evidence`). The
+    re-plan gets this digest as well as triage's label and fix, so a wrong
+    diagnosis cannot hide the line that names the cause.
+    """
+    build, run = result.build, result.run
+    if not build.success:
+        errors = list(build.errors) or [l for l in (build.stderr or build.stdout).splitlines() if l.strip()][-8:]
+        reason = build.failure_reason or "unknown"
+        text = f"the build failed ({reason}):\n  " + "\n  ".join(collapse_similar_lines(errors))
+        return text if len(text) <= limit else text[:limit].rstrip() + " ..."
+    if run is None:
+        return "no simulation ran."
+    status = next((l.strip() for l in run.status_log.splitlines() if l.strip()), "")
+    head = f"{run.test} ended {run.verdict}" + (f" (status: {status})" if status else "") + ":"
+    tail = "\n  ".join(collapse_similar_lines(run.sim_log_tail.splitlines()[-12:]))
+    room = max(limit - len(head) - 6, 0)
+    if len(tail) > room:
+        tail = "... " + tail[-room:].lstrip()
+    return f"{head}\n  {tail}" if tail else head
+
+
+def replan_feedback(result: StepResult, diagnosis: Triage, raw_evidence: bool = True) -> str:
+    """The note a failed task adds to the feedback every later plan sees.
+
+    With *raw_evidence*, it holds the changes from the defaults and the
+    build's or simulation's own report (:func:`evidence_digest`) beside
+    triage's label and fix, which the note calls a reading of that evidence.
+    Without it, the note is the changes, the label, and the fix. Edits the
+    build carried follow either way.
+    """
+    changes = changes_from_defaults(result.build.config)
+    task = result.task
+    if not raw_evidence:
+        return (
+            f"Task {task.id} ({task.spec}; changes from the defaults: {changes}) failed: "
+            f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
+        ) + edits_feedback(result)
+    verdict = result.run.verdict if result.run is not None else None
+    return (
+        f"Task {task.id} ({task.spec}) failed (build succeeded: {result.build.success}, run verdict: {verdict}).\n"
+        f"Changes from the defaults: {changes}\n"
+        f"What the build and simulation reported: {evidence_digest(result)}\n"
+        f"Triage, an LLM's reading of this evidence: diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
+    ) + edits_feedback(result)
 
 
 def failure_evidence(result: StepResult) -> str:
