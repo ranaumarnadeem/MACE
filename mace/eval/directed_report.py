@@ -27,12 +27,16 @@ from mace.eval.report import rows_from, run_rows, summarize
 from mace.metrics import DBReader
 
 OLD_BUGS = ("ariane-2x2-hello-rtlfault", "pico-2x2-addi-rtlfault", "ariane-2x2-accu-rtlfault")
-HELD_OUT_BUGS = ("ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-srai-rtlbug")
-OUTCOMES = ("detected", "missed", "false_alarm", "invalid", "unchecked")
+HELD_OUT_BUGS = (
+    "ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-srai-rtlbug", "pico-2x2-mulhsu-rtlbug",
+)
+OUTCOMES = ("detected", "missed", "false_alarm", "invalid", "unchecked", "runtime_broken")
+# The mutation check also runs a null test on every design (mace.eval.directed); its row is not a test.
+NULL_TASK = "null"
 
 DETECTION_COLUMNS = [
     "group", "task", "method", "runs", "runs_with_tests", "tests", "detected", "missed", "false_alarm", "invalid",
-    "unchecked", "runs_detected", "runs_false_alarm", "target_hit", "usd", "method_s",
+    "unchecked", "runtime_broken", "runs_detected", "runs_false_alarm", "target_hit", "usd", "method_s",
 ]
 REPAIR_COLUMNS = ["group", "task", "method", "runs", "passed", "time_to_pass_s", "usd", "usd_per_pass"]
 TEST_FIRST_COLUMNS = ["group", "task", "runs", "passed", "detected_and_passed", "detected_runs", "other_and_passed", "other_runs"]
@@ -67,8 +71,9 @@ def _run_facts(db: DBReader) -> dict[str, dict]:
     return facts
 
 
-def check_rows(paths: list[str]) -> list[dict]:
-    """One row per test the runs in *paths* wrote and the mutation check judged."""
+def check_rows(paths: list[str], with_null: bool = False) -> list[dict]:
+    """One row per test the runs in *paths* wrote and the mutation check judged;
+    *with_null* adds each run's null-test row."""
     out = []
     for path in paths:
         db = DBReader(path)
@@ -84,7 +89,7 @@ def check_rows(paths: list[str]) -> list[dict]:
             db.close()
         for r in rows:
             run = facts.get(r["run_id"])
-            if run is None or run["replaced"]:
+            if run is None or run["replaced"] or (r["task_id"] == NULL_TASK and not with_null):
                 continue
             out.append(
                 {

@@ -76,7 +76,25 @@ class TestClassify:
         assert ed.classify(fault, clean) == outcome
 
     def test_the_outcomes_are_the_ones_a_report_lists(self):
-        assert set(ed.OUTCOMES) == {"detected", "missed", "false_alarm", "invalid", "unchecked"}
+        assert set(ed.OUTCOMES) == {"detected", "missed", "false_alarm", "invalid", "unchecked", "runtime_broken"}
+
+    @pytest.mark.parametrize(
+        "fault,clean,null_fault,null_clean,outcome",
+        [
+            ("fail", "pass", "pass", "pass", "detected"),
+            ("timeout", "pass", "timeout", "pass", "runtime_broken"),
+            ("fail", "pass", "fail", "pass", "runtime_broken"),
+            ("pass", "pass", "timeout", "pass", "missed"),
+            ("fail", "pass", "pass", "fail", "invalid"),
+            ("fail", "fail", "pass", "pass", "false_alarm"),
+            ("not_built", "pass", "not_built", "pass", "unchecked"),
+        ],
+    )
+    def test_the_null_test_decides_whether_a_failure_on_the_bug_means_anything(
+        self, fault, clean, null_fault, null_clean, outcome
+    ):
+        """A bug that fails even a program that checks nothing fails every test, so no test found it."""
+        assert ed.classify(fault, clean, null_fault, null_clean) == outcome
 
 
 class TestTestFirst:
@@ -190,8 +208,12 @@ class TestChecking:
 
         assert {c.name: c.outcome for c in checks} == {"good": "detected", "blind": "missed", "wrong": "false_alarm"}
         order = [e[0] for e in design.events]
-        assert order == ["bug"] * 3 + ["restore", "cleared"] + ["clean"] * 3 + ["closed"]
-        rows = db.query("SELECT name, fault_verdict, clean_verdict, outcome FROM test_checks ORDER BY name")
+        # The null test and the three tests, on the design with the bug, then on the correct one.
+        assert order == ["bug"] * 4 + ["restore", "cleared"] + ["clean"] * 4 + ["closed"]
+        assert [e[1] for e in design.events if len(e) == 3][:1] == ["dt_null.S"]
+        rows = db.query(
+            "SELECT name, fault_verdict, clean_verdict, outcome FROM test_checks WHERE task_id != 'null' ORDER BY name"
+        )
         assert rows == [
             {"name": "blind", "fault_verdict": "pass", "clean_verdict": "pass", "outcome": "missed"},
             {"name": "good", "fault_verdict": "fail", "clean_verdict": "pass", "outcome": "detected"},
@@ -210,9 +232,10 @@ class TestChecking:
         record_tests(db, run_id, a_test("one"), a_test("two"))
         ed.check_tests((str(tmp_path),), make_spec(), EXPERT, db, run_id)
         dirs = {e[1]: e[2] for e in design.events if len(e) == 3 and e[0] == "bug"}
-        assert dirs["dt_one.S"] != dirs["dt_two.S"]
-        assert (tmp_path / "build" / ".mace_tests" / "check" / "0" / "dt_one.S").read_text() == "source of one\n"
-        assert dirs["dt_one.S"] == str(tmp_path / "build" / ".mace_tests" / "check" / "0")
+        assert len({dirs["dt_null.S"], dirs["dt_one.S"], dirs["dt_two.S"]}) == 3
+        # Directory 0 holds the null test.
+        assert (tmp_path / "build" / ".mace_tests" / "check" / "1" / "dt_one.S").read_text() == "source of one\n"
+        assert dirs["dt_one.S"] == str(tmp_path / "build" / ".mace_tests" / "check" / "1")
 
     def test_a_bug_that_breaks_the_build_leaves_the_tests_unchecked(self, db, design):
         run_id = metrics.start_run(db, make_spec())
@@ -228,6 +251,43 @@ class TestChecking:
         run_id = metrics.start_run(db, make_spec())
         assert ed.check_tests((design.root,), make_spec(), EXPERT, db, run_id) == []
         assert design.events == []
+
+    def test_a_bug_that_fails_every_program_is_found_by_no_test(self, db, design):
+        """Pilot finding: the Ariane atomic-add bug hangs the C runtime's exit barrier, so even a program that checks
+        nothing fails on it."""
+        run_id = metrics.start_run(db, make_spec())
+        record_tests(db, run_id, a_test("one"), a_test("two"))
+        design.verdicts = {"bug": {"dt_null.S": "timeout", "dt_one.S": "timeout", "dt_two.S": "timeout"}, "clean": {}}
+
+        checks = ed.check_tests((design.root,), make_spec(), EXPERT, db, run_id)
+
+        assert {c.name: c.outcome for c in checks} == {"one": "runtime_broken", "two": "runtime_broken"}
+        null = db.query(
+            "SELECT iteration, task_id, attempt, name, fault_verdict, clean_verdict, outcome FROM test_checks "
+            "WHERE task_id = 'null'"
+        )
+        assert null == [
+            {"iteration": -1, "task_id": "null", "attempt": 0, "name": "null", "fault_verdict": "timeout",
+             "clean_verdict": "pass", "outcome": "null"}
+        ]
+
+    def test_a_correct_design_that_fails_the_null_test_makes_every_check_invalid(self, db, design):
+        run_id = metrics.start_run(db, make_spec())
+        record_tests(db, run_id, a_test("one"))
+        design.verdicts = {"bug": {"dt_one.S": "fail"}, "clean": {"dt_null.S": "fail"}}
+        (check,) = ed.check_tests((design.root,), make_spec(), EXPERT, db, run_id)
+        assert check.outcome == "invalid"
+
+    def test_the_null_test_is_not_among_the_checks_returned(self, db, design):
+        run_id = metrics.start_run(db, make_spec())
+        record_tests(db, run_id, a_test("one"))
+        checks = ed.check_tests((design.root,), make_spec(), EXPERT, db, run_id)
+        assert [c.name for c in checks] == ["one"]
+
+    def test_the_null_program_exists_for_each_form_and_checks_nothing(self):
+        assert set(ed.NULL_SOURCES) == {"S", "c"}
+        assert "TEST_PASSFAIL" in ed.NULL_SOURCES["S"] and "RVTEST_CODE_BEGIN" in ed.NULL_SOURCES["S"]
+        assert "main(" in ed.NULL_SOURCES["c"] and "return 0" in ed.NULL_SOURCES["c"]
 
     def test_the_seconds_cover_both_designs(self, db, design):
         run_id = metrics.start_run(db, make_spec())

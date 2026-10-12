@@ -59,8 +59,14 @@ class Db:
             metrics.record_iteration(self.db, run_id, 1, (), wall_s=wall_s)
         metrics.record_llm_calls(self.db, run_id, 1, (LLMCall(phase="task", usd=usd),))
         for t, outcome in zip(tests, outcomes):
-            fault_v, clean_v = {"detected": ("fail", "pass"), "missed": ("pass", "pass"), "false_alarm": ("fail", "fail")}[outcome]
+            fault_v, clean_v = {
+                "detected": ("fail", "pass"), "missed": ("pass", "pass"), "false_alarm": ("fail", "fail"),
+                "runtime_broken": ("timeout", "pass"),
+            }[outcome]
             metrics.record_test_check(self.db, run_id, 1, "test_fix", t.attempt, t.name, fault_v, clean_v, outcome, 5.0)
+        if outcomes:
+            # check_tests records the null test's verdicts too; its row is not a test.
+            metrics.record_test_check(self.db, run_id, -1, "null", 0, "null", "pass", "pass", "null", 3.0)
         metrics.finish_run(self.db, run_id, status)
         return run_id
 
@@ -117,6 +123,19 @@ class TestDetection:
         assert row["target_hit"] == pytest.approx(2 / 3)
         # The medians over the three runs: $0.02, $0.04, $0.01 and 40 s, 60 s, 30 s.
         assert row["usd"] == pytest.approx(0.02) and row["method_s"] == pytest.approx(40)
+
+    def test_the_null_test_is_not_counted_as_a_test(self, vm):
+        vm.run(BUG, "testgen", 0, "passed", tests=(a_test("a"),), outcomes=("detected",))
+        (row,) = dr.detection_table([vm.path])
+        assert (row["tests"], row["detected"], row["runs_with_tests"]) == (1, 1, 1)
+        assert [r["name"] for r in dr.check_rows([vm.path])] == ["a"]
+        assert sorted(r["name"] for r in dr.check_rows([vm.path], with_null=True)) == ["a", "null"]
+
+    def test_tests_on_a_bug_that_fails_every_program_are_counted_apart(self, vm):
+        vm.run(BUG, "testgen", 0, "failed", tests=(a_test("a"), a_test("b")), outcomes=("runtime_broken", "runtime_broken"))
+        (row,) = dr.detection_table([vm.path])
+        assert (row["tests"], row["runtime_broken"], row["detected"], row["runs_detected"]) == (2, 2, 0, 0)
+        assert "runtime_broken" in dr.OUTCOMES and "runtime_broken" in dr.DETECTION_COLUMNS
 
     def test_a_method_with_no_runs_has_no_row(self, vm):
         vm.run(BUG, "mace_rtl", 0, "passed")

@@ -19,18 +19,23 @@ It runs each test on the task's expert design twice: with the task's `source_fau
 Each test runs alone from a directory of its own, and each design is built once for all the tests.
 The check calls no LLM and runs after the method has finished, so its time is not part of the iterations' wall time or the method's budget.
 
-| Outcome | Verdict with the bug | Verdict without the bug |
-|---|---|---|
-| `detected` | `fail`, `timeout`, or `maxcycles` | `pass` |
-| `missed` | `pass` | `pass` |
-| `false_alarm` | any | `fail`, `timeout`, or `maxcycles` |
-| `invalid` | no verdict | `pass` |
-| `unchecked` | `not_built` | `pass` |
+A null test runs beside the generated tests on both designs: a program that checks nothing (`TEST_PASSFAIL` alone for PicoRV32, `return 0` for Ariane).
+A bug that fails even the null test fails every program, so a generated test that fails on it has not found the bug.
+The Ariane bug below is such a bug: an atomic add that subtracts hangs the C runtime's exit barrier, which every program reaches.
+
+| Outcome | Verdict with the bug | Verdict without the bug | Null test with the bug |
+|---|---|---|---|
+| `detected` | `fail`, `timeout`, or `maxcycles` | `pass` | `pass` |
+| `runtime_broken` | `fail`, `timeout`, or `maxcycles` | `pass` | not `pass` |
+| `missed` | `pass` | `pass` | any |
+| `false_alarm` | any | `fail`, `timeout`, or `maxcycles` | any |
+| `invalid` | no verdict | `pass` | any |
+| `unchecked` | `not_built` | `pass` | any |
 
 A hang counts as a failure.
-A test with no verdict, or no build, on the correct design is also `invalid`.
+A test with no verdict, or no build, on the correct design is also `invalid`, and so is every test of a run whose null test fails on the correct design.
 The `unchecked` outcome is for a bug that breaks the build, such as the three bugs of `examples/eval/tasks_rtl.yaml` that sit above the held-out block: no test can run on a design that does not build, so only the false-alarm rate of the tests written for them is defined.
-Each outcome is a row in the `test_checks` table, keyed like the test's row in `directed_tests`.
+Each outcome is a row in the `test_checks` table, keyed like the test's row in `directed_tests`; the null test's row has the task `null` and the outcome `null`, and the reports leave it out of the test counts.
 
 ## Methods
 
@@ -50,14 +55,19 @@ The hook of `mace_rtl_test` adds a test only before an `rtl` task, so a plan wit
 
 The three bugs of the first block of `examples/eval/tasks_rtl.yaml` break the build.
 Every test fails on a design that does not build, so they cannot tell a test that targets the logic from one that does not.
-The block at the end of that file holds three bugs that build and fail in simulation.
-They were defined on 2026-10-12, before any prompt of the `test` task was written, on logic that a gate workload or a reasonable directed test exercises:
+The block at the end of that file holds four bugs that build and fail in simulation.
+They were defined on 2026-10-12, on logic that a gate workload or a reasonable directed test exercises.
+The first three were defined before any prompt of the `test` task was written; the fourth after the first version of that prompt, which was tuned on the development bug only:
 
 | Task | File | Change | Gate workload |
 |---|---|---|---|
 | `ariane-2x2-barrier-amobug` | `l2_amo_alu.v` | An atomic add subtracts. | `barrier_atomic.c` |
 | `pico-2x2-sh-rtlbug` | `picorv32.v` | `lh` zero-extends in place of sign-extending. | `sh.S` |
 | `pico-2x2-srai-rtlbug` | `picorv32.v` | The four-bit step of the arithmetic right shift fills with zeros. | `srai.S` |
+| `pico-2x2-mulhsu-rtlbug` | `picorv32.v` | `mulhsu` treats its second operand as signed. | `mulhsu.S` |
+
+The Ariane bug is a repair task: its null test fails on it, so the detection tables count its tests as `runtime_broken`.
+The three PicoRV32 bugs are the detection tasks.
 
 `examples/eval/tasks_tests.yaml` holds a fourth bug, a PicoRV32 `bgeu` that compares signed values, on which the prompts of the `test` task were tuned.
 No evaluation reports it.
@@ -69,7 +79,7 @@ A held-out task is `verified: true` once `expert` on it builds and then fails in
 ```bash
 export MAKEFLAGS=-j1
 python examples/eval_batch.py --piton-root ~/openpiton --suite examples/eval/tasks_rtl.yaml --include-unverified \
-    --tasks ariane-2x2-barrier-amobug,pico-2x2-sh-rtlbug,pico-2x2-srai-rtlbug \
+    --tasks ariane-2x2-barrier-amobug,pico-2x2-sh-rtlbug,pico-2x2-srai-rtlbug,pico-2x2-mulhsu-rtlbug \
     --methods expert,expert_clean --db-path runs/heldout_check.db
 python examples/eval_batch.py --piton-root ~/openpiton --piton-root-2 ~/openpiton-2 --backend vertex \
     --suite examples/eval/tasks_rtl.yaml --include-unverified --repeats 5 \
