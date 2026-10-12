@@ -31,12 +31,12 @@ Each stage maps to the modules below.
 | Stage | Module | Role |
 |---|---|---|
 | Requirement | `mace/spec.py` | `MaceSpec` and `Budget` validate the run's inputs |
-| Planning | `mace/planner.py` | `plan()` asks the LLM for a task DAG |
+| Planning | `mace/planner.py`, `mace/plan_check.py` | `plan()` asks the LLM for a task DAG; `check_plan()` rejects one that cannot work before any build (see [Fixed Checks](fixed_checks.md)) |
 | Task Decomposition | `mace/agents.py`, `mace/integrator.py` | `parse_tasks()` reads the directives; `topological_levels()` orders the tasks |
-| Parallel Execution | `mace/integrator.py` | `integrate_parallel()` runs each level across the checkouts |
+| Parallel Execution | `mace/integrator.py`, `mace/fast_path.py` | `integrate_parallel()` runs each level across the checkouts; a plan of one design runs as one task |
 | RTL/System Integration | `mace/loop.py`, `chia_openpiton/openpiton_workspace.py` | `_config_for_task()` sets each task's `PitonConfig`; `build()` compiles it |
 | Verification | `chia_openpiton/openpiton_workspace.py`, `chia_openpiton/parse.py` | `run()` simulates each gate workload; `sim_verdict()` reads the verdict |
-| Failure Analysis | `mace/triage.py`, `chia_openpiton/tools.py` | `triage()` diagnoses the first failed task |
+| Failure Analysis | `mace/narrowing.py`, `mace/triage.py`, `chia_openpiton/tools.py` | `narrow()` rebuilds the first failed task with its changes undone; `triage()` diagnoses it when that settles nothing |
 | Iteration | `mace/orchestrator.py` | `run_mace_loop()` feeds each diagnosis into the next plan |
 
 `mace/metrics.py` records runs, iterations, tasks, failures, and post-mortems in SQLite.
@@ -46,12 +46,12 @@ Each stage maps to the modules below.
 ## Control Flow
 
 `run_mace_loop(piton_roots, spec, llm, db, tools=(), on_iteration=None, on_task_progress=None, labels=None, options=None, plan_hook=None)` records the run as `running` and checks the C programs in `mace/workloads/` against `CHECKSUMS`.
-Each iteration then checks the wall-clock and USD limits, calls `plan()` with the feedback gathered so far, and hands the task DAG to `integrate_parallel()`.
+Each iteration then checks the wall-clock and USD limits, calls `plan()` with the feedback gathered so far, checks the plan (see [Fixed Checks](fixed_checks.md)), and hands the task DAG to `integrate_parallel()`.
 The orchestrator opens one `OpenPitonWorkspaceNode` per checkout when the first iteration reaches execution, reuses the nodes in later iterations, and closes them after the loop.
 
 `record_iteration()` stores each iteration's results, and the optional `on_iteration(iteration, results)` callback reports them to the caller.
 When every task passed, the run ends with `passed`.
-Otherwise `triage()` diagnoses the first failed task, and `record_failure()` stores the diagnosis for later plans (see [Failure Analysis](failure_analysis.md)).
+Otherwise the orchestrator narrows the first failed task, `triage()` diagnoses it when narrowing settles nothing, and `record_failure()` stores the diagnosis for later plans (see [Failure Analysis](failure_analysis.md) and [Fixed Checks](fixed_checks.md)).
 Budget limits end the run with `budget_exceeded` (see [Budgets and Replay](budget_and_replay.md)).
 
 `mace/loop.py` also holds `run_mace_step()`, which runs a single task without the planner.
@@ -74,6 +74,10 @@ The defaults are the full loop.
 | `task_prompts` | `True` | `False`: tasks make no LLM call of their own. That call's reply changes nothing that is built. |
 | `post_mortem` | `True` | `False`: a run that ends without passing gets no post-mortem. |
 | `rtl_edits` | `False` | `True`: the planner's prompt offers the `rtl` kind, and each `rtl` task's agent gets an `RtlEditTool`; see [Parallel Task Execution](task_execution.md). |
+| `plan_check` | `True` | `False`: each plan runs as the planner wrote it. |
+| `raw_evidence` | `True` | `False`: the next plan gets triage's label and fix without the build's own report. |
+| `narrowing` | `True` | `False`: a failed task goes to triage without any probe. |
+| `fast_path` | `True` | `False`: a plan of one design keeps all its tasks and their LLM calls. |
 
 ## Package Boundary
 

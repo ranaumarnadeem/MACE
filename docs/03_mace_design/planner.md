@@ -2,13 +2,14 @@
 
 # Planner
 
-`mace.planner.plan(spec, llm, tools=(), feedback="", rtl_edits=False)` turns a `MaceSpec` into a task DAG with one LLM call.
+`mace.planner.plan(spec, llm, tools=(), feedback="", rtl_edits=False, rejection="", phase="plan")` turns a `MaceSpec` into a task DAG with one LLM call.
 It sends the prompt from `build_prompt()`, parses the response with `mace.agents.parse_tasks()`, and checks the result with `mace.integrator.topological_levels()`.
 
 ## Prompt
 
 The prompt names the core, objective, target mesh, and gate workloads, and specifies the directive lines below.
 On a replan, `build_prompt()` appends the triage feedback under the line `Feedback from a previous attempt, to inform this plan:` (see [Failure Analysis](failure_analysis.md)).
+When the plan check turned the previous plan away before any build, `rejection` adds the reasons after the feedback, and the call is recorded in the `plan_retry` phase (see [Fixed Checks](fixed_checks.md)).
 
 ## Directive Lines
 
@@ -54,6 +55,9 @@ An override line applies to the task it names.
 `parse_tasks()` drops any line whose `Task` fails these checks.
 `plan()` raises `PlanningError` when no task remains, or when `topological_levels()` finds a duplicate id, a dependency on an unknown id, or a cycle.
 The orchestrator then logs the error, which quotes a reply with no `TASK:` lines or names the graph problem, records the planner's call with its reply, and ends the run with status `planning_failed`.
+
+A valid DAG can still be a plan the loop cannot carry out, such as a task that asks for a source edit in a run without RTL edits.
+The orchestrator checks each plan for those before it builds anything, and sends one back to the planner with the reasons (see [Fixed Checks](fixed_checks.md)).
 
 ## Task Kinds
 

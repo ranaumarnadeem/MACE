@@ -7,7 +7,7 @@ Other failed tasks in that level get a row in the `tasks` table and no triage.
 
 ## Triage
 
-`triage(result, llm, tools=(), objective="", rtl_edits=False)` makes one LLM call.
+`triage(result, llm, tools=(), objective="", rtl_edits=False, narrowing="")` makes one LLM call.
 The orchestrator passes the run's objective, which leads the prompt: it can name what a build needs, such as an RTL define the failed plan left out.
 The prompt gives the task's id, kind, and instruction, the build outcome, the run verdict, and the build's `sims` flags, which name its RTL defines and cache sizes.
 A line of changes from the defaults picks out the plan's own choices among them: the RTL defines it adds, each cache whose geometry differs, and a crossbar interconnect (`changes_from_defaults()`).
@@ -31,6 +31,10 @@ Without a `DIAGNOSIS:` line, triage raises `TriageError`, and the orchestrator r
 
 A failed `unit_test` build whose output contains `%Error-PINNOTFOUND` skips the LLM call and gets `testbench_mismatch`, with a fix aimed at the testbench's port connections rather than the module.
 
+The orchestrator narrows a failed `config` or `workload` task before it triages it (see [Fixed Checks](fixed_checks.md)).
+When the probes name the change to undo, triage does not run, and the failure is recorded as `config_change` with that fix.
+When they settle nothing, `narrowing` adds the probes' note to the end of the context above, so triage knows which causes the rebuilds ruled out.
+
 ## Diagnostic Tools
 
 When Ray is initialized, the orchestrator starts a `PitonToolServer` named `triage-<run ID>` on the first checkout for each triage.
@@ -52,11 +56,20 @@ See [Tool Server](../04_chia_openpiton/tool_server.md).
 
 ## Replanning
 
-`record_failure()` writes the diagnosis to the `failures` table, and the orchestrator adds a line to the run's feedback history:
+`record_failure()` writes the diagnosis to the `failures` table, and `replan_feedback()` writes a note for the run's feedback history:
 
 ```text
-Task <id> (<instruction>; changes from the defaults: <changes>) failed: diagnosis=<label>, suggested fix=<fix>
+Task <id> (<instruction>) failed (build succeeded: <b>, run verdict: <v>).
+Changes from the defaults: <changes>
+What the build and simulation reported: <digest>
+<the probes' note, when probes ran>
+Triage, an LLM's reading of this evidence: diagnosis=<label>, suggested fix=<fix>
 ```
+
+The digest is the build's error lines, or the failing program's verdict and the end of its simulation log, in about 800 characters.
+It keeps a wrong label from hiding the line that names the cause.
+When the probes decided the diagnosis, the last line reads `Diagnosis from the probes above` instead.
+With `LoopOptions(raw_evidence=False)`, the note is one line: the task, the changes from the defaults, the label, and the fix.
 
 With `LoopOptions(triage="raw")`, the line instead holds whether the build succeeded, the run verdict, and the failure's raw evidence, and with `triage="off"` the orchestrator adds no line (see [Architecture](architecture.md)).
 Every later `plan()` call receives the whole history.

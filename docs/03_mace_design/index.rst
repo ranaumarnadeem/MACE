@@ -14,4 +14,5 @@ MACE Design Document
    task_execution
    integrator
    failure_analysis
+   fixed_checks
    budget_and_replay

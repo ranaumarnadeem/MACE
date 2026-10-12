@@ -44,6 +44,8 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `seeded_<fault>` | RQ3 | The loop with its first plan broken by one seeded fault; see below. |
 | `seeded_retry_<fault>` | RQ3, B2 | The retry agent with its first design broken by one seeded fault, on one checkout; see below. |
 | `faultcheck_<fault>` | Fault check | The expert configuration with one seeded fault applied, with no LLM; it should fail. See below. |
+| `no_<part>` | Ablation | The loop with one of the four [fixed checks](../03_mace_design/fixed_checks.md) off: `no_plan_check`, `no_raw_evidence`, `no_narrowing`, or `no_fast_path`. |
+| `seeded_no_<part>_<fault>` | RQ3, ablation | `seeded_<fault>` with one of those checks off. |
 
 The co-design methods run only on tasks with a `codesign` block, and the others only on tasks without one.
 `expert`, `codesign_grid`, and the fault checks have no randomness, so they run once per task unless `--expert-repeats` asks for more.
@@ -75,7 +77,7 @@ python examples/eval_batch.py --piton-root ~/openpiton --methods no_triage,one_c
 
 The dry run lists each job as `done` or `todo` and starts no Ray instance.
 
-## Seeded faults and reverted fixes
+## Seeded faults
 
 `mace/eval/faults.py` names the seeded faults.
 Each changes the first plan's `config` and `workload` tasks before they run and leaves later plans alone, through `run_mace_loop`'s `plan_hook`.
@@ -86,12 +88,36 @@ Each changes the first plan's `config` and `workload` tasks before they run and 
 | `drop_bist` | Removes `CONFIG_DISABLE_BIST_CLEAR` | The PicoRV32 simulation times out | PicoRV32 |
 | `crossbar` | Selects `xbar_config` | On a mesh with two or more rows, the Verilator build fails with duplicate pin connections | Ariane, PicoRV32 |
 | `l1d_eight_way` | Sets an 8 KB eight-way L1D | `build()` refuses it under [Ariane's way rule](../04_chia_openpiton/piton_config.md), with failure reason `way_rule`, before any build | Ariane |
+| `l15_eight_way` | Sets an 8 KB eight-way L1.5 | The way rule allows it and the build passes; the Ariane simulation times out, and a PicoRV32 mesh passes | Ariane |
+| `no_mem_ctrl` | Adds `PITONSYS_NO_MC` | The build passes and the simulation times out | Ariane, PicoRV32 |
+| `l2_direct_mapped` | Sets a one-way L2 | The Verilator build fails with a zero replication value and a missing module, `l2_priority_encoder_0` | Ariane, PicoRV32 |
+| `drop_monitoring` | Removes `MINIMAL_MONITORING` | The PicoRV32 simulation ends with no pass status, and an Ariane mesh passes | PicoRV32 |
+
+The last four faults are held out: they were defined after the loop's fixed checks were designed, with kinds the first four do not cover, and `Fault.held_out` lets a report treat the two groups apart.
+Their fault checks ran on `ariane-2x2-barrier` and `pico-2x2-addi`, so they are verified on 2x2 meshes.
+A fault that removes a default define sets `Task.drop_rtl`, which `_config_for_task()` honours; the planner has no directive for it, since `CONFIG_RTL:` only adds defines.
 
 A fault applies to bring-up tasks on the cores it lists, and `crossbar` only to meshes with two or more rows, since OpenPiton's crossbar has one port per column.
 A `seeded_<fault>` method runs the loop with that fault seeded, only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
 A `seeded_retry_<fault>` method runs the retry agent with the same fault applied to its first design, through `run_retry_agent`'s `design_hook`, and leaves later designs alone; it applies to the same tasks as `seeded_<fault>`.
 A `faultcheck_<fault>` method builds and checks the task's expert configuration with the fault applied, with no LLM, once per task; the fault breaks that task when the run fails.
 A candidate fault becomes verified when its fault checks fail on every task it applies to, and one whose check passes is dropped.
+
+## Plan-check replay
+
+`mace.eval.plan_replay.replay_plans(db_path, checkout)` checks every planner reply recorded in a database as the loop would have, with no LLM call and no build.
+It pairs each plan's problems with what happened when the plan ran, so a rule can be tried on earlier runs before a machine spends hours on it.
+A plan that has a problem and passed is a rule that would have sent back a working plan.
+The database opens read-only and immutable, because `DBReader` adds tables and columns to an older database.
+`tally()` counts plans by rule and outcome.
+
+```python
+from mace.eval.plan_replay import replay_plans, tally
+
+print(tally(replay_plans("runs/eval.db", checkout="/home/me/openpiton")))
+```
+
+## Reverted fixes
 
 A reverted-fix run needs a checkout that lacks one fix of `scripts/patch_openpiton.sh`: patch a fresh checkout with `PATCH_SKIP` naming that fix (see [Environment Patches](../04_chia_openpiton/environment_patches.md)), and pass `--label reverted_fix=<N>` so each run records it.
 Give each fix its own database: the runner skips a job whose task, method, and repeat already finished in the database, whatever the checkout.
