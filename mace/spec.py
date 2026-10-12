@@ -161,6 +161,8 @@ class LoopOptions:
     - ``raw_evidence``: ``False`` gives the re-plan triage's label and fix
       only; the default adds the build's or simulation's own report (see
       :func:`mace.triage.replan_feedback`).
+    - ``narrowing``: ``False`` triages a failed task without first rebuilding
+      it with each change from the defaults undone (see :mod:`mace.narrowing`).
     """
 
     triage: str = "llm"
@@ -171,6 +173,7 @@ class LoopOptions:
     rtl_edits: bool = False
     plan_check: bool = True
     raw_evidence: bool = True
+    narrowing: bool = True
 
     def __post_init__(self) -> None:
         if self.triage not in TRIAGE_MODES:

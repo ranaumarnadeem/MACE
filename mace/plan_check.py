@@ -19,6 +19,9 @@ Each rule comes from a recorded failure:
 - ``missing_module``: a ``unit_test`` of an RTL path that does not exist.
 - ``repeated_failure``: a task that builds a configuration which already
   failed in this run. Builds are deterministic, so it fails again.
+- ``known_bad_change``: a task that makes a change :mod:`mace.narrowing` showed
+  breaks the design, such as the seeded define a re-plan added back beside
+  another change, so that it was no longer a repeat of the failed build.
 
 The check never rejects a plan for being unwise, only for being unable to
 work, and the orchestrator stops asking after a few rejections so the
@@ -39,10 +42,11 @@ import functools
 import os
 import re
 from dataclasses import dataclass
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Sequence
 
 from mace.integrator import NOT_STARTED, topological_order
 from mace.loop import _config_for_task
+from mace.narrowing import Change, config_changes, reference_config
 from mace.spec import MaceSpec, StepResult, Task
 
 SOURCE_EDIT = "source_edit"
@@ -50,6 +54,7 @@ REQUIRED_DEFINE = "required_define"
 WAY_RULE = "way_rule"
 MISSING_MODULE = "missing_module"
 REPEATED_FAILURE = "repeated_failure"
+KNOWN_BAD_CHANGE = "known_bad_change"
 
 # The tasks that build the whole chip and simulate the gate workloads.
 _BUILD_KINDS = ("config", "workload")
@@ -213,6 +218,7 @@ def check_plan(
     rtl_edits: bool = False,
     path_exists: Callable[[str], bool] | None = None,
     failed_configs: Mapping[tuple[str, ...], str] | None = None,
+    bad_changes: Sequence[tuple[Change, ...]] = (),
 ) -> tuple[PlanProblem, ...]:
     """Why *tasks* cannot work as a plan for *spec*; empty when they may.
 
@@ -220,12 +226,15 @@ def check_plan(
     enables the ``missing_module`` rule; a caller with no checkout leaves it
     out. *failed_configs* maps the build flags of each configuration that
     already failed in the run (see :func:`config_key`) to a short account of
-    how, and enables ``repeated_failure``. Run :func:`strip_unknown_defines`
-    on *tasks* first, so the flags compared are the flags that would build.
+    how, and enables ``repeated_failure``. *bad_changes* are the sets of
+    changes narrowing showed break the design; a task that makes every
+    change of one set is rejected. Run :func:`strip_unknown_defines` on
+    *tasks* first, so the flags compared are the flags that would build.
     """
     problems: list[PlanProblem] = []
     required = objective_defines(spec.objective)
-    edited = _builds_on_edits(tasks) if failed_configs else set()
+    edited = _builds_on_edits(tasks) if failed_configs or bad_changes else set()
+    reference = reference_config(spec, required) if bad_changes else None
 
     for task in tasks:
         if task.kind == "rtl" and not rtl_edits:
@@ -270,6 +279,17 @@ def check_plan(
                 f"task {task.id}'s caches break Ariane's way rule and the build refuses them: "
                 + "; ".join(violations) + ".",
             ))
+
+        if bad_changes and task.id not in edited:
+            made = set(config_changes(_config_for_task(spec, task), reference))
+            for bad in bad_changes:
+                if set(bad) <= made:
+                    problems.append(PlanProblem(
+                        KNOWN_BAD_CHANGE, task.id,
+                        f"task {task.id} {' and '.join(c.describe() for c in bad)}, which a probe earlier in this "
+                        f"run showed breaks the design: {'; '.join(c.remedy() for c in bad)}.",
+                    ))
+                    break
 
         if failed_configs and task.id not in edited:
             earlier = failed_configs.get(config_key(spec, task))

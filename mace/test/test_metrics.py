@@ -284,6 +284,41 @@ class TestFailures:
         assert rows == {"a": 1, "b": 1, "c": 0}  # other_run_id's failure is untouched
 
 
+class TestProbes:
+    def test_each_probe_is_a_row_tied_to_the_task_it_examined(self, tmp_path):
+        import json
+
+        from chia_openpiton.state_def import PitonConfig
+        from mace.narrowing import Narrowing, Probe, config_changes, reference_config
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        failed_config = PitonConfig(config_rtl=("MINIMAL_MONITORING", "PITON_FPGA_SYNTH"))
+        changes = config_changes(failed_config, reference_config(make_spec()))
+        passed = make_result("narrow-a-0", True)
+        never = Probe(changes, Task(id="narrow-a-1", deps=(), kind="config", spec="s"), None)
+        narrowing = Narrowing("culprit", changes, (Probe(changes, passed.task, passed), never), (changes,))
+
+        metrics.record_probes(db, run_id, 2, "a", narrowing)
+
+        rows = db.query("SELECT * FROM probes WHERE run_id = ? ORDER BY probe", (run_id,))
+        assert [(r["iteration"], r["probe"], r["failed_task"], r["task_id"], r["verdict"], r["ran"], r["passed"])
+                for r in rows] == [
+            (2, 0, "a", "narrow-a-0", "culprit", 1, 1), (2, 1, "a", "narrow-a-1", "culprit", 0, 0),
+        ]
+        assert json.loads(rows[0]["undone"]) == ["without the RTL define PITON_FPGA_SYNTH"]
+        assert rows[0]["build_success"] == 1 and rows[0]["build_s"] is not None
+        assert rows[1]["build_success"] is None and rows[1]["build_s"] is None
+
+    def test_a_narrowing_with_no_probes_writes_nothing(self, tmp_path):
+        from mace.narrowing import Narrowing
+
+        db = open_test_db(tmp_path)
+        run_id = metrics.start_run(db, make_spec())
+        metrics.record_probes(db, run_id, 0, "a", Narrowing("no_changes"))
+        assert db.query("SELECT * FROM probes") == []
+
+
 class TestPlanChecks:
     def test_a_look_at_a_plan_records_its_problems_and_stripped_defines(self, tmp_path):
         import json

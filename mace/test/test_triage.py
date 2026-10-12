@@ -65,6 +65,21 @@ class TestBuildPrompt:
         assert "%Warning-WIDTH" in prompt  # the stdout tail
 
 
+class TestNarrowingInThePrompt:
+    def test_what_the_probes_showed_is_part_of_the_failure_context(self):
+        prompt = build_prompt(make_failed_result(), narrowing="Probes: the default configuration fails too.")
+        assert "Probes: the default configuration fails too." in prompt
+        assert prompt.index("Sim log (tail)") < prompt.index("Probes: the default")
+
+    def test_without_probes_the_prompt_is_as_it_was(self):
+        assert build_prompt(make_failed_result(), narrowing="") == build_prompt(make_failed_result())
+
+    def test_triage_passes_the_note_to_its_prompt(self):
+        llm = FakeLLM(responses=["DIAGNOSIS: rtl_suspect\nFIX: look at x.v\n"])
+        triage(make_failed_result(), llm, narrowing="Probes: the default configuration fails too.")
+        assert "Probes: the default configuration fails too." in llm.calls[0][0]
+
+
 class TestTriage:
     def test_returns_parsed_diagnosis_and_fix(self):
         llm = FakeLLM(responses=["DIAGNOSIS: timeout\nFIX: raise rtl_timeout\n"])
@@ -243,6 +258,32 @@ class TestReplanFeedback:
             "Task t1 (hello_world.c; changes from the defaults: none) failed: "
             "diagnosis=rtl_suspect, suggested fix=Update manycore_top.v"
         )
+
+    def test_the_narrowing_note_sits_between_the_evidence_and_the_diagnosis(self):
+        from mace.triage import replan_feedback
+
+        failed = make_failed_result(build_success=False)
+        failed.build.errors = ("%Error: Duplicate pin connection: 'dataIn_0'",)
+        text = replan_feedback(failed, self.diagnosis(), narrowing="Probe note: undoing X passes.")
+        assert text.index("Duplicate pin") < text.index("Probe note") < text.index("diagnosis=rtl_suspect")
+        assert "Triage, an LLM's reading of this evidence" in text
+
+    def test_a_diagnosis_from_the_probes_is_not_called_a_triage_reading(self):
+        from mace.spec import Triage
+        from mace.triage import replan_feedback
+
+        failed = make_failed_result(build_success=False)
+        text = replan_feedback(
+            failed, Triage("config_change", "leave out the RTL define X"), narrowing="Probe note.", probed=True
+        )
+        assert "Diagnosis from the probes above: diagnosis=config_change, suggested fix=leave out the RTL define X" in text
+        assert "LLM" not in text
+
+    def test_the_narrowing_note_also_reaches_the_old_style_note(self):
+        from mace.triage import replan_feedback
+
+        text = replan_feedback(make_failed_result(), self.diagnosis(), raw_evidence=False, narrowing="Probe note.")
+        assert text.endswith("suggested fix=Update manycore_top.v\nProbe note.")
 
     def test_the_rtl_edits_a_build_carried_follow_the_note(self):
         from mace.triage import replan_feedback

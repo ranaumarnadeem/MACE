@@ -150,28 +150,35 @@ def evidence_digest(result: StepResult, limit: int = EVIDENCE_DIGEST_CHARS) -> s
     return f"{head}\n  {tail}" if tail else head
 
 
-def replan_feedback(result: StepResult, diagnosis: Triage, raw_evidence: bool = True) -> str:
+def replan_feedback(
+    result: StepResult, diagnosis: Triage, raw_evidence: bool = True, narrowing: str = "", probed: bool = False
+) -> str:
     """The note a failed task adds to the feedback every later plan sees.
 
     With *raw_evidence*, it holds the changes from the defaults and the
     build's or simulation's own report (:func:`evidence_digest`) beside
     triage's label and fix, which the note calls a reading of that evidence.
-    Without it, the note is the changes, the label, and the fix. Edits the
-    build carried follow either way.
+    Without it, the note is the changes, the label, and the fix. *narrowing*
+    is :meth:`mace.narrowing.Narrowing.summary`, placed before the diagnosis;
+    with *probed*, the diagnosis came from those probes and no LLM call, and
+    the note says so. Edits the build carried follow either way.
     """
     changes = changes_from_defaults(result.build.config)
     task = result.task
+    extra = f"\n{narrowing}" if narrowing else ""
     if not raw_evidence:
         return (
             f"Task {task.id} ({task.spec}; changes from the defaults: {changes}) failed: "
             f"diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
-        ) + edits_feedback(result)
+        ) + extra + edits_feedback(result)
     verdict = result.run.verdict if result.run is not None else None
+    source = "Diagnosis from the probes above" if probed else "Triage, an LLM's reading of this evidence"
     return (
         f"Task {task.id} ({task.spec}) failed (build succeeded: {result.build.success}, run verdict: {verdict}).\n"
         f"Changes from the defaults: {changes}\n"
-        f"What the build and simulation reported: {evidence_digest(result)}\n"
-        f"Triage, an LLM's reading of this evidence: diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
+        f"What the build and simulation reported: {evidence_digest(result)}"
+        f"{extra}\n"
+        f"{source}: diagnosis={diagnosis.diagnosis}, suggested fix={diagnosis.fix}"
     ) + edits_feedback(result)
 
 
@@ -210,13 +217,18 @@ def failure_evidence(result: StepResult) -> str:
     return "\n\n".join(context_parts)
 
 
-def build_prompt(result: StepResult, objective: str = "", rtl_edits: bool = False) -> str:
+def build_prompt(result: StepResult, objective: str = "", rtl_edits: bool = False, narrowing: str = "") -> str:
     """Triage's prompt for *result*. *objective*, the run's objective,
     leads the prompt when given: it can name what a build needs, such as an
     RTL define, that the failed plan left out. *rtl_edits* says whether the
-    next plan may edit RTL, so the suggested fix is one a task can make."""
+    next plan may edit RTL, so the suggested fix is one a task can make.
+    *narrowing* is what rebuilding the task with its changes undone showed,
+    when that settled nothing, so triage knows which causes are ruled out."""
     build = result.build
     run = result.run
+    context = failure_evidence(result)
+    if narrowing:
+        context += "\n\n" + narrowing
     return _PROMPT_TEMPLATE.format(
         objective=f"Run objective: {objective}\n\n" if objective else "",
         task_id=result.task.id,
@@ -224,12 +236,14 @@ def build_prompt(result: StepResult, objective: str = "", rtl_edits: bool = Fals
         spec=result.task.spec,
         build_success=build.success,
         verdict=run.verdict if run else None,
-        context=failure_evidence(result),
+        context=context,
         actions=ACTIONS_RTL if rtl_edits else ACTIONS_NO_RTL,
     )
 
 
-def triage(result: StepResult, llm, tools=(), objective: str = "", rtl_edits: bool = False) -> Triage:
+def triage(
+    result: StepResult, llm, tools=(), objective: str = "", rtl_edits: bool = False, narrowing: str = ""
+) -> Triage:
     """One LLM call, turned into a validated diagnosis.
 
     Skips that call entirely when the failed task is a ``unit_test`` and the
@@ -265,7 +279,7 @@ def triage(result: StepResult, llm, tools=(), objective: str = "", rtl_edits: bo
             ),
         )
 
-    query = usage.prompt(llm, "triage", build_prompt(result, objective, rtl_edits), tools)
+    query = usage.prompt(llm, "triage", build_prompt(result, objective, rtl_edits, narrowing), tools)
     diagnosis = parse_diagnosis(query.result)
     if diagnosis is None:
         raise TriageError(f"no DIAGNOSIS: line in the triage response: {query.result!r}")

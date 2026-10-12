@@ -136,6 +136,23 @@ CREATE TABLE IF NOT EXISTS resimulations (
     PRIMARY KEY (run_id, task_id, program)
 );
 
+CREATE TABLE IF NOT EXISTS probes (
+    run_id TEXT NOT NULL,
+    iteration INTEGER NOT NULL,
+    probe INTEGER NOT NULL,
+    failed_task TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    undone TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    ran INTEGER NOT NULL,
+    passed INTEGER NOT NULL,
+    build_success INTEGER,
+    run_verdict TEXT,
+    build_s REAL,
+    run_s REAL,
+    PRIMARY KEY (run_id, iteration, probe)
+);
+
 CREATE TABLE IF NOT EXISTS plan_checks (
     run_id TEXT NOT NULL,
     iteration INTEGER NOT NULL,
@@ -360,6 +377,32 @@ def record_resimulation(db: SQLiteNode, run_id: str, task_id: str, run) -> None:
         "VALUES (?, ?, ?, ?, ?, ?)",
         (run_id, task_id, run.test, run.verdict, int(run.success), run.wall_time_s),
     )
+
+
+def record_probes(db: SQLiteNode, run_id: str, iteration: int, failed_task: str, narrowing) -> None:
+    """One row per probe of a :class:`mace.narrowing.Narrowing`, tied to the
+    task whose failure it examined. The rows stay out of ``tasks``: a probe
+    is not a task of the plan, and the tables that count a run's tasks and
+    failures should not count it. Each row repeats the narrowing's verdict."""
+    ops = []
+    for n, probe in enumerate(narrowing.probes):
+        result = probe.result
+        run = result.run if (result is not None and probe.ran) else None
+        runs = (result.runs or ((run,) if run is not None else ())) if probe.ran else ()
+        ops.append((
+            "INSERT OR REPLACE INTO probes (run_id, iteration, probe, failed_task, task_id, undone, verdict, ran, "
+            "passed, build_success, run_verdict, build_s, run_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                run_id, iteration, n, failed_task, probe.task.id,
+                json.dumps([c.undone() for c in probe.undone]), narrowing.verdict, int(probe.ran), int(probe.passed),
+                int(result.build.success) if probe.ran else None,
+                run.verdict if run is not None else None,
+                result.build.wall_time_s if probe.ran else None,
+                sum(r.wall_time_s for r in runs) if probe.ran else None,
+            ),
+        ))
+    if ops:
+        db.transaction(ops)
 
 
 def record_plan_check(

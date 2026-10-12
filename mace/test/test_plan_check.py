@@ -228,6 +228,65 @@ class TestRepeatedFailure:
         assert check_plan(spec("ariane", "Verify hello."), (task("a"),), failed_configs={}) == ()
 
 
+class TestKnownBadChange:
+    FPGA = "PITON_FPGA_SYNTH"
+
+    def bad(self, *changes):
+        return [tuple(changes)]
+
+    def test_a_task_that_makes_a_change_probes_showed_breaks_the_design_is_rejected(self):
+        from mace.narrowing import ADDED_DEFINE, Change
+
+        s = spec("ariane", "Verify hello.")
+        # A re-plan that keeps the seeded define beside a new change is no exact repeat of the failed build.
+        plan = (task("again", config_rtl=(self.FPGA,), caches=(("l2", (32768, 4)),)),)
+        problems = check_plan(s, plan, bad_changes=self.bad(Change(ADDED_DEFINE, self.FPGA)))
+        assert rules(problems) == [(plan_check.KNOWN_BAD_CHANGE, "again")]
+        assert "a probe earlier in this run" in problems[0].reason
+        assert "leave out the RTL define PITON_FPGA_SYNTH" in problems[0].reason
+
+    def test_a_task_without_the_change_passes(self):
+        from mace.narrowing import ADDED_DEFINE, Change
+
+        s = spec("ariane", "Verify hello.")
+        plan = (task("t", caches=(("l2", (32768, 4)),)),)
+        assert check_plan(s, plan, bad_changes=self.bad(Change(ADDED_DEFINE, self.FPGA))) == ()
+
+    def test_a_combination_is_rejected_only_when_every_change_is_made(self):
+        from mace.narrowing import ADDED_DEFINE, CACHE, Change
+
+        s = spec("ariane", "Verify hello.")
+        bad = self.bad(Change(ADDED_DEFINE, self.FPGA), Change(CACHE, "l2", (32768, 4)))
+        both = (task("both", config_rtl=(self.FPGA,), caches=(("l2", (32768, 4)),)),)
+        one = (task("one", config_rtl=(self.FPGA,)),)
+        assert rules(check_plan(s, both, bad_changes=bad)) == [(plan_check.KNOWN_BAD_CHANGE, "both")]
+        assert check_plan(s, one, bad_changes=bad) == ()
+
+    def test_a_dropped_required_define_is_a_bad_change_a_task_must_not_repeat(self):
+        from mace.narrowing import MISSING_DEFINE, Change
+
+        # drop_bist breaks the build by leaving the define out. R2 stops a plan from leaving it out too;
+        # this stops a task that drops a default define the probes showed is needed.
+        s = spec("ariane", "Verify hello.")
+        plan = (Task(id="t", deps=(), kind="config", spec="s", drop_rtl=("MINIMAL_MONITORING",)),)
+        problems = check_plan(s, plan, bad_changes=self.bad(Change(MISSING_DEFINE, "MINIMAL_MONITORING")))
+        assert rules(problems) == [(plan_check.KNOWN_BAD_CHANGE, "t")]
+        assert "keep the RTL define MINIMAL_MONITORING" in problems[0].reason
+
+    def test_a_define_the_objective_requires_is_no_change_so_it_is_never_flagged(self):
+        from mace.narrowing import ADDED_DEFINE, Change
+
+        plan = (task("t", config_rtl=(BIST,)),)
+        assert check_plan(spec(), plan, bad_changes=self.bad(Change(ADDED_DEFINE, BIST))) == ()
+
+    def test_a_task_that_builds_on_rtl_edits_is_not_checked(self):
+        from mace.narrowing import ADDED_DEFINE, Change
+
+        s = spec("ariane", "Verify hello.")
+        plan = (task("fix", kind="rtl", text="Fix it", config_rtl=(self.FPGA,)),)
+        assert check_plan(s, plan, rtl_edits=True, bad_changes=self.bad(Change(ADDED_DEFINE, self.FPGA))) == ()
+
+
 class TestNoteFailedConfig:
     def result(self, passed=False, build_ok=True, verdict="timeout", failure_reason="", edits=None, config=None):
         from chia.base.llm_call import QueryResult

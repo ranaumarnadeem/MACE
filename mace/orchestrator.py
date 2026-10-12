@@ -25,6 +25,7 @@ backends report a cost at all.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import time
@@ -46,8 +47,10 @@ from mace.metrics import (
     record_llm_calls,
     record_plan_check,
     record_post_mortem,
+    record_probes,
     start_run,
 )
+from mace.narrowing import SKIPPED, Change, Narrowing, narrow
 from mace.plan_check import (
     check_plan,
     define_index,
@@ -110,6 +113,7 @@ def _plan_checked(
     options: LoopOptions,
     checkout: str | None,
     failed_configs: dict[tuple[str, ...], str],
+    bad_changes: list[tuple[Change, ...]],
 ) -> tuple[Task, ...]:
     """The iteration's plan: one planner call, then :mod:`mace.plan_check`'s
     look at it before any build.
@@ -129,7 +133,8 @@ def _plan_checked(
     for attempt in range(MAX_PLAN_REJECTIONS + 1):
         tasks, stripped = strip_unknown_defines(tasks, known, keep)
         problems = check_plan(
-            spec, tasks, rtl_edits=options.rtl_edits, path_exists=path_exists, failed_configs=failed_configs
+            spec, tasks, rtl_edits=options.rtl_edits, path_exists=path_exists, failed_configs=failed_configs,
+            bad_changes=bad_changes,
         )
         rejected = bool(problems) and attempt < MAX_PLAN_REJECTIONS
         if problems or stripped or attempt:
@@ -303,6 +308,9 @@ def _run_started_loop(
     status = "budget_exceeded"
     # The build flags of every configuration that has failed in this run, for the plan check's repeat rule.
     failed_configs: dict[tuple[str, ...], str] = {}
+    # Sets of changes narrowing showed break the design, for the plan check's known-bad-change rule.
+    bad_changes: list[tuple[Change, ...]] = []
+    required = objective_defines(spec.objective)
     checkout = piton_roots[0] if piton_roots and os.path.isdir(piton_roots[0]) else None
 
     # Built on first use, inside the loop below (not here): a run that
@@ -350,7 +358,7 @@ def _run_started_loop(
                 try:
                     tasks = _plan_checked(
                         db, run_id, iteration, spec, llm, tools, "\n".join(feedback_history), options, checkout,
-                        failed_configs,
+                        failed_configs, bad_changes,
                     )
                 except PlanningError as e:
                     logger.warning("run %s: %s", run_id, e)
@@ -398,20 +406,47 @@ def _run_started_loop(
                 had_a_failure = True
                 last_evidence = failure_evidence(failed)
                 if options.triage == "llm":
-                    triage_tools = tools
-                    if ray.is_initialized():
-                        if tool_server is not None:
-                            tool_server.stop()
-                        tool_server = _start_triage_tool_server(run_id, piton_roots[0], failed)
-                        if tool_server is not None:
-                            triage_tools = (*tools, tool_server)
-                    try:
-                        diagnosis = triage(
-                            failed, llm, tools=triage_tools, objective=spec.objective, rtl_edits=options.rtl_edits
+                    narrowed = Narrowing(SKIPPED)
+                    if options.narrowing and nodes:
+                        narrowed = narrow(
+                            spec, failed, required,
+                            lambda probe_tasks, _iteration=iteration: integrate_parallel(
+                                piton_roots, spec, probe_tasks, llm, tools=tools, run_id=run_id, iteration=_iteration,
+                                on_task_progress=on_task_progress, nodes=nodes,
+                                options=dataclasses.replace(options, task_prompts=False, rtl_edits=False),
+                                deadline=started + spec.budget.max_wall_s,
+                            ),
+                            len(nodes),
+                            lambda: started + spec.budget.max_wall_s - time.monotonic(),
                         )
-                    except TriageError:
-                        diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
-                    feedback = replan_feedback(failed, diagnosis, options.raw_evidence)
+                        record_probes(db, run_id, iteration, failed.task.id, narrowed)
+                        for probe in narrowed.probes:
+                            if probe.ran:
+                                note_failed_config(failed_configs, probe.result, iteration)
+                        if narrowed.definitive:
+                            bad_changes.extend(narrowed.culprits)
+                    if narrowed.definitive:
+                        # The probes name what to leave out; an LLM's reading of the same failure could only
+                        # disagree (it once advised editing manycore_top.v).
+                        diagnosis = Triage(diagnosis="config_change", fix=narrowed.fix())
+                    else:
+                        triage_tools = tools
+                        if ray.is_initialized():
+                            if tool_server is not None:
+                                tool_server.stop()
+                            tool_server = _start_triage_tool_server(run_id, piton_roots[0], failed)
+                            if tool_server is not None:
+                                triage_tools = (*tools, tool_server)
+                        try:
+                            diagnosis = triage(
+                                failed, llm, tools=triage_tools, objective=spec.objective,
+                                rtl_edits=options.rtl_edits, narrowing=narrowed.summary(),
+                            )
+                        except TriageError:
+                            diagnosis = Triage(diagnosis="unknown", fix="retry with more context")
+                    feedback = replan_feedback(
+                        failed, diagnosis, options.raw_evidence, narrowed.summary(), probed=narrowed.definitive
+                    )
                 elif options.triage == "raw":
                     diagnosis = Triage(diagnosis="raw_evidence", fix="")
                     verdict = failed.run.verdict if failed.run is not None else None
