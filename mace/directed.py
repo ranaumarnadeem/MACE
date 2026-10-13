@@ -30,6 +30,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from collections.abc import Callable
@@ -57,6 +58,10 @@ PROMPT_SOURCE_CHARS = 1500
 FORM_BY_CORE = {"pico": "S", "ariane": "c"}
 # Verdicts of a test that did not run to a verdict, so it cannot gate anything.
 UNUSABLE = frozenset(("no_verdict", "not_built"))
+# Verdicts of a run that never reached a trap.
+HUNG = frozenset(("timeout", "maxcycles"))
+# What an assembler or linker log says when the program did not assemble.
+_ASSEMBLY_ERROR = re.compile(r"\berror:|undefined reference", re.IGNORECASE)
 
 _ASM_STYLE = """\
 A directed test is a short RV32 assembly program that checks one piece of logic in the design. Every tile runs the
@@ -82,7 +87,9 @@ differs from the expected value. The numbers start at 2 and are unique. The prep
 one line, so write no # comment inside TEST_CASE( ... ): it would hide the rest of the line, the check included.
 Comment with /* */ inside the macro, or put a # comment on its own line outside it. End every test with
 TEST_PASSFAIL, never RVTEST_PASS alone, and give each TEST_CASE a different number. Check only behavior the
-instruction set defines; the core has no trap handler to test, so use no ecall, mtvec, or other CSR."""
+instruction set defines; the core has no trap handler to test, so use no ecall, mtvec, or other CSR. A program that
+does not assemble still runs, to a timeout, so define every label you branch to (the label for a failure is fail) and
+branch to labels, never to numeric offsets."""
 
 _C_STYLE = """\
 A directed test is a short C program that checks one piece of logic in the design. Every tile runs main on shared
@@ -247,17 +254,34 @@ def install_tests(node, tag: str, tests: tuple[DirectedTest, ...]) -> str:
 _COMPILE_LOGS = ("rv32_as.log", "rv64_cc.log", "rv64_img.log")
 
 
-def compile_log(node, run: PitonRunResult) -> str:
-    """Why a test run reported no verdict: the assembler or compiler log in
-    its run directory, else the end of sims' own output."""
-    text = ""
+def _compile_logs(node, run: PitonRunResult) -> str:
+    """The assembler and compiler logs in *run*'s run directory, or ``""``."""
     try:
         collected = get(node.collect.chia_remote(run.run_dir, _COMPILE_LOGS)) if run.run_dir else None
         if collected is not None:
-            text = "\n".join(collected.files[name] for name in _COMPILE_LOGS if collected.files.get(name))
-    except Exception as e:  # noqa: BLE001 -- the fallback below is enough
+            return "\n".join(collected.files[name] for name in _COMPILE_LOGS if collected.files.get(name))
+    except Exception as e:  # noqa: BLE001 -- no log means no error to report
         logger.warning("no compile log from %s: %s", run.run_dir, e)
+    return ""
+
+
+def compile_log(node, run: PitonRunResult) -> str:
+    """Why a test run reported no verdict: the assembler or compiler log in
+    its run directory, else the end of sims' own output."""
+    text = _compile_logs(node, run)
     return (text or "\n".join(s for s in (run.stdout, run.stderr, run.sim_log_tail) if s))[-EVIDENCE_CHARS:]
+
+
+def assembly_error(node, run: PitonRunResult) -> str:
+    """The assembler or linker error in *run*'s log, or ``""`` when the
+    program assembled.
+
+    sims' ``rv32_as`` script ignores the compiler's exit status, so a program
+    that does not assemble still runs, with no image, and ends in a timeout:
+    a hang that is the test's own fault, not a failure of the design.
+    """
+    text = _compile_logs(node, run)
+    return text[-EVIDENCE_CHARS:] if _ASSEMBLY_ERROR.search(text) else ""
 
 
 def run_test_attempts(
@@ -272,6 +296,7 @@ def run_test_attempts(
     run_program: Callable[[str, str], PitonRunResult],
     explain: Callable[[PitonRunResult], str],
     out_of_time: Callable[[], bool] = lambda: False,
+    assembly_error: Callable[[PitonRunResult], str] = lambda run: "",
 ) -> tuple[tuple[DirectedTest, ...], tuple[PitonRunResult, ...], QueryResult | None]:
     """Ask the agent for tests and run them, until one runs to a verdict or
     :data:`MAX_TEST_ATTEMPTS` attempts are used.
@@ -279,9 +304,10 @@ def run_test_attempts(
     ``session(attempt, directory, feedback)`` is one agent call that writes
     into *directory* (under *root*, the checkout); ``read(directory)`` gives
     the tests it wrote; ``run_program(program, directory)`` simulates one;
-    ``explain(run)`` says why a run gave no verdict. Returns every test
-    written (each attempt's, with its verdict), every run made, and the last
-    agent reply.
+    ``explain(run)`` says why a run gave no verdict; ``assembly_error(run)``
+    gives the error of a run that hung because its program did not assemble,
+    which counts as no verdict. Returns every test written (each attempt's,
+    with its verdict), every run made, and the last agent reply.
     """
     tests: list[DirectedTest] = []
     runs: list[PitonRunResult] = []
@@ -303,7 +329,11 @@ def run_test_attempts(
             run = run_program(t.program, directory)
             runs.append(run)
             verdict = verdict_of(run)
-            if verdict == "no_verdict":
+            broken = assembly_error(run) if verdict in HUNG else ""
+            if broken:
+                verdict, evidence = "no_verdict", broken
+                problems.append(f"{t.program} did not assemble:\n{evidence}")
+            elif verdict == "no_verdict":
                 evidence = explain(run)
                 problems.append(f"{t.program} gave no verdict:\n{evidence}")
             else:

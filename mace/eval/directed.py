@@ -215,10 +215,18 @@ def _stage(root: str, tests) -> list[tuple[tuple[int, str, int, str], DirectedTe
     return staged
 
 
-def _verdict_of(result: StepResult) -> str:
+def _verdict_of(result: StepResult, node) -> str:
+    """The verdict of the last run of *result*; ``no_verdict`` when a hang was
+    a program that did not assemble, which says nothing about the design."""
     if not result.build.success:
         return "not_built"
-    return directed.verdict_of(result.runs[-1]) if result.runs else "no_verdict"
+    if not result.runs:
+        return "no_verdict"
+    run = result.runs[-1]
+    verdict = directed.verdict_of(run)
+    if verdict in directed.HUNG and directed.assembly_error(node, run):
+        return "no_verdict"
+    return verdict
 
 
 def _run_on_design(roots, spec: MaceSpec, expert: Task, staged, nodes) -> dict[tuple, tuple[str, float]]:
@@ -232,7 +240,7 @@ def _run_on_design(roots, spec: MaceSpec, expert: Task, staged, nodes) -> dict[t
             roots, one, (expert,), None, asm_diag_root=directory, nodes=nodes,
             options=LoopOptions(task_prompts=False),
         )
-        verdicts[key] = (_verdict_of(results[0]), time.monotonic() - started)
+        verdicts[key] = (_verdict_of(results[0], nodes[0]), time.monotonic() - started)
     return verdicts
 
 

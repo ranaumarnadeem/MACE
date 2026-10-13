@@ -334,6 +334,27 @@ class TestChecking:
         (check,) = ed.check_tests((design.root,), make_spec(), EXPERT, db, run_id)
         assert check.outcome == "invalid"
 
+    def test_a_hang_from_a_program_that_did_not_assemble_is_invalid_not_a_false_alarm(self, db, design, monkeypatch):
+        """Pilot finding: sims runs a program that failed to assemble, to a timeout, on the correct design too."""
+        run_id = metrics.start_run(db, make_spec())
+        record_tests(db, run_id, a_test("bad_label"), a_test("spin"))
+        design.verdicts = {
+            "bug": {"dt_bad_label.S": "timeout", "dt_spin.S": "timeout"},
+            "clean": {"dt_bad_label.S": "timeout", "dt_spin.S": "timeout"},
+        }
+        hangs = []
+
+        def assembly_error(node, run):
+            hangs.append(run)
+            # The tests run in name order on each design: the first hang is bad_label's, the second spin's.
+            return "undefined reference to `fail_1'" if len(hangs) % 2 else ""
+
+        monkeypatch.setattr(ed.directed, "assembly_error", assembly_error)
+        checks = ed.check_tests((design.root,), make_spec(), EXPERT, db, run_id)
+        assert {c.name: (c.fault_verdict, c.clean_verdict, c.outcome) for c in checks} == {
+            "bad_label": ("no_verdict", "no_verdict", "invalid"), "spin": ("timeout", "timeout", "false_alarm"),
+        }
+
     def test_the_null_test_is_not_among_the_checks_returned(self, db, design):
         run_id = metrics.start_run(db, make_spec())
         record_tests(db, run_id, a_test("one"))

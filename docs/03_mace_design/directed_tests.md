@@ -53,12 +53,15 @@ A test that ran to a verdict ends the attempts.
 If no test ran, the next attempt gets the reason: that nothing was written, or the assembler or compiler log of each test that gave no verdict.
 The task makes at most three attempts, and none starts after the run's time budget has passed.
 
+OpenPiton's `rv32_as` script ignores the exit status of the compiler, so a PicoRV32 program that does not assemble still runs, with no image, and ends in a `timeout`.
+A `timeout` or `maxcycles` run whose assembler or compiler log holds an error, such as an undefined label, therefore counts as `no_verdict`, and its log goes to the next attempt.
+
 Each test is recorded with its attempt and one of these verdicts:
 
 | Verdict | Meaning |
 |---|---|
 | `pass`, `fail`, `timeout`, `maxcycles` | The simulation reported it. |
-| `no_verdict` | The test did not compile, or the simulation reported nothing. |
+| `no_verdict` | The test did not assemble or compile, or the simulation reported nothing. |
 | `not_built` | The design did not build. |
 
 ## Tests in later tasks
