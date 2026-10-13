@@ -32,7 +32,7 @@ The Ariane bug below is such a bug: an atomic add that subtracts hangs the C run
 | `invalid` | no verdict | `pass` | any |
 | `unchecked` | `not_built` | `pass` | any |
 
-A hang counts as a failure.
+A hang counts as a failure, unless the log shows that the program did not assemble: that is no verdict, and the design page says why.
 A test with no verdict, or no build, on the correct design is also `invalid`, and so is every test of a run whose null test fails on the correct design.
 The `unchecked` outcome is for a bug that breaks the build, such as the three bugs of `examples/eval/tasks_rtl.yaml` that sit above the held-out block: no test can run on a design that does not build, so only the false-alarm rate of the tests written for them is defined.
 Each outcome is a row in the `test_checks` table, keyed like the test's row in `directed_tests`; the null test's row has the task `null` and the outcome `null`, and the reports leave it out of the test counts.
