@@ -34,11 +34,13 @@ from mace.baselines.retry_agent import run_retry_agent
 from mace.codesign.area import area_notes, design_area
 from mace.codesign.run import run_codesign
 from mace.codesign.search import BayesianSearch, GridSearch, LLMProposer, RandomSearch
+from mace import directed
+from mace.eval.directed import check_tests, compose, keep_defines, run_testgen, test_first
 from mace.eval.faults import FAULTS, first_design_breaker, first_plan_breaker
 from mace.eval.source_faults import faulted, restore
 from mace.eval.suite import SuiteTask
 from mace.loop import run_gate_programs
-from mace.metrics import RunLabels, record_resimulation
+from mace.metrics import RunLabels, finish_run, record_resimulation
 from mace.orchestrator import run_mace_loop
 from mace.spec import LoopOptions, LoopResult, MaceSpec
 from mace.workloads import RECOMMENDED_RTL_TIMEOUT, WORKLOADS_DIR
@@ -123,6 +125,25 @@ ONCE_METHODS = frozenset(("expert", "codesign_grid")) | FAULTCHECK_METHODS
 # Methods that never call an LLM: a batch of only these needs no backend.
 NO_LLM_METHODS = frozenset(("expert", "codesign_random", "codesign_grid", "codesign_bayes")) | FAULTCHECK_METHODS
 
+# --- session B: directed tests (docs/06_mace_evaluation/directed_tests.md) ---
+# These methods run only on tasks with a source fault. A method in
+# CLEAN_METHODS runs on the design without that fault.
+EXPERT_CLEAN = "expert_clean"
+TESTGEN = "testgen"
+MACE_RTL_TEST = "mace_rtl_test"
+MACE_RTL_DEFS = "mace_rtl_defs"
+METHODS[EXPERT_CLEAN] = "The expert configuration on the design without the task's source fault; it should pass."
+METHODS[TESTGEN] = "Detection: an agent writes directed tests for the planted bug; the mutation check judges them."
+METHODS[MACE_RTL_DEFS] = "mace_rtl with the task's required RTL defines added to every task: the control of mace_rtl_test."
+METHODS[MACE_RTL_TEST] = (
+    "mace_rtl_defs with a test task before each rtl task; the mutation check judges the tests."
+)
+SESSION_B_METHODS = frozenset((EXPERT_CLEAN, TESTGEN, MACE_RTL_DEFS, MACE_RTL_TEST))
+CLEAN_METHODS = frozenset((EXPERT_CLEAN,))
+ONCE_METHODS = ONCE_METHODS | frozenset((EXPERT_CLEAN,))
+NO_LLM_METHODS = NO_LLM_METHODS | frozenset((EXPERT_CLEAN,))
+# --- end session B ---
+
 
 def _fault_of(method: str):
     """The fault a ``seeded_`` or ``faultcheck_`` method applies, or ``None``."""
@@ -140,6 +161,8 @@ def applies(method: str, task: SuiteTask) -> bool:
     """Co-design methods run on co-design tasks, the others on bring-up
     tasks; a fault's methods run only on tasks it breaks (see
     :meth:`mace.eval.faults.Fault.applies_to`)."""
+    if method in SESSION_B_METHODS:  # session B
+        return task.kind == "bringup" and bool(task.source_fault)
     fault = _fault_of(method)
     if fault is not None:
         return task.kind == "bringup" and fault.applies_to(task.core, task.mesh)
@@ -270,8 +293,9 @@ def run_job(job: Job, env: RunEnv):
     """Run *job* on an empty build cache, and record it. A task with a
     ``source_fault`` runs on checkouts that carry the fault, restored after.
     Any other job first restores a fault or RTL edits a killed job left, so
-    it never builds them."""
-    if job.task.source_fault:
+    it never builds them. A session B clean method runs on the design
+    without the fault."""
+    if job.task.source_fault and job.method not in CLEAN_METHODS:
         with faulted(env.piton_roots, job.task.source_fault):
             return _run_job(job, env)
     for root in env.piton_roots:
@@ -281,7 +305,7 @@ def run_job(job: Job, env: RunEnv):
 
 def _run_job(job: Job, env: RunEnv):
     one_root = (
-        job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert")
+        job.method in ("one_checkout", "retry_agent", "retry_agent_rtl", "expert", EXPERT_CLEAN, TESTGEN)
         or job.method in FAULTCHECK_METHODS
         or job.method in SEEDED_RETRY_METHODS
     )
@@ -291,11 +315,13 @@ def _run_job(job: Job, env: RunEnv):
         task=job.task.id,
         repeat=job.repeat,
         meta={**env.meta, "piton_roots": list(roots), "task_prompts": env.task_prompts,
-              **({"source_fault": [e.path for e in job.task.source_fault]} if job.task.source_fault else {})},
+              **({"source_fault": [e.path for e in job.task.source_fault]}
+                 if job.task.source_fault and job.method not in CLEAN_METHODS else {})},
     )
     if env.clear_cache:
         for root in env.piton_roots:
             clear_build_cache(root)
+            directed.clear_tests(root)  # session B
     spec = job.task.spec()
     if job.method in CODESIGN_METHODS:
         return _run_codesign_job(job, env, roots, spec, labels)
@@ -327,7 +353,7 @@ def _run_job(job: Job, env: RunEnv):
         )
     if method == "retry_agent":
         return run_retry_agent(roots[0], spec, env.llm, env.db, labels=labels)
-    if method == "expert":
+    if method == "expert" or method == EXPERT_CLEAN:
         return run_expert(roots, spec, job.task.expert_task(), env.db, labels=labels)
     if method == "no_triage":
         return run_mace_loop(
@@ -344,6 +370,26 @@ def _run_job(job: Job, env: RunEnv):
         )
     if method == "retry_agent_rtl":
         return run_retry_agent(roots[0], spec, env.llm, env.db, labels=labels, rtl_edits=True)
+    if method == TESTGEN:  # session B
+        return run_testgen(roots, spec, job.task.expert_task(), env.llm, env.db, labels=labels)
+    if method == MACE_RTL_DEFS:  # session B
+        return run_mace_loop(
+            roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, rtl_edits=True),
+            plan_hook=keep_defines(job.task.expert_task().config_rtl or ()),
+        )
+    if method == MACE_RTL_TEST:  # session B
+        result = run_mace_loop(
+            roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, rtl_edits=True),
+            plan_hook=compose(keep_defines(job.task.expert_task().config_rtl or ()), test_first()),
+        )
+        try:
+            check_tests(roots, spec, job.task.expert_task(), env.db, result.run_id)
+        except BaseException:
+            # The loop already finished the run, so without this a run whose tests were never judged
+            # counts as done and no later pass runs it again.
+            finish_run(env.db, result.run_id, "error")
+            raise
+        return result
     if method == "build_check":
         result = run_mace_loop(
             roots, spec, env.llm, env.db, labels=labels, options=dataclasses.replace(options, check="build")

@@ -22,10 +22,13 @@ records its wall time with ``ok=False`` and zero tokens.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,16 @@ def note_failure(phase: str, wall_s: float) -> None:
         _active.add(LLMCall(phase=phase, wall_s=wall_s, ok=False))
 
 
+def is_rate_limit(error: BaseException) -> bool:
+    """Whether *error* is a backend's rate or quota error (Vertex's HTTP 429).
+
+    A rate limit says nothing about the work a call was for, so a caller whose
+    reply decides the outcome lets it end the run as an error, which a batch
+    runs again, in place of counting a failed attempt.
+    """
+    return getattr(error, "error_type", "") == "rate_limit"
+
+
 def prompt(llm, phase: str, message: str, tools=()):
     """``llm.prompt(message, tools=...)``, recorded under *phase*."""
     started = time.monotonic()
@@ -122,3 +135,26 @@ def prompt(llm, phase: str, message: str, tools=()):
         raise
     note(phase, query, time.monotonic() - started)
     return query
+
+
+# Seconds to wait before each retry of a rate-limited call.
+RATE_LIMIT_WAITS = (30, 60, 120)
+
+
+def prompt_retrying(llm, phase: str, message: str, tools=(), waits=RATE_LIMIT_WAITS):
+    """:func:`prompt`, tried again after each of *waits* seconds when the
+    backend rate-limits the call (see :func:`is_rate_limit`); the last rate
+    limit raises. Each try is recorded, so the log shows the failed ones.
+
+    For a call whose reply decides the outcome, such as an agent that edits
+    RTL or writes a test: ending the run at the first 429 would throw away a
+    build that can take minutes.
+    """
+    for wait in (*waits, None):
+        try:
+            return prompt(llm, phase, message, tools)
+        except Exception as e:
+            if wait is None or not is_rate_limit(e):
+                raise
+            logger.warning("%s call rate-limited; trying again in %d s", phase, wait)
+            time.sleep(wait)

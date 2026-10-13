@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from mace.tools import RtlEditTool, TestbenchEditTool
+from mace.tools import DirectedTestTool, RtlEditTool, TestbenchEditTool
 
 
 def bare_tool(top_v_path: str, dut_source_path: str = "") -> TestbenchEditTool:
@@ -137,3 +137,187 @@ class TestRtlEditTool:
 
     def test_list_marks_directories(self, rtl_tool):
         assert "chip/" in rtl_tool.list_dir("piton/design")
+
+
+ASM_TEST = """#include "riscv_test.h"
+#include "test_macros.h"
+RVTEST_RV32U
+RVTEST_CODE_BEGIN
+  TEST_CASE( 2, x2, 1, li x2, 1; )
+  TEST_PASSFAIL
+RVTEST_CODE_END
+  .data
+RVTEST_DATA_BEGIN
+  TEST_DATA
+RVTEST_DATA_END
+"""
+C_TEST = "#include <stdio.h>\nint main(int argc, char **argv) {\n  return 0;\n}\n"
+ALU = "piton/design/chip/alu.v"
+
+
+def make_test_tool(tmp_path, form="S"):
+    (tmp_path / "piton" / "design" / "chip").mkdir(parents=True)
+    (tmp_path / "piton" / "design" / "chip" / "alu.v").write_text("module alu;\nendmodule\n")
+    (tmp_path / "piton" / "verif" / "diag").mkdir(parents=True)
+    (tmp_path / "piton" / "verif" / "diag" / "lw.S").write_text("# an example\n")
+    (tmp_path / "piton" / "verif" / "env").mkdir(parents=True)
+    (tmp_path / "piton" / "verif" / "env" / "monitor.v").write_text("module monitor; endmodule\n")
+    tool = object.__new__(DirectedTestTool)
+    tool.name = "dtest"
+    tool.piton_root = str(tmp_path)
+    tool.test_dir = str(tmp_path / "build" / ".mace_tests" / "abc12345")
+    tool.form = form
+    tool.tests = {}
+    return tool
+
+
+class TestDirectedTestToolReads:
+    def test_it_reads_the_design_and_the_example_diags(self, tmp_path):
+        tool = make_test_tool(tmp_path)
+        assert tool.read(ALU, 1, 1).endswith("1: module alu;")
+        assert "an example" in tool.read("piton/verif/diag/lw.S")
+        assert "alu.v" in tool.list_dir("piton/design/chip")
+        assert "chip/alu.v" in tool.search("module", "piton/design")
+
+    @pytest.mark.parametrize(
+        "path", ["piton/verif/env/monitor.v", "../outside.v", "/etc/passwd", "mace/workloads/matmul.c"]
+    )
+    def test_it_does_not_read_outside_the_design_and_the_diags(self, tmp_path, path):
+        tool = make_test_tool(tmp_path)
+        assert tool.read(path).startswith("ERROR")
+        assert tool.list_dir(path).startswith("ERROR")
+        assert tool.search("module", path).startswith("ERROR")
+
+
+class TestDirectedTestToolWrites:
+    def test_a_test_is_saved_as_dt_name_with_a_sidecar(self, tmp_path):
+        tool = make_test_tool(tmp_path)
+        assert tool.write_test("lh_sign", ALU, ASM_TEST).startswith("OK")
+        written = tmp_path / "build" / ".mace_tests" / "abc12345"
+        assert (written / "dt_lh_sign.S").read_text() == ASM_TEST
+        (entry,) = json.loads((written / "tests.json").read_text())
+        assert entry == {"name": "lh_sign", "target": ALU, "form": "S", "source": ASM_TEST}
+
+    def test_a_c_test_is_saved_with_the_c_extension(self, tmp_path):
+        tool = make_test_tool(tmp_path, form="c")
+        assert tool.write_test("count", ALU, C_TEST).startswith("OK")
+        assert (tmp_path / "build" / ".mace_tests" / "abc12345" / "dt_count.c").is_file()
+
+    def test_writing_a_name_again_replaces_the_test(self, tmp_path):
+        tool = make_test_tool(tmp_path)
+        tool.write_test("t", ALU, ASM_TEST)
+        tool.write_test("t", ALU, ASM_TEST.replace("li x2, 1", "li x2, 2"))
+        entries = json.loads((tmp_path / "build" / ".mace_tests" / "abc12345" / "tests.json").read_text())
+        assert len(entries) == 1 and "li x2, 2" in entries[0]["source"]
+
+    def test_it_keeps_at_most_three_tests(self, tmp_path):
+        tool = make_test_tool(tmp_path)
+        for n in range(3):
+            assert tool.write_test(f"t{n}", ALU, ASM_TEST).startswith("OK")
+        assert tool.write_test("t3", ALU, ASM_TEST).startswith("ERROR: at most 3")
+        assert tool.write_test("t0", ALU, ASM_TEST).startswith("OK")
+
+    @pytest.mark.parametrize("name", ["", "Bad", "has-dash", "../x", "1abc", "a" * 41, "x.S"])
+    def test_a_bad_name_is_refused(self, tmp_path, name):
+        tool = make_test_tool(tmp_path)
+        assert tool.write_test(name, ALU, ASM_TEST).startswith("ERROR: name")
+        assert not (tmp_path / "build").exists()
+
+    @pytest.mark.parametrize(
+        "target", ["piton/verif/env/monitor.v", "piton/design/chip/missing.v", "piton/design/chip", "../alu.v"]
+    )
+    def test_the_target_must_be_an_existing_design_file(self, tmp_path, target):
+        tool = make_test_tool(tmp_path)
+        assert tool.write_test("t", target, ASM_TEST).startswith("ERROR: target")
+        assert not (tmp_path / "build").exists()
+
+    def test_the_source_must_look_like_the_form(self, tmp_path):
+        asm = make_test_tool(tmp_path, "S")
+        assert "RVTEST_CODE_BEGIN" in asm.write_test("t", ALU, "int main() {}")
+        assert "TEST_PASSFAIL" in asm.write_test("t", ALU, "RVTEST_CODE_BEGIN\n")
+        assert asm.write_test("t", ALU, "").startswith("ERROR")
+        c = make_test_tool(tmp_path / "c", "c")
+        assert "main" in c.write_test("t", ALU, "RVTEST_CODE_BEGIN TEST_PASSFAIL")
+        assert "limit" in c.write_test("t", ALU, C_TEST + "/*" + "x" * 31000 + "*/")
+
+    def test_rvtest_pass_alone_is_refused_because_test_case_needs_the_fail_label(self, tmp_path):
+        """Pilot finding: a test that ended in RVTEST_PASS without TEST_PASSFAIL hung on the correct design too."""
+        tool = make_test_tool(tmp_path)
+        source = ASM_TEST.replace("  TEST_PASSFAIL\n", "RVTEST_PASS\n")
+        out = tool.write_test("hang", ALU, source)
+        assert out.startswith("ERROR") and "TEST_PASSFAIL" in out and "RVTEST_PASS alone" in out
+        assert not (tmp_path / "build").exists()
+
+    def test_a_repeated_test_case_number_is_refused(self, tmp_path):
+        """Pilot finding: two TEST_CASE( 2, ...) define the label test_2 twice."""
+        tool = make_test_tool(tmp_path)
+        source = ASM_TEST.replace("  TEST_PASSFAIL\n", "  TEST_CASE( 2, x2, 1, li x2, 1; )\n  TEST_PASSFAIL\n")
+        out = tool.write_test("dup", ALU, source)
+        assert out.startswith("ERROR") and "unique" in out and "2 appear" in out
+        assert tool.write_test("ok", ALU, ASM_TEST.replace("TEST_CASE( 2,", "TEST_CASE( 3,")).startswith("OK")
+
+    def test_the_constructor_refuses_a_directory_outside_the_test_area(self, tmp_path):
+        with pytest.raises(ValueError, match="test_dir"):
+            DirectedTestTool("d", str(tmp_path), str(tmp_path / "piton" / "design"), "S")
+        with pytest.raises(ValueError, match="test_dir"):
+            DirectedTestTool("d", str(tmp_path), str(tmp_path / "build" / ".mace_tests"), "S")
+        with pytest.raises(ValueError, match="form"):
+            DirectedTestTool("d", str(tmp_path), str(tmp_path / "build" / ".mace_tests" / "x"), "v")
+
+    def test_the_write_method_takes_no_path_for_the_file(self):
+        assert list(inspect.signature(DirectedTestTool.write_test).parameters) == ["self", "name", "target", "source"]
+
+
+HASH_IN_MACRO = """#include "riscv_test.h"
+#include "test_macros.h"
+RVTEST_RV32U
+RVTEST_CODE_BEGIN
+  TEST_CASE( 2, x3, 1,
+    li x1, 5;
+    bgeu x1, x2, 1f; # Should branch
+    li x3, 1;
+  )
+  TEST_PASSFAIL
+RVTEST_CODE_END
+"""
+
+
+class TestHashInTestMacro:
+    """Pilot finding: a # comment inside TEST_CASE hides the rest of the expanded line, so the test never ends."""
+
+    def test_a_hash_comment_inside_the_macro_is_found(self):
+        from mace.tools import hash_in_test_macro
+
+        assert hash_in_test_macro(HASH_IN_MACRO)
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "  TEST_CASE( 2, x3, 1, li x3, 1; )\n  # a comment on its own line\n",
+            "  TEST_CASE( 2, x3, 1, li x3, 1; /* fine # inside */ )\n",
+            "  TEST_CASE( 2, x3, 1, li x3, 1; // fine # here\n  )\n",
+            '#include "riscv_test.h"\n  TEST_CASE( 2, x3, 1, li x3, 1; )\n',
+            "  li x1, 1 # outside any macro\n  TEST_CASE( 2, x3, 1, li x3, 1; )\n",
+        ],
+    )
+    def test_other_comments_are_fine(self, source):
+        from mace.tools import hash_in_test_macro
+
+        assert not hash_in_test_macro(source)
+
+    def test_nested_parentheses_do_not_end_the_macro_early(self):
+        from mace.tools import hash_in_test_macro
+
+        assert hash_in_test_macro("TEST_CASE( 2, x2, 1, lw x2, 0(x3); # note\n li x2, 1; )")
+        assert not hash_in_test_macro("TEST_CASE( 2, x2, 1, lw x2, 0(x3); li x2, 1; )\n# after\n")
+
+    def test_write_test_refuses_it_with_the_reason(self, tmp_path):
+        tool = make_test_tool(tmp_path)
+        out = tool.write_test("hang", ALU, HASH_IN_MACRO)
+        assert out.startswith("ERROR") and "# comment inside a TEST_ macro" in out
+        assert not (tmp_path / "build").exists()
+
+    def test_a_c_test_is_not_checked(self, tmp_path):
+        tool = make_test_tool(tmp_path, "c")
+        source = C_TEST + "// TEST_CASE( # )\n"
+        assert tool.write_test("c_ok", ALU, source).startswith("OK")

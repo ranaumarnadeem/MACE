@@ -170,6 +170,38 @@ CREATE TABLE IF NOT EXISTS plan_checks (
     stripped TEXT NOT NULL,
     PRIMARY KEY (run_id, iteration, attempt)
 );
+
+-- The directed tests a test task wrote (mace.directed), one row per test per
+-- attempt, with its verdict on the design the task built.
+CREATE TABLE IF NOT EXISTS directed_tests (
+    run_id TEXT NOT NULL,
+    iteration INTEGER NOT NULL,
+    task_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    target TEXT NOT NULL,
+    form TEXT NOT NULL,
+    source TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    wall_s REAL NOT NULL DEFAULT 0,
+    evidence TEXT,
+    PRIMARY KEY (run_id, iteration, task_id, attempt, name)
+);
+
+-- The mutation check of a directed test (mace.eval.directed): its verdict on
+-- the expert design with the planted bug and on the same design without it.
+CREATE TABLE IF NOT EXISTS test_checks (
+    run_id TEXT NOT NULL,
+    iteration INTEGER NOT NULL,
+    task_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    fault_verdict TEXT,
+    clean_verdict TEXT,
+    outcome TEXT NOT NULL,
+    wall_s REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_id, iteration, task_id, attempt, name)
+);
 """
 
 # Columns added after the first real runs/*.db files were written. CREATE
@@ -323,6 +355,7 @@ def record_iteration(
         )
     ]
     ops.extend(_task_op(run_id, iteration, result) for result in results)
+    ops.extend(_test_op(run_id, iteration, result.task.id, t) for result in results for t in result.tests)
     db.transaction(ops)
 
 
@@ -443,6 +476,40 @@ def record_plan_check(
         "INSERT OR REPLACE INTO plan_checks (run_id, iteration, attempt, action, problems, stripped) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         (run_id, iteration, attempt, action, json.dumps(problems), json.dumps(list(stripped))),
+    )
+
+
+def _test_op(run_id: str, iteration: int, task_id: str, test) -> tuple[str, tuple]:
+    """One directed test's row for record_iteration's transaction."""
+    return (
+        "INSERT OR REPLACE INTO directed_tests "
+        "(run_id, iteration, task_id, attempt, name, target, form, source, verdict, wall_s, evidence) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id, iteration, task_id, test.attempt, test.name, test.target, test.form, test.source,
+            test.verdict, test.wall_s, test.evidence or None,
+        ),
+    )
+
+
+def record_test_check(
+    db: SQLiteNode,
+    run_id: str,
+    iteration: int,
+    task_id: str,
+    attempt: int,
+    name: str,
+    fault_verdict: str | None,
+    clean_verdict: str | None,
+    outcome: str,
+    wall_s: float = 0.0,
+) -> None:
+    """The mutation check of one directed test (see mace.eval.directed)."""
+    db.execute(
+        "INSERT OR REPLACE INTO test_checks "
+        "(run_id, iteration, task_id, attempt, name, fault_verdict, clean_verdict, outcome, wall_s) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (run_id, iteration, task_id, attempt, name, fault_verdict, clean_verdict, outcome, wall_s),
     )
 
 

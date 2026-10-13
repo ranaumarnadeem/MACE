@@ -12,6 +12,7 @@ MACE Design Document
    architecture
    planner
    task_execution
+   directed_tests
    integrator
    failure_analysis
    fixed_checks

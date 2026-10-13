@@ -428,3 +428,36 @@ class TestSeededJobs:
         design = Task(id="design", deps=(), kind="config", spec="s")
         assert kwargs["design_hook"](0, design).network == "xbar_config"
         assert kwargs["design_hook"](1, design) is design
+
+
+class TestSessionBMethods:
+    FAULT_PATH = "piton/design/x.v"
+
+    def planted(self):
+        from mace.eval.source_faults import SourceEdit
+
+        return suite_task("planted", source_fault=(SourceEdit(self.FAULT_PATH, "a", "b"),))
+
+    def test_expert_clean_runs_once_and_only_on_a_task_with_a_source_fault(self):
+        jobs = runner.plan_jobs((suite_task("plain"), self.planted()), ("expert_clean",), repeats=5)
+        assert [j.key for j in jobs] == [("planted", "expert_clean", 0)]
+
+    def test_expert_clean_builds_the_expert_configuration_without_the_fault(self, tmp_path, monkeypatch):
+        seen = []
+        monkeypatch.setattr(runner, "faulted", lambda *a: pytest.fail("no fault to apply"))
+        monkeypatch.setattr(runner, "restore", lambda root: seen.append(("restored", root)))
+        monkeypatch.setattr(
+            runner, "run_expert",
+            lambda roots, spec, task, db, **kw: seen.append((roots, task.id, kw["labels"])) or "done",
+        )
+        env = runner.RunEnv(piton_roots=("/a", "/b"), llm=None, db=make_db(tmp_path), clear_cache=False)
+
+        assert runner.run_job(runner.Job(self.planted(), "expert_clean", 0), env) == "done"
+
+        assert seen[:2] == [("restored", "/a"), ("restored", "/b")]
+        roots, task_id, labels = seen[2]
+        assert roots == ("/a",) and task_id == "expert"
+        assert labels.method == "expert_clean" and "source_fault" not in labels.meta
+
+    def test_expert_clean_calls_no_llm(self):
+        assert runner.EXPERT_CLEAN in runner.NO_LLM_METHODS
