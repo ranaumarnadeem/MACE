@@ -122,6 +122,14 @@ class TestTestFirst:
         assert "task fix changes: fix the load" in test.spec
         assert rtl.deps == ("cfg", "test_fix") and rtl.spec == original.spec
 
+    def test_the_test_task_drops_the_same_defaults_as_the_rtl_task(self):
+        """Merged with stronger-loop: a Task can also drop a default define, and the test task builds like the rtl task."""
+        import dataclasses
+
+        plan = (dataclasses.replace(self.plan()[1], drop_rtl=("MINIMAL_MONITORING",)),)
+        test, rtl = ed.test_first()(0, plan)
+        assert test.drop_rtl == rtl.drop_rtl == ("MINIMAL_MONITORING",)
+
     def test_a_plan_without_rtl_tasks_is_unchanged(self):
         plan = (self.plan()[0], self.plan()[2])
         assert ed.test_first()(0, plan) == plan

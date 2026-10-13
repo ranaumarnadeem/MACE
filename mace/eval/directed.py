@@ -172,7 +172,7 @@ def test_first() -> Callable[[int, tuple[Task, ...]], tuple[Task, ...]]:
                 Task(
                     id=test_id, deps=t.deps, kind="test",
                     spec=f"Write directed tests for the logic that task {t.id} changes: {t.spec}",
-                    caches=t.caches, config_rtl=t.config_rtl, network=t.network,
+                    caches=t.caches, config_rtl=t.config_rtl, network=t.network, drop_rtl=t.drop_rtl,
                 )
             )
             planned.append(dataclasses.replace(t, deps=(*t.deps, test_id)))
