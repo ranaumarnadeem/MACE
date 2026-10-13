@@ -251,6 +251,22 @@ class TestAttempts:
         self.run(node, session)
         assert "sims said DIE" in seen[1]["feedback"]
 
+    def test_a_hang_from_a_program_that_did_not_assemble_is_no_verdict(self):
+        node = Node({"dt_bad.S": "timeout"})
+        node.files["/x/runs/dt_bad.S/rv32_as.log"] = "ld: diag.o: undefined reference to `fail_1'"
+        session, seen = leaves(node, [a_test("bad")], [a_test("good")])
+        tests, _, _ = self.run(node, session, assembly_error=lambda run: directed.assembly_error(node, run))
+        assert "dt_bad.S did not assemble" in seen[1]["feedback"] and "fail_1" in seen[1]["feedback"]
+        assert [(t.name, t.attempt, t.verdict) for t in tests] == [("bad", 1, "no_verdict"), ("good", 2, "pass")]
+        assert "fail_1" in tests[0].evidence
+
+    def test_a_hang_of_a_program_that_assembled_is_a_verdict(self):
+        node = Node({"dt_loop.S": "timeout"})
+        node.files["/x/runs/dt_loop.S/rv32_as.log"] = "dt_loop\n"
+        session, seen = leaves(node, [a_test("loop")])
+        (t,), _, _ = self.run(node, session, assembly_error=lambda run: directed.assembly_error(node, run))
+        assert len(seen) == 1 and (t.verdict, t.attempt) == ("timeout", 1)
+
     def test_one_test_that_ran_is_enough_even_if_a_sibling_did_not_compile(self):
         node = Node({"dt_bad.S": "none"})
         session, seen = leaves(node, [a_test("bad"), a_test("good")])
@@ -270,6 +286,32 @@ class TestAttempts:
         session, seen = leaves(node, [a_test("x")])
         tests, runs, query = self.run(node, session, out_of_time=lambda: True)
         assert (tests, runs, query, seen) == ((), (), None, [])
+
+
+class TestAssemblyError:
+    run = PitonRunResult(
+        success=False, returncode=0, test="dt_x.S", sim_type="vlt", run_dir="/x/runs/dt_x.S", verdict="timeout",
+    )
+
+    @pytest.mark.parametrize(
+        "log",
+        ["diag.S:12: Error: unknown opcode `lhx'", "diag.S:3: error: expected expression", "ld: undefined reference to `fail_2'"],
+    )
+    def test_the_assembler_and_linker_errors_are_found(self, log):
+        node = Node()
+        node.files["/x/runs/dt_x.S/rv32_as.log"] = "dt_x\n" + log
+        assert log in directed.assembly_error(node, self.run)
+
+    @pytest.mark.parametrize("log", [None, "dt_error_check\n", "diag.S:4: Warning: something harmless"])
+    def test_a_clean_or_missing_log_is_no_error(self, log):
+        node = Node()
+        if log is not None:
+            node.files["/x/runs/dt_x.S/rv32_as.log"] = log
+        assert directed.assembly_error(node, self.run) == ""
+
+    def test_a_run_with_no_directory_has_no_error(self):
+        run = PitonRunResult(success=False, returncode=0, test="dt_x.S", sim_type="vlt", run_dir="", verdict="timeout")
+        assert directed.assembly_error(Node(), run) == ""
 
 
 class TestReadAndInstall:

@@ -689,6 +689,7 @@ def _run_batch(
             run_program=lambda program, directory: _run_program(node, config, task, program, directory),
             explain=lambda run: directed.compile_log(node, run),
             out_of_time=lambda: timeout_before(deadline, 1) == 0,
+            assembly_error=lambda run: directed.assembly_error(node, run),
         )
         # Best effort: a task that got no working test still passes, with its
         # attempts on record, so a failed test-writer never costs the run the
