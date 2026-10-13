@@ -58,6 +58,7 @@ class FakeNode:
         self.reverts = 0
         self.builds: list[str] = []
         self.runs = 0
+        self.harts = 4
         self.apply_edits = _Attr(self._apply)
         self.revert_edits = _Attr(self._revert)
         self.build = _Attr(self._build)
@@ -91,7 +92,7 @@ class FakeNode:
     def _run(self, config, program, **kwargs):
         self.runs += 1
         failed = self.fail_run(self.mshr())
-        uart = "".join(f"h{h} 100 {1000 + 50 * h + 10 * self.mshr()}\n" for h in range(4))
+        uart = "".join(f"h{h} 100 {1000 + 50 * h + 10 * self.mshr()}\n" for h in range(self.harts))
         return PitonRunResult(
             success=not failed, returncode=0, test=program, sim_type="vlt", run_dir="/x/runs/1",
             verdict="fail" if failed else "pass", sim_time=None if failed else 100_000 - 1000 * self.mshr(),
@@ -135,11 +136,11 @@ class Scripted:
         self.heard += evaluations
 
 
-def evaluation(design, index=0, sim_time=1000, passed=True, harts=None, **kw):
+def evaluation(design, index=0, sim_time=1000, passed=True, harts=None, finish=None, **kw):
     return RtlEvaluation(
         index=index, round=index, design=design, passed=passed, feasible=passed and sim_time is not None,
         sim_time=sim_time, storage_bits=design.storage_delta(), wall_s=1.0,
-        hart_cycles=harts if harts is not None else {}, **kw,
+        hart_cycles=harts if harts is not None else {}, finish=sim_time if finish is None else finish, **kw,
     )
 
 
@@ -148,7 +149,7 @@ class TestRunRtlsearch:
         node, db, root = harness
         designs = [SPACE.default(), SPACE.design({"l2_mshr": 16}), SPACE.design({"dcache_wbuf": 4})]
 
-        result = run_rtlsearch((root,), make_spec(), Scripted(designs), db, simulations=3)
+        result = run_rtlsearch((root,), make_spec(), Scripted(designs), db, simulations=3, finish="sim_time")
 
         assert result.status == "passed"
         assert [e.design for e in result.evaluations] == designs
@@ -163,6 +164,46 @@ class TestRunRtlsearch:
         harts = json.loads(rows[0]["hart_cycles"])
         assert harts["matmul_scaled.c"]["3"] == [100, 1000 + 150 + 80]
         assert json.loads(rows[1]["design"]) == {"rtl": {"dcache_wbuf": 8, "home_alloc": "MIXED", "l2_mshr": 16}}
+
+    def test_the_default_finish_time_is_the_compute_time_from_the_per_hart_cycles(self, harness):
+        node, db, root = harness
+        designs = [SPACE.default(), SPACE.design({"l2_mshr": 16}), SPACE.design({"dcache_wbuf": 4})]
+        result = run_rtlsearch((root,), make_spec(), Scripted(designs), db, simulations=3)
+        # The fake's hart ends grow with the MSHR count while its sim_time falls, so the two disagree.
+        assert [e.compute_cycles for e in result.evaluations] == [1130, 1210, 1130]
+        assert [e.finish for e in result.evaluations] == [1130, 1210, 1130]
+        assert [e.sim_time for e in result.evaluations] == [92_000, 84_000, 92_000]
+        # A tie on finish time goes to the design that adds less storage.
+        assert result.best.design == designs[2]
+
+    def test_sim_time_can_be_the_finish_time(self, harness):
+        node, db, root = harness
+        result = run_rtlsearch(
+            (root,), make_spec(), Scripted([SPACE.default(), SPACE.design({"l2_mshr": 16})]), db, simulations=2,
+            finish="sim_time",
+        )
+        assert [e.finish for e in result.evaluations] == [92_000, 84_000]
+        assert result.best.design == SPACE.design({"l2_mshr": 16})
+
+    def test_a_design_without_a_line_from_every_hart_has_no_compute_time_and_is_not_feasible(self, harness):
+        node, db, root = harness
+        node.harts = 3
+        result = run_rtlsearch((root,), make_spec(), Scripted([SPACE.default()]), db, simulations=1)
+        (e,) = result.evaluations
+        assert e.passed and e.sim_time == 92_000 and e.compute_cycles is None and not e.feasible
+        assert result.status == "budget_exceeded" and result.best is None
+
+    def test_a_design_without_per_hart_lines_is_feasible_when_sim_time_is_the_finish_time(self, harness):
+        node, db, root = harness
+        node.harts = 3
+        result = run_rtlsearch((root,), make_spec(), Scripted([SPACE.default()]), db, simulations=1, finish="sim_time")
+        assert result.evaluations[0].feasible and result.evaluations[0].finish == 92_000
+
+    def test_an_unknown_finish_is_refused_before_the_run_starts(self, harness):
+        node, db, root = harness
+        with pytest.raises(ValueError, match="finish must be one of"):
+            run_rtlsearch((root,), make_spec(), Scripted([SPACE.default()]), db, finish="wall_time")
+        assert db.query("SELECT COUNT(*) AS n FROM runs")[0]["n"] == 0
 
     def test_each_distinct_design_builds_with_its_own_source_edits_and_the_default_with_none(self, harness):
         node, db, root = harness
@@ -335,8 +376,33 @@ class TestRtlProposer:
         assert planner.render_inputs(make_spec()) in prompt
         assert SPACE.describe() in prompt
         assert "at most 2000 flip-flop bits per tile" in prompt
-        assert "1. l2_mshr=4: passed, finish time 777, -616 storage bits" in prompt
+        assert "1. l2_mshr=4: passed, finish time 777 (sim_time 777), -616 storage bits" in prompt
         assert "hart h is on tile (x, y) = (h mod 2, h div 2)" in prompt
+
+    def test_the_compute_time_is_the_finish_time_and_sim_time_is_shown_for_reference(self):
+        prompt = self._proposer().build_prompt([evaluation(SPACE.design({"l2_mshr": 4}), sim_time=900, finish=777)])
+        assert "1. l2_mshr=4: passed, finish time 777 (sim_time 900), -616 storage bits" in prompt
+        assert "The finish time you minimize is the compute time" in prompt
+        assert "is shown for reference and is not what you minimize" in prompt
+
+    def test_with_sim_time_as_the_finish_time_the_prompt_says_so_and_adds_no_reference(self):
+        proposer = RtlProposer(FakeLLM(responses=[]), make_spec(), SPACE, None, finish="sim_time")
+        prompt = proposer.build_prompt([evaluation(SPACE.design({"l2_mshr": 4}), sim_time=900)])
+        assert "1. l2_mshr=4: passed, finish time 900, -616 storage bits" in prompt
+        assert "The finish time you minimize is the testbench's simulation time" in prompt
+        assert "compute time" not in prompt
+
+    def test_an_unknown_finish_is_refused(self):
+        with pytest.raises(ValueError, match="finish must be one of"):
+            RtlProposer(FakeLLM(responses=[]), make_spec(), SPACE, None, finish="wall_time")
+
+    def test_the_design_with_the_lowest_finish_time_is_shown_as_the_best(self):
+        harts = {"matmul_scaled.c": {0: (1, 100)}}
+        slow_sim = evaluation(SPACE.design({"l2_mshr": 4}), index=0, sim_time=100, finish=900, harts=harts)
+        fast_compute = evaluation(SPACE.design({"l2_mshr": 16}), index=1, sim_time=500, finish=300, harts=harts)
+        last = evaluation(SPACE.design({"dcache_wbuf": 4}), index=2, sim_time=50, finish=800, harts=harts)
+        prompt = self._proposer().build_prompt([slow_sim, fast_compute, last])
+        assert "Per-hart cycles of design 2 (best finish time so far; l2_mshr=16)" in prompt
 
     def test_the_default_design_is_listed_as_such(self):
         prompt = self._proposer().build_prompt([evaluation(SPACE.default())])
@@ -426,6 +492,14 @@ class TestStrategiesOverRtl:
         assert strategy.study.trials[0].value == 500.0
         [second] = strategy.propose(history, 1)
         assert SPACE.contains(second) and second != first
+
+    def test_bayesian_search_scores_an_evaluation_by_its_finish_time(self):
+        pytest.importorskip("optuna")
+        strategy = search.BayesianSearch(SPACE, seed=1, first=dict(SPACE.default().values))
+        [first] = strategy.propose([], 1)
+        strategy.observe([evaluation(first, sim_time=500, finish=300)])
+        assert strategy.study.trials[0].value == 300.0
+        assert strategy.worst == 300
 
     def test_bayesian_search_without_the_new_options_behaves_as_before(self):
         pytest.importorskip("optuna")

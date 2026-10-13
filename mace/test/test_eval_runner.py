@@ -343,13 +343,13 @@ class TestCodesignJobs:
         assert runner.area_budget_um2(task) == pytest.approx(expected)
 
 
-def rtlparam_task(task_id="rp-task", trades=False):
+def rtlparam_task(task_id="rp-task", trades=False, finish="compute_cycles"):
     from mace.codesign.rtl import RtlSpace
     from mace.eval.suite import RtlParamConfig
 
     space = RtlSpace({"l2_mshr": (4, 8, 16), "dcache_wbuf": (4, 8), "home_alloc": ("LOW", "MIXED")})
     listed = (space.design({"l2_mshr": 4, "home_alloc": "LOW"}), space.design({"home_alloc": "LOW"})) if trades else ()
-    config = RtlParamConfig(space=space, simulations=6, storage_budget_ratio=1.25, trades=listed)
+    config = RtlParamConfig(space=space, simulations=6, storage_budget_ratio=1.25, trades=listed, finish=finish)
     return suite_task(task_id, workloads=("matmul_scaled.c",), rtlparam=config)
 
 
@@ -423,7 +423,15 @@ class TestRtlParamJobs:
         assert (labels.method, labels.task, labels.seed) == (method, "rp-task", seed)
         assert labels.meta["simulations"] == simulations and labels.meta["storage_budget_bits"] == budget
         assert labels.meta["storage_budget_ratio"] == (1.25 if budget is not None else None)
+        assert (labels.meta["finish"], labels.meta["win_margin"]) == ("compute_cycles", 0.01)
+        assert kwargs["finish"] == "compute_cycles"
         assert labels.meta["piton_roots"] == ["/a"]
+
+    def test_the_task_s_finish_time_reaches_the_search_and_the_proposer(self, tmp_path, searches):
+        task = rtlparam_task("rp-sim", finish="sim_time")
+        runner.run_job(runner.Job(task, "rtlparam_mace", 0), make_env(tmp_path))
+        ((_, _, strat, kwargs),) = searches
+        assert kwargs["finish"] == "sim_time" and strat.finish == "sim_time"
 
     def test_the_trades_method_runs_only_on_a_task_that_lists_trades(self):
         plain, with_trades = rtlparam_task(), rtlparam_task("rp-trades", trades=True)

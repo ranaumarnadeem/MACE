@@ -14,8 +14,12 @@
 # rtl_timeout and max_cycle are set from the pilot runs. The storage budget is
 # a ratio of the default design's storage in the searched parameters, fixed
 # before any search runs, as area_budget_ratio is for the cache co-design: 1.0
-# lets a design reallocate storage but not add any. A task stays unverified
-# until its default design passes on every tile.
+# lets a design reallocate storage but not add any. The finish time is the
+# compute time, the latest hart's end minus the earliest hart's start, because
+# sim_time also counts the harts printing their lines and that tail depends on
+# the design. A design beats the default when its compute time is at least
+# win_margin lower. A task stays unverified until its default design passes on
+# every tile.
 version: 1
 defaults:
   budget: {max_iterations: 1, max_wall_s: 3600}
@@ -32,6 +36,8 @@ tasks:
     rtlparam: &rtlparam
       simulations: 10
       storage_budget_ratio: 1.0
+      finish: compute_cycles
+      win_margin: 0.01
       space:
         l2_mshr: [4, 8, 16]
         l2_req_buf: [4, 8, 16]

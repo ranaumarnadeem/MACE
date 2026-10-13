@@ -39,11 +39,16 @@ An RTL-parameter task adds an ``rtlparam`` block (session C): the values each
 searched parameter may take (see ``mace.codesign.rtl``), the simulations per
 search, and the storage budget as a ratio of the default design's storage in
 the searched parameters, as ``area_budget_ratio`` is for caches. A ratio of 1.0
-lets a design reallocate storage but not add any. ::
+lets a design reallocate storage but not add any. ``finish`` is the time a
+search minimizes, ``compute_cycles`` (the default) or ``sim_time``, and
+``win_margin`` how much faster than the default an in-budget design must be to
+count as beating it (see ``mace.codesign.verdict``). ::
 
     rtlparam:
       simulations: 10
       storage_budget_ratio: 1.0
+      finish: compute_cycles
+      win_margin: 0.01
       space:
         l2_mshr: [4, 8, 16]
         dcache_wbuf: [4, 8, 16]
@@ -99,6 +104,7 @@ from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.baselines.expert import expert_task
 from mace.codesign.area import cache_arrays
 from mace.codesign.rtl import RtlDesign, RtlSpace  # session C
+from mace.codesign.verdict import COMPUTE, FINISH_KINDS  # session C
 from mace.codesign.space import DEFAULT_NETWORK, Design, DesignSpace
 from mace.eval.source_faults import SourceEdit
 from mace.spec import Budget, MaceSpec, Task
@@ -109,7 +115,7 @@ _TASK_KEYS = frozenset(
      "codesign", "workload_args", "source_fault", "rtlparam")  # "rtlparam": session C
 )
 _CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
-_RTLPARAM_KEYS = frozenset(("simulations", "storage_budget_ratio", "space", "trades"))  # session C
+_RTLPARAM_KEYS = frozenset(("simulations", "storage_budget_ratio", "space", "trades", "finish", "win_margin"))  # session C
 
 
 class SuiteError(ValueError):
@@ -148,6 +154,12 @@ class RtlParamConfig:  # session C
     # Designs picked from the sweep's results for rtlparam_trades to simulate;
     # each is within the budget.
     trades: tuple[RtlDesign, ...] = ()
+    # The finish time a search minimizes (see mace.codesign.verdict): the
+    # compute time from the per-hart cycles, or the testbench's sim_time.
+    finish: str = COMPUTE
+    # How much faster than the default design, as a fraction of its finish
+    # time, an in-budget design must be to count as beating it.
+    win_margin: float = 0.01
 
     def storage_budget_bits(self) -> int | None:
         """The flip-flop bits per tile a design may add over the default
@@ -311,7 +323,15 @@ def _rtlparam(raw: object, task_id: str) -> RtlParamConfig | None:
     ratio = raw.get("storage_budget_ratio", 1.0)
     if ratio is not None and (not isinstance(ratio, (int, float)) or isinstance(ratio, bool) or ratio <= 0):
         raise SuiteError(f"task {task_id}: rtlparam storage_budget_ratio must be positive or null, got {ratio!r}")
-    config = RtlParamConfig(space=space, simulations=simulations, storage_budget_ratio=ratio)
+    finish = raw.get("finish", COMPUTE)
+    if finish not in FINISH_KINDS:
+        raise SuiteError(f"task {task_id}: rtlparam finish must be one of {list(FINISH_KINDS)}, got {finish!r}")
+    margin = raw.get("win_margin", 0.01)
+    if not isinstance(margin, (int, float)) or isinstance(margin, bool) or not 0 <= margin < 1:
+        raise SuiteError(f"task {task_id}: rtlparam win_margin must be a fraction from 0 up to 1, got {margin!r}")
+    config = RtlParamConfig(
+        space=space, simulations=simulations, storage_budget_ratio=ratio, finish=finish, win_margin=margin
+    )
     trades_raw = raw.get("trades") or []
     if not isinstance(trades_raw, list):
         raise SuiteError(f"task {task_id}: rtlparam trades must be a list of designs")

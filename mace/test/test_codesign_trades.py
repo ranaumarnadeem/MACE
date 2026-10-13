@@ -38,22 +38,28 @@ EFFECTS = [
 ]
 
 
+def row(design, time, simulated=1, idx=0):
+    """An evaluations row; a time of None is a design that did not pass."""
+    return dict(
+        design=design.as_json(), passed=int(time is not None), sim_time=time, simulated=simulated, idx=idx,
+        storage_bits=design.storage_delta(), hart_cycles=None,
+    )
+
+
 def rows_for(default_time, singles, extra=()):
     """Sweep rows: the default and each single change as (name, value, sim_time or None for a failure)."""
     rows = []
     designs = [(SPACE.default(), default_time)]
     designs += [(SPACE.design({n: v}), t) for n, v, t in singles]
     for index, (design, time) in enumerate(designs):
-        rows.append(
-            dict(design=design.as_json(), feasible=int(time is not None), sim_time=time, simulated=1, idx=index)
-        )
+        rows.append(row(design, time, idx=index))
     return rows + list(extra)
 
 
 class TestSweepEffects:
     def test_each_passing_single_change_gives_its_effect(self):
         rows = rows_for(1000, [("l2_mshr", 16, 900), ("scoreboard", 4, 1030)])
-        default_time, effects = sweep_effects(rows)
+        default_time, effects = sweep_effects(rows, "sim_time", 4)
         assert default_time == 1000
         assert sorted((e.name, e.value, e.delta, e.bits) for e in effects) == [
             ("l2_mshr", 16, -100, 1232), ("scoreboard", 4, 30, -1448),
@@ -64,16 +70,36 @@ class TestSweepEffects:
         rows = rows_for(
             1000, [("l2_mshr", 4, None), ("dcache_wbuf", 16, 990)],
             extra=[
-                dict(design=multi.as_json(), feasible=1, sim_time=850, simulated=1),
-                dict(design=SPACE.design({"home_alloc": "LOW"}).as_json(), feasible=0, sim_time=None, simulated=0),
+                row(multi, 850),
+                row(SPACE.design({"home_alloc": "LOW"}), None, simulated=0),
             ],
         )
-        _, effects = sweep_effects(rows)
+        _, effects = sweep_effects(rows, "sim_time", 4)
         assert [(e.name, e.value) for e in effects] == [("dcache_wbuf", 16)]
 
     def test_a_sweep_whose_default_did_not_pass_gives_nothing(self):
         rows = rows_for(None, [("l2_mshr", 16, 900)])
-        assert sweep_effects(rows) == (None, [])
+        assert sweep_effects(rows, "sim_time", 4) == (None, [])
+
+
+class TestComputeTime:
+    def test_effects_are_changes_in_the_compute_time_not_in_sim_time(self):
+        default = SPACE.default()
+        slower_compute = SPACE.design({"home_alloc": "LOW"})
+        rows = [
+            dict(row(default, 1_000_000), hart_cycles=json.dumps({"p.c": {"0": [100, 5100], "1": [100, 5200]}})),
+            # sim_time falls by 1%, the harts end 300 cycles later: an effect of the printing tail.
+            dict(row(slower_compute, 990_000, idx=1), hart_cycles=json.dumps({"p.c": {"0": [100, 5400], "1": [100, 5500]}})),
+        ]
+        default_time, effects = sweep_effects(rows, "compute_cycles", 2)
+        assert default_time == 5100
+        assert [(e.name, e.value, e.delta) for e in effects] == [("home_alloc", "LOW", 300)]
+        _, by_sim = sweep_effects(rows, "sim_time", 2)
+        assert by_sim[0].delta == -10_000
+
+    def test_a_row_with_a_missing_hart_gives_no_compute_time(self):
+        rows = [dict(row(SPACE.default(), 1_000_000), hart_cycles=json.dumps({"p.c": {"0": [100, 5100]}}))]
+        assert sweep_effects(rows, "compute_cycles", 2) == (None, [])
 
 
 class TestPickTrades:
@@ -141,6 +167,7 @@ tasks:
     objective: Finish matmul_scaled.c soonest.
     rtlparam:
       storage_budget_ratio: 1.0
+      finish: sim_time
       space:
         l2_mshr: [4, 8, 16]
         scoreboard: [4, 8, 16]
@@ -175,7 +202,9 @@ def load_script():
 
 
 class TestCommandLine:
-    def _sweep(self, tmp_path, singles, status="passed", method="rtlparam_sweep"):
+    def _sweep(self, tmp_path, singles, status="passed", method="rtlparam_sweep", windows=None):
+        """A sweep database. *windows* maps "default" and (name, value) to the cycles every hart works,
+        written as four harts' start and end."""
         db = metrics.open_db(str(tmp_path / "rp.db"), ray_placement=False)
         spec = MaceSpec(
             workloads=("matmul_scaled.c",), objective="x", target_mesh=(2, 2), budget=Budget(max_wall_s=3600)
@@ -183,21 +212,24 @@ class TestCommandLine:
         run_id = metrics.start_run(db, spec, labels=RunLabels(method=method, task="rp-task"))
         designs = [(SPACE.default(), 1_000_000)] + [(SPACE.design({n: v}), t) for n, v, t in singles]
         for index, (design, time) in enumerate(designs):
+            changes = tuple(design.changed().items())
+            window = None if windows is None else windows["default" if not changes else changes[0]]
+            harts = {} if window is None else {"matmul_scaled.c": {h: (100, 100 + window) for h in range(4)}}
             metrics.record_rtl_evaluation(
                 db, run_id,
                 RtlEvaluation(
                     index=index, round=index, design=design, passed=time is not None, feasible=time is not None,
-                    sim_time=time, storage_bits=design.storage_delta(), wall_s=1.0,
+                    sim_time=time, storage_bits=design.storage_delta(), wall_s=1.0, hart_cycles=harts,
                 ),
             )
         metrics.finish_run(db, run_id, status)
         return str(tmp_path / "rp.db")
 
-    def _run(self, tmp_path, monkeypatch, capsys, db, extra=()):
-        suite = tmp_path / "suite.yaml"
-        suite.write_text(SUITE)
+    def _run(self, tmp_path, monkeypatch, capsys, db, extra=(), suite=SUITE):
+        suite_path = tmp_path / "suite.yaml"
+        suite_path.write_text(suite)
         monkeypatch.setattr(
-            sys, "argv", ["x", "--task", "rp-task", "--db", db, "--suite", str(suite), *extra]
+            sys, "argv", ["x", "--task", "rp-task", "--db", db, "--suite", str(suite_path), *extra]
         )
         code = load_script().main()
         return code, capsys.readouterr()
@@ -210,7 +242,8 @@ class TestCommandLine:
         code, out = self._run(tmp_path, monkeypatch, capsys, db)
         assert code == 0
         assert "# sweep run" in out.out and "4 passing single changes" in out.out
-        assert "#   l2_mshr=16: -90000 finish time, +1232 storage bits" in out.out
+        assert "#   l2_mshr=16: -90000 (-9.00%), +1232 storage bits" in out.out
+        assert "finish time is sim_time" in out.out
         assert "trades:" in out.out
         assert "  - {home_alloc: LOW, l2_mshr: 16, scoreboard: 4}  # predicted -61000 (-6.1%), storage -216 bits" in out.out
 
@@ -230,11 +263,24 @@ class TestCommandLine:
     def test_a_sweep_whose_default_failed_is_an_error(self, tmp_path, monkeypatch, capsys):
         db = self._sweep(tmp_path, [("l2_mshr", 16, 910_000)])
         con = sqlite3.connect(db)
-        con.execute("UPDATE evaluations SET feasible = 0, sim_time = NULL WHERE idx = 0")
+        con.execute("UPDATE evaluations SET passed = 0, feasible = 0, sim_time = NULL WHERE idx = 0")
         con.commit()
         con.close()
         code, out = self._run(tmp_path, monkeypatch, capsys, db)
-        assert code == 1 and "default design did not pass" in out.err
+        assert code == 1 and "default design has no finish time" in out.err
+
+    def test_reads_the_compute_time_when_the_suite_asks_for_it(self, tmp_path, monkeypatch, capsys):
+        """sim_time says l2_mshr=16 is 2% slower; the harts say it finishes 20% sooner."""
+        windows = {"default": 5000, ("l2_mshr", 16): 4000, ("scoreboard", 4): 5500}
+        db = self._sweep(
+            tmp_path, [("l2_mshr", 16, 1_020_000), ("scoreboard", 4, 1_000_000)], windows=windows
+        )
+        suite = SUITE.replace("finish: sim_time", "finish: compute_cycles")
+        code, out = self._run(tmp_path, monkeypatch, capsys, db, suite=suite)
+        assert code == 0
+        assert "finish time is compute_cycles" in out.out
+        assert "#   l2_mshr=16: -1000 (-20.00%), +1232 storage bits" in out.out
+        assert "  - {l2_mshr: 16, scoreboard: 4}  # predicted -500 (-10.0%), storage -216 bits" in out.out
 
     def test_a_task_that_is_not_an_rtl_parameter_task_is_refused(self, tmp_path, monkeypatch, capsys):
         db = self._sweep(tmp_path, [("l2_mshr", 16, 910_000)])

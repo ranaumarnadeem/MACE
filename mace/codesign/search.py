@@ -27,6 +27,13 @@ from mace.planner import render_inputs
 from mace.spec import MaceSpec
 
 
+def _finish(evaluation):
+    """The value a search minimizes: the evaluation's own ``finish`` when it
+    has one (an RTL-parameter search sets it), else its ``sim_time``."""
+    finish = getattr(evaluation, "finish", None)
+    return evaluation.sim_time if finish is None else finish
+
+
 class RandomSearch:
     name = "random"
 
@@ -117,12 +124,12 @@ class BayesianSearch:
         return 10.0 * self.worst if self.worst else 1e12
 
     def _score(self, evaluation) -> float:
-        return float(evaluation.sim_time) if evaluation.feasible else self._penalty()
+        return float(_finish(evaluation)) if evaluation.feasible else self._penalty()
 
     def observe(self, evaluations: list) -> None:
         for e in evaluations:
-            if e.feasible and e.sim_time is not None:
-                self.worst = max(self.worst, e.sim_time)
+            if e.feasible and _finish(e) is not None:
+                self.worst = max(self.worst, _finish(e))
         for e in evaluations:
             trial = self.pending.pop(e.design, None)
             if trial is not None:

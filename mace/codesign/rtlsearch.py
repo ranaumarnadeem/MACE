@@ -13,10 +13,14 @@ is set from the edits' digest, so each distinct design builds into its own
 model directory and a design met again reuses its build. The edits are applied
 before the build and reverted after the runs, however they end.
 
-A passing design has a finish time, the summed ``sim_time`` of its gate
-workloads. Each gate program that prints per-hart cycle counts (see
-:func:`chia_openpiton.parse.hart_cycles`) has them recorded with the design.
-The search stops after ``simulations`` simulated designs, after ten times that
+Each gate program that prints per-hart cycle counts (see
+:func:`chia_openpiton.parse.hart_cycles`) has them recorded with the design. A
+passing design has a finish time, which the search minimizes: by default the
+compute time from those counts, the latest hart's end minus the earliest
+hart's start, because ``sim_time`` also counts the harts printing their lines
+and that tail depends on the design (see :mod:`mace.codesign.verdict`). The
+testbench's ``sim_time``, the summed value for the gate workloads, is recorded
+with it. The search stops after ``simulations`` simulated designs, after ten times that
 many proposals, when the time budget runs out, or when the strategy proposes
 nothing new twice in a row. It ends ``passed`` when at least one design passed
 and ``budget_exceeded`` otherwise.
@@ -38,6 +42,7 @@ from chia_openpiton.state_def import PitonRunResult
 from mace import usage
 from mace.codesign import rtl
 from mace.codesign.rtl import RtlDesign, RtlSpace
+from mace.codesign.verdict import COMPUTE, FINISH_KINDS, SIM_TIME, compute_cycles
 from mace.integrator import (
     BUILD_TIMEOUT_S,
     RUN_TIMEOUT_S,
@@ -85,6 +90,12 @@ class RtlEvaluation:
     hart_cycles: dict = field(default_factory=dict)
     # The proposer's bottleneck line for this design, or "".
     note: str = ""
+    # The compute time: the latest hart's end minus the earliest hart's start
+    # (see mace.codesign.verdict), or None without a line from every hart.
+    compute_cycles: int | None = None
+    # The finish time the search minimizes: the compute time or sim_time,
+    # whichever the search was told to use; None for a design that did not pass.
+    finish: int | None = None
 
 
 @dataclass(frozen=True)
@@ -96,8 +107,8 @@ class RtlSearchResult:
     @property
     def best(self) -> RtlEvaluation | None:
         """The feasible design with the soonest finish, or ``None``."""
-        feasible = [e for e in self.evaluations if e.feasible and e.sim_time is not None]
-        return min(feasible, key=lambda e: (e.sim_time, e.storage_bits)) if feasible else None
+        feasible = [e for e in self.evaluations if e.feasible and e.finish is not None]
+        return min(feasible, key=lambda e: (e.finish, e.storage_bits)) if feasible else None
 
 
 # --- the MACE proposer ---------------------------------------------------------
@@ -115,9 +126,7 @@ other part of the design stays as it is:
 
 {budget}Tiles are numbered row by row: hart h is on tile (x, y) = (h mod {x}, h div {x}).
 A program that times itself prints each hart's mcycle at the start and at the end of
-its work. The finish time is the testbench's simulation time when the last hart ends,
-so one slow hart sets it. The finish time and the per-hart cycles are in different
-units: compare harts with each other.
+its work. {finish_text}
 
 Propose the next design. End your reply with these two lines:
 
@@ -126,6 +135,20 @@ DESIGN: <name>=<value> ... (every parameter above, using only the listed values)
 
 Do not repeat a design already tried. Nothing else you write is parsed, but keep the rest brief.
 """
+
+_FINISH_TEXT = {
+    COMPUTE: (
+        "The finish time you minimize is the compute time: the latest hart's end minus the earliest "
+        "hart's start, in core cycles, so one slow hart sets it. The testbench's simulation time "
+        "(sim_time) also counts the cycles the harts spend printing these lines one after another, "
+        "which depend on the design; it is shown for reference and is not what you minimize."
+    ),
+    SIM_TIME: (
+        "The finish time you minimize is the testbench's simulation time when the last hart ends, "
+        "so one slow hart sets it. It is in different units from the per-hart cycles: compare "
+        "harts with each other."
+    ),
+}
 
 _DESIGN_LINE = re.compile(r"(?im)^\s*\**\s*DESIGN:\s*(.+?)\s*$")
 _BOTTLENECK_LINE = re.compile(r"(?im)^\s*\**\s*BOTTLENECK:\s*(.+?)\s*$")
@@ -168,11 +191,16 @@ class RtlProposer:
     name = "mace"
     phase = "propose"
 
-    def __init__(self, llm, spec: MaceSpec, space: RtlSpace, storage_budget_bits: int | None):
+    def __init__(
+        self, llm, spec: MaceSpec, space: RtlSpace, storage_budget_bits: int | None, finish: str = COMPUTE
+    ):
+        if finish not in FINISH_KINDS:
+            raise ValueError(f"finish must be one of {FINISH_KINDS}, got {finish!r}")
         self.llm = llm
         self.spec = spec
         self.space = space
         self.storage_budget_bits = storage_budget_bits
+        self.finish = finish
         # The bottleneck line that came with each proposed design.
         self.notes: dict[RtlDesign, str] = {}
 
@@ -196,7 +224,9 @@ class RtlProposer:
             _HEADER.format(core=self.spec.core, x=x, y=y)
             + render_inputs(self.spec)
             + "\n"
-            + _RULES.format(space=self.space.describe(), budget=budget, x=x)
+            + _RULES.format(
+                space=self.space.describe(), budget=budget, x=x, finish_text=_FINISH_TEXT[self.finish]
+            )
         )
         rows = []
         for number, e in enumerate(history, start=1):
@@ -204,17 +234,18 @@ class RtlProposer:
                 rows.append(f"{number}. {e.design.describe()}: rejected without a simulation ({e.rejected})")
                 continue
             outcome = "passed" if e.passed else "failed the check"
-            finish = e.sim_time if e.sim_time is not None else "-"
+            finish = e.finish if e.finish is not None else "-"
+            reference = f" (sim_time {e.sim_time})" if self.finish == COMPUTE and e.sim_time is not None else ""
             rows.append(
-                f"{number}. {_changes(e.design)}: {outcome}, finish time {finish}, "
+                f"{number}. {_changes(e.design)}: {outcome}, finish time {finish}{reference}, "
                 f"{e.storage_bits:+d} storage bits"
             )
         prompt += "\nDesigns tried so far, in order:\n" + "\n".join(rows) + "\n"
         simulated = [e for e in history if not e.rejected and e.hart_cycles]
         shown = {}
-        passing = [e for e in simulated if e.feasible and e.sim_time is not None]
+        passing = [e for e in simulated if e.feasible and e.finish is not None]
         if passing:
-            best = min(passing, key=lambda e: e.sim_time)
+            best = min(passing, key=lambda e: e.finish)
             shown[best.index] = "best finish time so far"
         if simulated:
             shown.setdefault(simulated[-1].index, "most recent")
@@ -258,20 +289,28 @@ def run_rtlsearch(
     simulations: int = 10,
     storage_budget_bits: int | None = None,
     labels: RunLabels | None = None,
+    finish: str = COMPUTE,
 ) -> RtlSearchResult:
     """Search with *strategy* for up to *simulations* designs. Only the first
-    of *piton_roots* is used: the designs are checked one at a time."""
+    of *piton_roots* is used: the designs are checked one at a time.
+
+    *finish* is the time the search minimizes: ``compute_cycles``, from the
+    per-hart cycles, or ``sim_time``. A design that passed but has no line
+    from every hart has no compute time, so it is not feasible under the first.
+    """
+    if finish not in FINISH_KINDS:
+        raise ValueError(f"finish must be one of {FINISH_KINDS}, got {finish!r}")
     run_id = start_run(db, spec, labels=labels or RunLabels(method=f"rtlparam_{strategy.name}"))
     calls = usage.UsageLog()
     try:
         with usage.recording(calls):
-            return _search(run_id, piton_roots[0], spec, strategy, db, simulations, storage_budget_bits, calls)
+            return _search(run_id, piton_roots[0], spec, strategy, db, simulations, storage_budget_bits, finish, calls)
     except BaseException:
         finish_run(db, run_id, "error")
         raise
 
 
-def _search(run_id, root, spec, strategy, db, simulations, storage_budget_bits, calls):
+def _search(run_id, root, spec, strategy, db, simulations, storage_budget_bits, finish, calls):
     try:
         verify_checksums()
     except ValueError:
@@ -279,6 +318,7 @@ def _search(run_id, root, spec, strategy, db, simulations, storage_budget_bits, 
         return RtlSearchResult(run_id=run_id, status="checksum_mismatch", evaluations=())
 
     deadline = time.monotonic() + spec.budget.max_wall_s
+    tiles = spec.target_mesh[0] * spec.target_mesh[1]
     history: list[RtlEvaluation] = []
     round_no = 0
     idle_rounds = 0
@@ -341,12 +381,16 @@ def _search(run_id, root, spec, strategy, db, simulations, storage_budget_bits, 
                     if step.passed and all(run.sim_time is not None for run in step.runs)
                     else None
                 )
+                cycles = compute_cycles(harts, tiles)
+                finish_time = cycles if finish == COMPUTE else sim_time
+                if step.passed and finish_time is None:
+                    logger.warning("design %s passed but has no %s", design.describe(), finish)
                 record(
                     RtlEvaluation(
                         index=len(history), round=round_no, design=design, passed=step.passed,
-                        feasible=step.passed and sim_time is not None, sim_time=sim_time, storage_bits=bits,
+                        feasible=step.passed and finish_time is not None, sim_time=sim_time, storage_bits=bits,
                         wall_s=step.build.wall_time_s + sum(run.wall_time_s for run in step.runs),
-                        hart_cycles=harts, note=note,
+                        hart_cycles=harts, note=note, compute_cycles=cycles, finish=finish_time,
                     )
                 )
             record_llm_calls(db, run_id, round_no, round_calls)

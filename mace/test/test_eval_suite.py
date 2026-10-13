@@ -71,6 +71,10 @@ class TestTheRtlParamSuite:
         assert [t.mesh for t in tasks] == [(2, 2), (4, 2), (4, 4)]
         assert all(t.kind == "rtlparam" and t.workloads == ("matmul_scaled.c",) for t in tasks)
 
+    def test_every_task_minimizes_the_compute_time_and_needs_a_one_percent_win(self):
+        for task in load_suite(self.RTLPARAM_SUITE):
+            assert (task.rtlparam.finish, task.rtlparam.win_margin) == ("compute_cycles", 0.01)
+
     def test_no_task_is_a_single_core_chip(self):
         """A 1x1 mesh has no interconnect to contend for, so it is not part of the study."""
         assert all(t.mesh[0] * t.mesh[1] > 1 for t in load_suite(self.RTLPARAM_SUITE))
@@ -240,6 +244,32 @@ class TestRtlParamBlock:
     def test_trades_must_be_a_list(self, tmp_path):
         with pytest.raises(SuiteError, match="list of designs"):
             load_suite(write(tmp_path, self.TRADES + "      trades: {l2_mshr: 16}\n"))
+
+    def test_the_finish_time_defaults_to_the_compute_time_and_the_margin_to_one_percent(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        assert (task.rtlparam.finish, task.rtlparam.win_margin) == ("compute_cycles", 0.01)
+
+    def test_the_finish_time_and_the_margin_can_be_set(self, tmp_path):
+        text = RTLPARAM.replace(
+            "      storage_budget_ratio: 1.25\n",
+            "      storage_budget_ratio: 1.25\n      finish: sim_time\n      win_margin: 0.02\n",
+        )
+        (task,) = load_suite(write(tmp_path, text))
+        assert (task.rtlparam.finish, task.rtlparam.win_margin) == ("sim_time", 0.02)
+
+    @pytest.mark.parametrize(
+        "line,message",
+        [
+            ("finish: wall_time", "finish must be one of"),
+            ("win_margin: -0.1", "win_margin"),
+            ("win_margin: 1", "win_margin"),
+            ("win_margin: big", "win_margin"),
+        ],
+    )
+    def test_a_bad_finish_time_or_margin_is_refused(self, tmp_path, line, message):
+        text = RTLPARAM.replace("      storage_budget_ratio: 1.25\n", f"      storage_budget_ratio: 1.25\n      {line}\n")
+        with pytest.raises(SuiteError, match=message):
+            load_suite(write(tmp_path, text))
 
     def test_a_null_ratio_sets_no_budget(self, tmp_path):
         (task,) = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "null")))

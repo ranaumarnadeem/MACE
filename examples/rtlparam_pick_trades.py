@@ -49,19 +49,21 @@ def main() -> int:
             print(f"no finished rtlparam_sweep run of {args.task} in {args.db}", file=sys.stderr)
             return 1
         rows = db.query(
-            "SELECT design, feasible, sim_time, simulated FROM evaluations WHERE run_id = ? ORDER BY idx",
+            "SELECT design, passed, sim_time, simulated, hart_cycles, storage_bits FROM evaluations "
+            "WHERE run_id = ? ORDER BY idx",
             (runs[0]["run_id"],),
         )
     finally:
         db.close()
 
-    default_time, effects = sweep_effects(rows)
+    tiles = tasks[args.task].mesh[0] * tasks[args.task].mesh[1]
+    default_time, effects = sweep_effects(rows, config.finish, tiles)
     if default_time is None:
-        print("the sweep's default design did not pass, so there is nothing to compare with", file=sys.stderr)
+        print("the sweep's default design has no finish time, so there is nothing to compare with", file=sys.stderr)
         return 1
-    print(f"# sweep run {runs[0]['run_id']}: {len(effects)} passing single changes")
+    print(f"# sweep run {runs[0]['run_id']}: {len(effects)} passing single changes; finish time is {config.finish}")
     for e in sorted(effects, key=lambda e: e.delta):
-        print(f"#   {e.name}={e.value}: {e.delta:+d} finish time, {e.bits:+d} storage bits")
+        print(f"#   {e.name}={e.value}: {e.delta:+d} ({100 * e.delta / default_time:+.2f}%), {e.bits:+d} storage bits")
     trades = pick_trades(effects, config.space, config.storage_budget_bits(), args.k, args.max_changes)
     if not trades:
         print("# no in-budget combination is predicted to beat the default design")

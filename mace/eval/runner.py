@@ -395,7 +395,7 @@ def _run_rtlparam_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
         designs = [default, *config.trades]
         strategy, seed, simulations = GridSearch(designs), None, len(designs)
     elif job.method == "rtlparam_mace":
-        strategy, seed = RtlProposer(env.llm, spec, space, budget), None
+        strategy, seed = RtlProposer(env.llm, spec, space, budget, finish=config.finish), None
     elif job.method == "rtlparam_bayes":
         # TPE draws its first trials at random; with ten simulations, Optuna's default of ten
         # would leave it nothing to model, so it starts modelling after three.
@@ -405,10 +405,14 @@ def _run_rtlparam_job(job: Job, env: RunEnv, roots, spec: MaceSpec, labels: RunL
     ratio = config.storage_budget_ratio if budget is not None else None
     labels = dataclasses.replace(
         labels, seed=seed,
-        meta={**labels.meta, "simulations": simulations, "storage_budget_ratio": ratio, "storage_budget_bits": budget},
+        meta={
+            **labels.meta, "simulations": simulations, "storage_budget_ratio": ratio, "storage_budget_bits": budget,
+            "finish": config.finish, "win_margin": config.win_margin,
+        },
     )
     return run_rtlsearch(
-        roots, spec, strategy, env.db, simulations=simulations, storage_budget_bits=budget, labels=labels
+        roots, spec, strategy, env.db, simulations=simulations, storage_budget_bits=budget, labels=labels,
+        finish=config.finish,
     )
 
 

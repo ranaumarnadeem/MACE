@@ -16,10 +16,10 @@ whether a trade beats the default.
 from __future__ import annotations
 
 import itertools
-import json
 from dataclasses import dataclass
 
 from mace.codesign.rtl import RtlDesign, RtlSpace
+from mace.codesign.verdict import row_changes, row_finish
 
 
 @dataclass(frozen=True)
@@ -44,28 +44,26 @@ class Trade:
     storage_delta: int
 
 
-def sweep_effects(rows: list[dict]) -> tuple[int | None, list[Effect]]:
+def sweep_effects(rows: list[dict], finish: str, tiles: int) -> tuple[int | None, list[Effect]]:
     """The default design's finish time and the effect of each passing single
-    change, from a sweep's ``evaluations`` rows (``design`` as JSON,
-    ``feasible``, ``sim_time``, ``simulated``). A design that failed, was
-    rejected, or changes more than one parameter gives no effect; a sweep with
-    no passing default gives ``(None, [])``."""
-    parsed = []
+    change, from a sweep's ``evaluations`` rows (see
+    :func:`mace.codesign.verdict.row_finish` for the finish times *finish*
+    names). A design that failed, was rejected, lacks the data, or changes
+    more than one parameter gives no effect; a sweep with no passing default
+    gives ``(None, [])``."""
+    entries = []
     for row in rows:
-        if not row["simulated"] or not row["feasible"] or row["sim_time"] is None:
-            continue
-        values = json.loads(row["design"])["rtl"]
-        parsed.append((RtlDesign.of(values, tuple(values)), row["sim_time"]))
-    default_time = next((t for d, t in parsed if not d.changed()), None)
+        value = row_finish(row, finish, tiles)
+        if value is not None:
+            entries.append((row_changes(row), value, row["storage_bits"]))
+    default_time = next((value for changes, value, _ in entries if not changes), None)
     if default_time is None:
         return None, []
     effects = []
-    for design, time in parsed:
-        changed = design.changed()
-        if len(changed) != 1:
-            continue
-        ((name, value),) = changed.items()
-        effects.append(Effect(name, value, time - default_time, design.storage_delta()))
+    for changes, value, bits in entries:
+        if len(changes) == 1:
+            ((name, setting),) = changes
+            effects.append(Effect(name, setting, value - default_time, bits))
     return default_time, effects
 
 
