@@ -359,8 +359,15 @@ class DirectedTestTool(ChiaTool):
                     "an assembly test starts from RVTEST_CODE_BEGIN, "
                     "as the examples under piton/verif/diag/assembly/riscv/pico/ do"
                 )
-            if "TEST_PASSFAIL" not in source and "RVTEST_PASS" not in source:
-                return "an assembly test ends with TEST_PASSFAIL or reaches RVTEST_PASS"
+            if "TEST_PASSFAIL" not in source:
+                return (
+                    "an assembly test ends with TEST_PASSFAIL, which defines the pass and fail labels that "
+                    "TEST_CASE jumps to; RVTEST_PASS alone leaves a failed check with nowhere to go"
+                )
+            numbers = re.findall(r"\bTEST_CASE\s*\(\s*(\d+)", source)
+            repeated = sorted({n for n in numbers if numbers.count(n) > 1}, key=int)
+            if repeated:
+                return f"TEST_CASE numbers must be unique, and {', '.join(repeated)} appear more than once"
             if hash_in_test_macro(source):
                 return (
                     "a # comment inside a TEST_ macro hides the rest of the expanded line, the check included, "

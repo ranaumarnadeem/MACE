@@ -240,6 +240,22 @@ class TestDirectedTestToolWrites:
         assert "main" in c.write_test("t", ALU, "RVTEST_CODE_BEGIN TEST_PASSFAIL")
         assert "limit" in c.write_test("t", ALU, C_TEST + "/*" + "x" * 31000 + "*/")
 
+    def test_rvtest_pass_alone_is_refused_because_test_case_needs_the_fail_label(self, tmp_path):
+        """Pilot finding: a test that ended in RVTEST_PASS without TEST_PASSFAIL hung on the correct design too."""
+        tool = make_test_tool(tmp_path)
+        source = ASM_TEST.replace("  TEST_PASSFAIL\n", "RVTEST_PASS\n")
+        out = tool.write_test("hang", ALU, source)
+        assert out.startswith("ERROR") and "TEST_PASSFAIL" in out and "RVTEST_PASS alone" in out
+        assert not (tmp_path / "build").exists()
+
+    def test_a_repeated_test_case_number_is_refused(self, tmp_path):
+        """Pilot finding: two TEST_CASE( 2, ...) define the label test_2 twice."""
+        tool = make_test_tool(tmp_path)
+        source = ASM_TEST.replace("  TEST_PASSFAIL\n", "  TEST_CASE( 2, x2, 1, li x2, 1; )\n  TEST_PASSFAIL\n")
+        out = tool.write_test("dup", ALU, source)
+        assert out.startswith("ERROR") and "unique" in out and "2 appear" in out
+        assert tool.write_test("ok", ALU, ASM_TEST.replace("TEST_CASE( 2,", "TEST_CASE( 3,")).startswith("OK")
+
     def test_the_constructor_refuses_a_directory_outside_the_test_area(self, tmp_path):
         with pytest.raises(ValueError, match="test_dir"):
             DirectedTestTool("d", str(tmp_path), str(tmp_path / "piton" / "design"), "S")
