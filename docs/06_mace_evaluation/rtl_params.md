@@ -16,9 +16,15 @@ Each hart stores the elements it computes on its own stack, reads them back, and
 h3 1204 188731
 ```
 
-`chia_openpiton.parse.hart_cycles()` reads these lines from `fake_uart.log` (see [Transcript Parsers](../04_chia_openpiton/parsers.md)). The values are core clock cycles. The finish time is the testbench's simulation time when the last hart ends, so the two are in different units, and a hart is compared with the other harts and not with the finish time. Harts are numbered row by row, so hart `h` is on tile `(h mod X, h div X)` of an `X` by `Y` mesh.
+`chia_openpiton.parse.hart_cycles()` reads these lines from `fake_uart.log` (see [Transcript Parsers](../04_chia_openpiton/parsers.md)). The values are core clock cycles. Harts are numbered row by row, so hart `h` is on tile `(h mod X, h div X)` of an `X` by `Y` mesh.
 
-Printing to the fake UART takes many cycles per character, and the harts print one after another. The line is short for that reason, and the finish time includes the printing. The cycle counts leave it out, so the scaling study uses them, and the finish time is reported next to them.
+## The finish time
+
+Printing to the fake UART takes many cycles per character, and the harts print one after another. The line is short for that reason. The testbench's `sim_time`, the time of the verdict, includes the printing. How long the printing takes depends on the design, so `sim_time` is not what the parameters change: a design can shorten the printing and lengthen the computing, and then `sim_time` falls while the harts finish later.
+
+The finish time a search minimizes is the compute time, the latest hart's end minus the earliest hart's start, from the per-hart cycles (`mace/codesign/verdict.py`). A task's `finish` setting can name `sim_time` instead. Both are recorded. A design has a compute time only when every hart printed its line. The scaling study uses the compute time too, with `sim_time` reported next to it.
+
+A task's `win_margin` is how much lower than the default design's finish time a design must be, as a fraction of it, to count as beating the default. The task file sets 0.01.
 
 ## The parameters
 
@@ -76,6 +82,14 @@ The sum assumes the effects add. It chooses which designs to simulate and is not
 python examples/rtlparam_pick_trades.py --task ariane-4x4-matmul-scaled --db runs/rtlparam.db --k 5
 ```
 
+## The verdict
+
+`examples/rtlparam_go_nogo.py` reads every `rtlparam_*` run of a task from one or more databases and applies one rule: go only if at least one in-budget design beats the default design's finish time by the margin, in a run in which every tile passed. It lists each in-budget design that passed, best first, marks the ones that reach the margin, and prints `GO` or `NO-GO`. A `NO-GO` ends with the sentence "The default parameters are balanced for this workload." It warns when runs of the default design disagree, since the simulation is deterministic.
+
+```bash
+python examples/rtlparam_go_nogo.py --task ariane-4x4-matmul-scaled --db runs/rtlparam.db
+```
+
 ## Counting simulations
 
 A search stops after its number of simulations, after ten times that many proposals, when its time budget runs out, or when its strategy proposes nothing new twice in a row. A design counts as a simulation when it builds and its gate programs run, whether or not it passes. A proposal rejected before a build costs nothing: it was over the storage budget, an edit did not apply, or the build lacked the edit. Reports compare searches by simulations, never by proposals.
@@ -89,12 +103,14 @@ MAKEFLAGS=-j1 python examples/eval_batch.py --suite examples/eval/tasks_rtlparam
   --backend vertex --db-path runs/rtlparam.db
 ```
 
-`examples/eval/tasks_rtlparam.yaml` has one task per mesh: 2x2, 4x2, and 4x4 Ariane. A 1x1 mesh is a single core with no interconnect, so it is left out. Each task's `rtlparam` block gives the values each searched parameter may take, the number of simulations per search, and the storage budget ratio. A parameter left out of the space keeps its default, and the values must include the default. The searches use one checkout.
+`examples/eval/tasks_rtlparam.yaml` has one task per mesh: 2x2, 4x2, and 4x4 Ariane. A 1x1 mesh is a single core with no interconnect, so it is left out. Each task's `rtlparam` block gives the values each searched parameter may take, the number of simulations per search, the storage budget ratio, the finish time, and the win margin. A parameter left out of the space keeps its default, and the values must include the default. The searches use one checkout.
 
 ```yaml
 rtlparam:
   simulations: 10
   storage_budget_ratio: 1.0
+  finish: compute_cycles
+  win_margin: 0.01
   space:
     l2_mshr: [4, 8, 16]
     dcache_wbuf: [4, 8, 16]
@@ -107,12 +123,12 @@ A search is one run in the metrics database, labelled with its method and task. 
 | Column | Holds |
 |---|---|
 | `design` | The value of every parameter, as JSON |
-| `sim_time` | The summed finish time of the gate programs, or empty for a design that failed or was rejected |
-| `feasible` | 1 for a design that passed |
+| `sim_time` | The testbench's simulation time, summed over the gate programs, or empty for a design that failed or was rejected |
+| `feasible` | 1 for a design that passed and has a finish time |
 | `simulated` | 0 for a design rejected before any simulation |
 | `rejected` | The reason, for a design rejected |
 | `storage_bits` | The bits the design adds per tile over the default design |
 | `hart_cycles` | Each gate program's per-hart `[start, end]` values, as JSON |
 | `note` | The proposer's bottleneck line |
 
-Each design that built also has a task row. Its `rtl_edits` column holds the diff of the files the edits changed.
+The compute time is not a column. It is computed from `hart_cycles`, and the run's `meta` records which finish time the search minimized. Each design that built also has a task row. Its `rtl_edits` column holds the diff of the files the edits changed.
