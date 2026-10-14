@@ -155,13 +155,15 @@ FAULTS: dict[str, Fault] = {
             held_out=True,
         ),
         # Two changes at once, each a fault above that breaks the design alone: undoing either one still
-        # leaves it broken, so the failure shows one cause at a time. Unverified until faultcheck_<name>.
+        # leaves it broken, so the failure shows one cause at a time. faultcheck_<name> on ariane-2x2-barrier and
+        # pico-2x2-addi (laptop, commit 2a3bf3b, 2026-10-14) failed the build in every run, as the first part
+        # does; the second part's failure is its single fault's own, checked above.
         Fault(
             "synth_and_no_mem",
             f"Adds {FPGA_DEFINE} and {NO_MEMORY_DEFINE}: the build fails on the first, and once that is undone "
             "the simulation times out on the second.",
             frozenset(("ariane", "pico")),
-            False,
+            True,
             _combined("fpga_synth", "no_mem_ctrl"),
             parts=("fpga_synth", "no_mem_ctrl"),
         ),
@@ -170,7 +172,7 @@ FAULTS: dict[str, Fault] = {
             f"Removes {BIST_DEFINE} and adds {FPGA_DEFINE}: the build fails on the second, and once that is "
             "undone the PicoRV32 simulation times out on the first.",
             frozenset(("pico",)),
-            False,
+            True,
             _combined("drop_bist", "fpga_synth"),
             parts=("drop_bist", "fpga_synth"),
         ),
@@ -179,7 +181,7 @@ FAULTS: dict[str, Fault] = {
             f"Sets a direct-mapped L2 and adds {NO_MEMORY_DEFINE}: the build fails on the first, and once that "
             "is undone the simulation times out on the second.",
             frozenset(("ariane", "pico")),
-            False,
+            True,
             _combined("l2_direct_mapped", "no_mem_ctrl"),
             parts=("l2_direct_mapped", "no_mem_ctrl"),
         ),

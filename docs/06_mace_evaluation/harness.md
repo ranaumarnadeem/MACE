@@ -106,6 +106,7 @@ Three faults make two changes at once, each a single fault above that breaks the
 | `l2_and_no_mem` | `l2_direct_mapped`, `no_mem_ctrl` | The build fails on the first; once it is undone, the simulation times out on the second |
 
 `Fault.parts` names the single faults of such a fault, and a report groups them apart from the single-change faults.
+Their fault checks ran on `ariane-2x2-barrier` and `pico-2x2-addi` (`bist_and_synth` on PicoRV32 only) and failed the build on the first part in every run; the second part's failure is its single fault's own.
 A loop that reads one failure at a time needs a build or simulation per change, while narrowing's `combination` verdict undoes both together.
 With the default budget of three iterations, a method that finds one cause per iteration has no attempt to spare.
 

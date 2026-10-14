@@ -135,6 +135,12 @@ class TestTwoChangeFaults:
         only_memory = FAULTS["no_mem_ctrl"].break_task(task())
         assert set(both.config_rtl) - set(only_memory.config_rtl) == {FPGA_DEFINE}
 
+    def test_the_faultchecks_verified_each_on_the_cores_it_names(self):
+        # faultcheck_<name>, 2026-10-14: the build failed in all five runs (ariane and pico; bist_and_synth on pico only).
+        assert all(FAULTS[name].verified for name in self.TWO)
+        assert FAULTS["bist_and_synth"].cores == frozenset(("pico",))
+        assert FAULTS["synth_and_no_mem"].cores == FAULTS["l2_and_no_mem"].cores == frozenset(("ariane", "pico"))
+
     def test_they_are_not_held_out(self):
         assert not any(FAULTS[name].held_out for name in self.TWO)
 
