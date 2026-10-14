@@ -157,6 +157,14 @@ class TestPrompt:
         assert "What the earlier attempts in this run reported:\ngate sh.S failed" in full
         assert "Your previous attempt gave no usable test:\nno verdict" in full
 
+    def test_it_asks_for_boundary_operands_in_both_forms(self):
+        asm = " ".join(directed.test_prompt(make_spec(), test_task(), "S").split())
+        assert "Use boundary operands too: 0, 1, 0x7fffffff, 0x80000000, and 0xffffffff" in asm
+        assert "a byte or halfword with its top bit set" in asm
+        c = " ".join(directed.test_prompt(make_spec("ariane"), test_task(), "c").split())
+        assert "Use boundary operands too: 0, 1, the largest and smallest signed values" in c
+        assert "0x80000000" not in c
+
     def test_it_asks_for_checks_against_the_specification_and_a_target(self):
         prompt = " ".join(directed.test_prompt(make_spec(), test_task(), "S").split())
         assert "not against what the RTL currently does" in prompt
