@@ -82,9 +82,11 @@ The sum assumes the effects add. It chooses which designs to simulate and is not
 python examples/rtlparam_pick_trades.py --task ariane-4x4-matmul-scaled --db runs/rtlparam.db --k 5
 ```
 
+With `--write-suite PATH` the script also writes a copy of the suite in which that one task lists the picked trades, and the loader checks the copy. Pass the copy to `eval_batch.py` with `--suite`. Nothing is written when no combination is predicted to help.
+
 ## The verdict
 
-`examples/rtlparam_go_nogo.py` reads every `rtlparam_*` run of a task from one or more databases and applies one rule: go only if at least one in-budget design beats the default design's finish time by the margin, in a run in which every tile passed. It lists each in-budget design that passed, best first, marks the ones that reach the margin, and prints `GO` or `NO-GO`. A `NO-GO` ends with the sentence "The default parameters are balanced for this workload." It warns when runs of the default design disagree, since the simulation is deterministic.
+`examples/rtlparam_go_nogo.py` reads every `rtlparam_*` run of a task from one or more databases and applies one rule: go only if at least one in-budget design beats the default design's finish time by the margin, in a run in which every tile passed. It lists each in-budget design that passed, best first, marks the ones that reach the margin, and prints `GO` or `NO-GO`. A `NO-GO` ends with the sentence "The default parameters are balanced for this workload." A task on which only the default design has run gets `NO VERDICT` and exit code 1. It warns when runs of the default design disagree, since the simulation is deterministic.
 
 ```bash
 python examples/rtlparam_go_nogo.py --task ariane-4x4-matmul-scaled --db runs/rtlparam.db

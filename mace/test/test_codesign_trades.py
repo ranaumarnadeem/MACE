@@ -247,6 +247,35 @@ class TestCommandLine:
         assert "trades:" in out.out
         assert "  - {home_alloc: LOW, l2_mshr: 16, scoreboard: 4}  # predicted -61000 (-6.1%), storage -216 bits" in out.out
 
+    def test_write_suite_sets_the_picked_trades_on_the_task_and_the_loader_accepts_them(self, tmp_path, monkeypatch, capsys):
+        db = self._sweep(tmp_path, [("l2_mshr", 16, 910_000), ("scoreboard", 4, 1_030_000), ("home_alloc", "LOW", 999_000)])
+        out_path = tmp_path / "with_trades.yaml"
+        code, out = self._run(tmp_path, monkeypatch, capsys, db, extra=("--k", "2", "--write-suite", str(out_path)))
+        assert code == 0 and f"# wrote {out_path}" in out.out
+        (task,) = load_suite(out_path)
+        assert [t.changed() for t in task.rtlparam.trades] == [
+            {"home_alloc": "LOW", "l2_mshr": 16, "scoreboard": 4}, {"l2_mshr": 16, "scoreboard": 4},
+        ]
+        assert task.rtlparam.finish == "sim_time"  # the rest of the block is unchanged
+
+    def test_write_suite_changes_only_the_named_task_when_tasks_share_a_block(self, tmp_path, monkeypatch, capsys):
+        shared = SUITE.replace("    rtlparam:\n", "    rtlparam: &block\n") + (
+            "  - id: other-task\n    core: ariane\n    mesh: [2, 2]\n    workloads: [matmul_scaled.c]\n"
+            "    objective: Finish matmul_scaled.c soonest.\n    rtlparam: *block\n"
+        )
+        db = self._sweep(tmp_path, [("l2_mshr", 16, 910_000), ("scoreboard", 4, 1_030_000)])
+        out_path = tmp_path / "with_trades.yaml"
+        self._run(tmp_path, monkeypatch, capsys, db, extra=("--write-suite", str(out_path)), suite=shared)
+        task, other = load_suite(out_path)
+        assert task.rtlparam.trades and other.rtlparam.trades == ()
+        assert task.rtlparam.space == other.rtlparam.space
+
+    def test_nothing_is_written_when_no_trade_is_predicted_to_help(self, tmp_path, monkeypatch, capsys):
+        db = self._sweep(tmp_path, [("l2_mshr", 16, 1_010_000)])
+        out_path = tmp_path / "with_trades.yaml"
+        code, _ = self._run(tmp_path, monkeypatch, capsys, db, extra=("--write-suite", str(out_path)))
+        assert code == 0 and not out_path.exists()
+
     def test_says_so_when_no_in_budget_combination_helps(self, tmp_path, monkeypatch, capsys):
         db = self._sweep(tmp_path, [("l2_mshr", 16, 1_010_000), ("scoreboard", 4, 1_030_000)])
         code, out = self._run(tmp_path, monkeypatch, capsys, db)
