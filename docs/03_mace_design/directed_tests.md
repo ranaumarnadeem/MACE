@@ -29,6 +29,9 @@ The task has a form for two cores:
 
 On any other core the task fails and says that directed tests are not available.
 
+The task's prompt gives the form's skeleton and the rules the harness learned from failed tests: define every label a test branches to, branch to labels and not to numeric offsets, and end an assembly test with `TEST_PASSFAIL`.
+It also asks for boundary operands (0, 1, the largest and smallest signed values, the largest unsigned value, and a byte or halfword with its top bit set), because signed and unsigned handling and sign extension differ only at those values.
+
 ## The agent's tool
 
 `DirectedTestTool` has four methods: `list`, `read`, `search`, and `write_test`.
@@ -36,7 +39,7 @@ The first three read the design under `piton/design/` and the example programs a
 `write_test(name, target, source)` saves one test.
 The name is lowercase letters, digits, and underscores, starts with a letter, and takes at most 40 characters.
 The target is the RTL file under `piton/design/` that the test is about, and it must exist.
-The source must look like its form: an assembly test contains `RVTEST_CODE_BEGIN` and reaches `TEST_PASSFAIL` or `RVTEST_PASS`, and a C test defines `main`.
+The source must look like its form: an assembly test contains `RVTEST_CODE_BEGIN` and `TEST_PASSFAIL`, gives each `TEST_CASE` a different number, and has no `#` comment inside a `TEST_` macro, and a C test defines `main`.
 A source takes at most 30,000 characters, and a task keeps at most three tests; writing a name again replaces its test.
 
 The tool writes only `dt_<name>.<form>` and a `tests.json` sidecar of the task's tests, in one directory under the checkout's `build/.mace_tests/`.

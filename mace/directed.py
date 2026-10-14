@@ -89,7 +89,11 @@ Comment with /* */ inside the macro, or put a # comment on its own line outside 
 TEST_PASSFAIL, never RVTEST_PASS alone, and give each TEST_CASE a different number. Check only behavior the
 instruction set defines; the core has no trap handler to test, so use no ecall, mtvec, or other CSR. A program that
 does not assemble still runs, to a timeout, so define every label you branch to (the label for a failure is fail) and
-branch to labels, never to numeric offsets."""
+branch to labels, never to numeric offsets.
+
+Do not test only small positive values. Use boundary operands too: 0, 1, 0x7fffffff, 0x80000000, and 0xffffffff, and for
+loads and stores a byte or halfword with its top bit set. Signed and unsigned handling, sign extension, and width differ
+only at those values."""
 
 _C_STYLE = """\
 A directed test is a short C program that checks one piece of logic in the design. Every tile runs main on shared
@@ -105,7 +109,10 @@ piton/verif/diag/assembly/include/riscv/ariane/util.h. argv[0][0] is the hart id
     int failed = 0;
     /* checks */
     return failed != 0;
-  }"""
+  }
+
+Do not test only small positive values. Use boundary operands too: 0, 1, the largest and smallest signed values, and
+the largest unsigned value of each width you use. Signed and unsigned handling and width differ only at those values."""
 
 
 def test_form(core: str) -> str | None:
