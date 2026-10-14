@@ -105,6 +105,44 @@ class TestHeldOutFaults:
         assert config.config_rtl == ()
 
 
+class TestTwoChangeFaults:
+    TWO = {
+        "synth_and_no_mem": ("fpga_synth", "no_mem_ctrl"),
+        "bist_and_synth": ("drop_bist", "fpga_synth"),
+        "l2_and_no_mem": ("l2_direct_mapped", "no_mem_ctrl"),
+    }
+
+    def test_each_names_two_single_faults_and_no_single_fault_names_parts(self):
+        for name, parts in self.TWO.items():
+            assert FAULTS[name].parts == parts and all(p in FAULTS and not FAULTS[p].parts for p in parts)
+        assert {n for n, f in FAULTS.items() if f.parts} == set(self.TWO)
+
+    def test_they_apply_where_both_parts_break_the_design(self):
+        for name, parts in self.TWO.items():
+            assert FAULTS[name].cores == frozenset.intersection(*(FAULTS[p].cores for p in parts))
+            assert FAULTS[name].min_rows == max(FAULTS[p].min_rows for p in parts)
+
+    def test_the_changes_are_the_parts_changes_together(self):
+        broken = FAULTS["synth_and_no_mem"].break_task(task(config_rtl=(BIST_DEFINE,)))
+        assert broken.config_rtl == (BIST_DEFINE, "PITONSYS_NO_MC", FPGA_DEFINE)
+        broken = FAULTS["bist_and_synth"].break_task(task(config_rtl=(BIST_DEFINE,)))
+        assert broken.config_rtl == (FPGA_DEFINE,)
+        broken = FAULTS["l2_and_no_mem"].break_task(task(config_rtl=(BIST_DEFINE,)))
+        assert broken.config_rtl == (BIST_DEFINE, "PITONSYS_NO_MC") and broken.caches_dict == {"l2": (65536, 1)}
+
+    def test_undoing_one_part_leaves_the_other_part_s_change(self):
+        both = FAULTS["synth_and_no_mem"].break_task(task())
+        only_memory = FAULTS["no_mem_ctrl"].break_task(task())
+        assert set(both.config_rtl) - set(only_memory.config_rtl) == {FPGA_DEFINE}
+
+    def test_they_are_not_held_out(self):
+        assert not any(FAULTS[name].held_out for name in self.TWO)
+
+    def test_unit_test_tasks_are_left_alone(self):
+        unit = task(kind="unit_test")
+        assert all(FAULTS[name].break_task(unit) is unit for name in self.TWO)
+
+
 class TestFirstPlanBreaker:
     def test_breaks_only_the_first_plan(self):
         hook = first_plan_breaker(FAULTS["fpga_synth"])

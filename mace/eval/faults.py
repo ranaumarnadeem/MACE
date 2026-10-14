@@ -43,6 +43,8 @@ class Fault:
     # The fewest rows of tiles a mesh needs for the fault to break it.
     min_rows: int = 1
     held_out: bool = False
+    # For a fault of two changes: the single faults it applies together.
+    parts: tuple[str, ...] = ()
 
     def applies_to(self, core: str, mesh: tuple[int, int]) -> bool:
         """Whether seeding this fault into a task on *core* and *mesh* breaks it."""
@@ -64,6 +66,17 @@ def _with_cache(task: Task, name: str, geometry: tuple[int, int]) -> Task:
     caches = dict(task.caches or ())
     caches[name] = geometry
     return dataclasses.replace(task, caches=tuple(sorted(caches.items())))
+
+
+def _combined(*names: str) -> Callable[[Task], Task]:
+    """The change that applies each named single fault in turn; they are looked up when it runs."""
+
+    def change(task: Task) -> Task:
+        for name in names:
+            task = FAULTS[name].change(task)
+        return task
+
+    return change
 
 
 FAULTS: dict[str, Fault] = {
@@ -140,6 +153,35 @@ FAULTS: dict[str, Fault] = {
                 task, drop_rtl=tuple(sorted({*(task.drop_rtl or ()), MONITORING_DEFINE}))
             ),
             held_out=True,
+        ),
+        # Two changes at once, each a fault above that breaks the design alone: undoing either one still
+        # leaves it broken, so the failure shows one cause at a time. Unverified until faultcheck_<name>.
+        Fault(
+            "synth_and_no_mem",
+            f"Adds {FPGA_DEFINE} and {NO_MEMORY_DEFINE}: the build fails on the first, and once that is undone "
+            "the simulation times out on the second.",
+            frozenset(("ariane", "pico")),
+            False,
+            _combined("fpga_synth", "no_mem_ctrl"),
+            parts=("fpga_synth", "no_mem_ctrl"),
+        ),
+        Fault(
+            "bist_and_synth",
+            f"Removes {BIST_DEFINE} and adds {FPGA_DEFINE}: the build fails on the second, and once that is "
+            "undone the PicoRV32 simulation times out on the first.",
+            frozenset(("pico",)),
+            False,
+            _combined("drop_bist", "fpga_synth"),
+            parts=("drop_bist", "fpga_synth"),
+        ),
+        Fault(
+            "l2_and_no_mem",
+            f"Sets a direct-mapped L2 and adds {NO_MEMORY_DEFINE}: the build fails on the first, and once that "
+            "is undone the simulation times out on the second.",
+            frozenset(("ariane", "pico")),
+            False,
+            _combined("l2_direct_mapped", "no_mem_ctrl"),
+            parts=("l2_direct_mapped", "no_mem_ctrl"),
         ),
     )
 }
