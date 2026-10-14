@@ -29,7 +29,7 @@ tasks:
     mesh: [2, 2]
     workloads: [matmul_scaled.c]
     objective: Finish matmul_scaled.c soonest on a 2x2 Ariane mesh with every tile passing.
-    verified: false
+    verified: true
     rtl_timeout: 5000000
     max_cycle: 5000000
     budget: {max_wall_s: 21600}
@@ -52,7 +52,7 @@ tasks:
     mesh: [4, 2]
     workloads: [matmul_scaled.c]
     objective: Finish matmul_scaled.c soonest on a 4x2 Ariane mesh with every tile passing.
-    verified: false
+    verified: true
     rtl_timeout: 5000000
     max_cycle: 5000000
     budget: {max_wall_s: 36000}
