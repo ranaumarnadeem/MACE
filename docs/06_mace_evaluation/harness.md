@@ -97,6 +97,19 @@ The last four faults are held out: they were defined after the loop's fixed chec
 Their fault checks ran on `ariane-2x2-barrier` and `pico-2x2-addi`, so they are verified on 2x2 meshes.
 A fault that removes a default define sets `Task.drop_rtl`, which `_config_for_task()` honours; the planner has no directive for it, since `CONFIG_RTL:` only adds defines.
 
+Three faults make two changes at once, each a single fault above that breaks the design alone, so undoing either one leaves it broken:
+
+| Fault | Parts | Failure |
+|---|---|---|
+| `synth_and_no_mem` | `fpga_synth`, `no_mem_ctrl` | The build fails on the first; once it is undone, the simulation times out on the second |
+| `bist_and_synth` | `drop_bist`, `fpga_synth` | The build fails on the second; once it is undone, the PicoRV32 simulation times out on the first |
+| `l2_and_no_mem` | `l2_direct_mapped`, `no_mem_ctrl` | The build fails on the first; once it is undone, the simulation times out on the second |
+
+`Fault.parts` names the single faults of such a fault, and a report groups them apart from the single-change faults.
+Their fault checks ran on `ariane-2x2-barrier` and `pico-2x2-addi` (`bist_and_synth` on PicoRV32 only) and failed the build on the first part in every run; the second part's failure is its single fault's own.
+A loop that reads one failure at a time needs a build or simulation per change, while narrowing's `combination` verdict undoes both together.
+With the default budget of three iterations, a method that finds one cause per iteration has no attempt to spare.
+
 A fault applies to bring-up tasks on the cores it lists, and `crossbar` only to meshes with two or more rows, since OpenPiton's crossbar has one port per column.
 A `seeded_<fault>` method runs the loop with that fault seeded, only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.
 A `seeded_retry_<fault>` method runs the retry agent with the same fault applied to its first design, through `run_retry_agent`'s `design_hook`, and leaves later designs alone; it applies to the same tasks as `seeded_<fault>`.
