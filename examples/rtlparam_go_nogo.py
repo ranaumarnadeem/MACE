@@ -62,6 +62,9 @@ def main() -> int:
         print("NO VERDICT: no run has a passing default design with a finish time", file=sys.stderr)
         return 1
     print(f"default finish time {verdict.default_finish}")
+    if not verdict.candidates:
+        print("NO VERDICT: no design other than the default has passed within the budget yet", file=sys.stderr)
+        return 1
     if not verdict.default_consistent:
         print("WARNING: runs of the default design disagree on its finish time; the simulation should be deterministic")
     print(f"{'gain':>8}  {'finish':>10}  {'bits':>6}  design")

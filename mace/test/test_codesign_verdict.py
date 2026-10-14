@@ -229,6 +229,14 @@ class TestCommandLine:
         assert "GO: home_alloc=MIDDLE beats the default by 2.04%, within the budget." in out.out
         assert "NO-GO" not in out.out
 
+    def test_a_run_of_only_the_default_design_gives_no_verdict_and_not_a_no_go(self, tmp_path, monkeypatch, capsys):
+        db = self._db(tmp_path, method="rtlparam_default", rows=SWEEP[:1])
+        code, out = self._run(tmp_path, monkeypatch, capsys, db)
+        assert code == 1
+        assert "default finish time 228855" in out.out
+        assert "NO VERDICT: no design other than the default has passed within the budget yet" in out.err
+        assert "NO-GO" not in out.out
+
     def test_designs_over_the_budget_are_not_listed(self, tmp_path, monkeypatch, capsys):
         db = self._db(tmp_path)
         _, out = self._run(tmp_path, monkeypatch, capsys, db)
