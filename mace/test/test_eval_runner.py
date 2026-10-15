@@ -343,18 +343,147 @@ class TestCodesignJobs:
         assert runner.area_budget_um2(task) == pytest.approx(expected)
 
 
+def rtlparam_task(task_id="rp-task", trades=False, finish="compute_cycles"):
+    from mace.codesign.rtl import RtlSpace
+    from mace.eval.suite import RtlParamConfig
+
+    space = RtlSpace({"l2_mshr": (4, 8, 16), "dcache_wbuf": (4, 8), "home_alloc": ("LOW", "MIXED")})
+    listed = (space.design({"l2_mshr": 4, "home_alloc": "LOW"}), space.design({"home_alloc": "LOW"})) if trades else ()
+    config = RtlParamConfig(space=space, simulations=6, storage_budget_ratio=1.25, trades=listed, finish=finish)
+    return suite_task(task_id, workloads=("matmul_scaled.c",), rtlparam=config)
+
+
 class TestNoLLMMethods:
     def test_each_runs_with_no_llm(self, tmp_path, monkeypatch):
         monkeypatch.setattr("mace.eval.runner.run_codesign", lambda roots, spec, strat, db, **kwargs: "done")
+        monkeypatch.setattr("mace.eval.runner.run_rtlsearch", lambda roots, spec, strat, db, **kwargs: "done")
         monkeypatch.setattr("mace.eval.runner.run_expert", lambda roots, spec, task, db, **kwargs: "done")
         env = runner.RunEnv(piton_roots=("/a",), llm=None, db=make_db(tmp_path), clear_cache=False)
         for method in sorted(runner.NO_LLM_METHODS):
-            task = codesign_task() if method in runner.CODESIGN_METHODS else suite_task()
+            if method in runner.RTLPARAM_METHODS:
+                task = rtlparam_task()
+            else:
+                task = codesign_task() if method in runner.CODESIGN_METHODS else suite_task()
             assert runner.run_job(runner.Job(task, method, 0), env) == "done"
 
     def test_the_llm_proposer_is_not_among_them(self):
         assert runner.NO_LLM_METHODS < set(runner.METHODS)
         assert "codesign_mace" not in runner.NO_LLM_METHODS
+
+
+class TestRtlParamJobs:
+    @pytest.fixture
+    def searches(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "mace.eval.runner.run_rtlsearch",
+            lambda roots, spec, strat, db, **kwargs: calls.append((roots, spec, strat, kwargs)) or "done",
+        )
+        return calls
+
+    def test_methods_run_only_on_the_tasks_they_apply_to(self):
+        tasks = (suite_task(), codesign_task(), rtlparam_task())
+        methods = ("mace", "codesign_random", "rtlparam_default", "rtlparam_sweep", "rtlparam_bayes")
+        keys = {j.key for j in runner.plan_jobs(tasks, methods, repeats=2)}
+        assert keys == {
+            ("ariane-2x2-barrier", "mace", 0), ("ariane-2x2-barrier", "mace", 1),
+            ("cd-task", "codesign_random", 0), ("cd-task", "codesign_random", 1),
+            ("rp-task", "rtlparam_default", 0), ("rp-task", "rtlparam_sweep", 0),
+            ("rp-task", "rtlparam_bayes", 0), ("rp-task", "rtlparam_bayes", 1),
+        }
+
+    def test_no_other_method_applies_to_an_rtl_parameter_task(self):
+        task = rtlparam_task()
+        others = [m for m in runner.METHODS if m not in runner.RTLPARAM_METHODS]
+        assert [m for m in others if runner.applies(m, task)] == []
+        assert all(runner.applies(m, task) for m in runner.RTLPARAM_METHODS - {"rtlparam_trades"})
+
+    def test_the_methods_are_described(self):
+        assert runner.RTLPARAM_METHODS <= set(runner.METHODS)
+        assert all(runner.METHODS[m] for m in runner.RTLPARAM_METHODS)
+
+    @pytest.mark.parametrize(
+        "method,strategy,seed,simulations,budget",
+        [
+            ("rtlparam_default", "GridSearch", None, 1, None),
+            ("rtlparam_sweep", "GridSearch", None, 1 + 2 + 1 + 1, None),
+            ("rtlparam_mace", "RtlProposer", None, 6, 602),
+            ("rtlparam_bayes", "BayesianSearch", 1, 6, 602),
+        ],
+    )
+    def test_each_method_searches_with_its_strategy(self, tmp_path, searches, method, strategy, seed, simulations, budget):
+        pytest.importorskip("optuna")
+        assert runner.run_job(runner.Job(rtlparam_task(), method, 1), make_env(tmp_path)) == "done"
+        ((roots, spec, strat, kwargs),) = searches
+        assert type(strat).__name__ == strategy
+        assert roots == ("/a",)
+        assert spec.workloads == ("matmul_scaled.c",)
+        assert (kwargs["simulations"], kwargs["storage_budget_bits"]) == (simulations, budget)
+        labels = kwargs["labels"]
+        assert (labels.method, labels.task, labels.seed) == (method, "rp-task", seed)
+        assert labels.meta["simulations"] == simulations and labels.meta["storage_budget_bits"] == budget
+        assert labels.meta["storage_budget_ratio"] == (1.25 if budget is not None else None)
+        assert (labels.meta["finish"], labels.meta["win_margin"]) == ("compute_cycles", 0.01)
+        assert kwargs["finish"] == "compute_cycles"
+        assert labels.meta["piton_roots"] == ["/a"]
+
+    def test_the_task_s_finish_time_reaches_the_search_and_the_proposer(self, tmp_path, searches):
+        task = rtlparam_task("rp-sim", finish="sim_time")
+        runner.run_job(runner.Job(task, "rtlparam_mace", 0), make_env(tmp_path))
+        ((_, _, strat, kwargs),) = searches
+        assert kwargs["finish"] == "sim_time" and strat.finish == "sim_time"
+
+    def test_the_trades_method_runs_only_on_a_task_that_lists_trades(self):
+        plain, with_trades = rtlparam_task(), rtlparam_task("rp-trades", trades=True)
+        assert not runner.applies("rtlparam_trades", plain)
+        assert runner.applies("rtlparam_trades", with_trades)
+        assert not runner.applies("rtlparam_trades", suite_task())
+        jobs = runner.plan_jobs((plain, with_trades), ("rtlparam_trades", "rtlparam_default"), repeats=2)
+        assert {j.key for j in jobs} == {
+            ("rp-trades", "rtlparam_trades", 0), ("rp-task", "rtlparam_default", 0), ("rp-trades", "rtlparam_default", 0),
+        }
+
+    def test_the_trades_method_simulates_the_default_then_each_trade_under_the_budget(self, tmp_path, searches):
+        task = rtlparam_task("rp-trades", trades=True)
+        runner.run_job(runner.Job(task, "rtlparam_trades", 0), make_env(tmp_path))
+        ((roots, _, strat, kwargs),) = searches
+        assert type(strat).__name__ == "GridSearch"
+        assert strat.designs == [task.rtlparam.space.default(), *task.rtlparam.trades]
+        assert kwargs["simulations"] == 1 + len(task.rtlparam.trades)
+        assert kwargs["storage_budget_bits"] == task.rtlparam.storage_budget_bits() == 602
+
+    def test_every_search_starts_from_the_default_design(self, tmp_path, searches):
+        pytest.importorskip("optuna")
+        default = rtlparam_task().rtlparam.space.default()
+        for method in ("rtlparam_default", "rtlparam_sweep", "rtlparam_mace", "rtlparam_bayes"):
+            runner.run_job(runner.Job(rtlparam_task(), method, 0), make_env(tmp_path))
+        assert len(searches) == 4
+        for _, _, strat, _ in searches:
+            assert strat.propose([], 1) == [default], type(strat).__name__
+
+    def test_the_sweep_covers_each_value_of_each_parameter_once(self, tmp_path, searches):
+        runner.run_job(runner.Job(rtlparam_task(), "rtlparam_sweep", 0), make_env(tmp_path))
+        ((_, _, strat, kwargs),) = searches
+        assert len(strat.designs) == kwargs["simulations"] == 5
+        assert [len(d.changed()) for d in strat.designs] == [0, 1, 1, 1, 1]
+
+    def test_the_build_cache_is_kept_between_searches(self, tmp_path, searches):
+        (tmp_path / "build" / "manycore" / "mace_1").mkdir(parents=True)
+        env = make_env(tmp_path, roots=(str(tmp_path),))
+        env.clear_cache = True
+        runner.run_job(runner.Job(rtlparam_task(), "rtlparam_default", 0), env)
+        assert (tmp_path / "build" / "manycore" / "mace_1").exists()
+
+    def test_the_default_and_sweep_run_once_and_the_llm_method_is_the_only_one_with_a_model(self):
+        assert {"rtlparam_default", "rtlparam_sweep"} <= runner.ONCE_METHODS
+        assert not {"rtlparam_mace", "rtlparam_bayes"} & runner.ONCE_METHODS
+        assert runner.RTLPARAM_METHODS - runner.NO_LLM_METHODS == {"rtlparam_mace"}
+
+    def test_an_unknown_method_name_is_refused(self, tmp_path, searches, monkeypatch):
+        monkeypatch.setattr(runner, "RTLPARAM_METHODS", runner.RTLPARAM_METHODS | {"rtlparam_new"})
+        with pytest.raises(ValueError, match="unknown RTL-parameter method"):
+            runner.run_job(runner.Job(rtlparam_task(), "rtlparam_new", 0), make_env(tmp_path))
+        assert searches == []
 
 
 class TestSeededJobs:

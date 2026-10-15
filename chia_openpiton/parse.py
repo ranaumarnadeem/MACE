@@ -95,6 +95,38 @@ def max_cycles(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# --- fake_uart.log: per-hart cycle counts -----------------------------------
+
+# One line per hart, printed by a program that reads mcycle (the counter
+# rdcycle reads) at the start and end of its work: the hart, the start cycle,
+# and the end cycle, e.g.
+#   "h3 1204 188731"
+# It is short because the fake UART costs about a thousand cycles a character.
+_HART_CYCLES_RE = re.compile(r"^[ \t]*h(\d+)[ \t]+(\d+)[ \t]+(\d+)[ \t\r]*$", re.MULTILINE)
+
+
+def hart_cycles(text: str) -> dict[int, tuple[int, int]]:
+    """``{hart: (start, end)}`` mcycle values from a ``fake_uart.log``.
+
+    The values are core clock cycles, not the testbench ``$time`` that
+    :func:`sim_time` reads. Every hart counts from the same reset, so the
+    values compare across harts. A log with no such lines gives ``{}``.
+
+    Raises:
+        ValueError: a hart appears twice, or ends before it starts. Keeping
+            one of two readings would hide a garbled log.
+    """
+    found: dict[int, tuple[int, int]] = {}
+    for m in _HART_CYCLES_RE.finditer(text or ""):
+        hart, start, end = (int(g) for g in m.groups())
+        if hart in found:
+            raise ValueError(f"hart {hart} reports its cycle counts twice")
+        if end < start:
+            raise ValueError(f"hart {hart} ends at {end}, before it starts at {start}")
+        found[hart] = (start, end)
+    return found
+
+
 # --- status.log (regreport -1) ----------------------------------------------
 
 _DIAG_RE = re.compile(r"^Diag:\s+(\S+)\s+(.+?)\s*$", re.MULTILINE)

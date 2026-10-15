@@ -35,6 +35,32 @@ and the area budget as a ratio of the default caches' area. ::
         l1d_size: [4096, 8192, 16384]
         l15_size: [8192, 16384]
 
+An RTL-parameter task adds an ``rtlparam`` block (session C): the values each
+searched parameter may take (see ``mace.codesign.rtl``), the simulations per
+search, and the storage budget as a ratio of the default design's storage in
+the searched parameters, as ``area_budget_ratio`` is for caches. A ratio of 1.0
+lets a design reallocate storage but not add any. ``finish`` is the time a
+search minimizes, ``compute_cycles`` (the default) or ``sim_time``, and
+``win_margin`` how much faster than the default an in-budget design must be to
+count as beating it (see ``mace.codesign.verdict``). ::
+
+    rtlparam:
+      simulations: 10
+      storage_budget_ratio: 1.0
+      finish: compute_cycles
+      win_margin: 0.01
+      space:
+        l2_mshr: [4, 8, 16]
+        dcache_wbuf: [4, 8, 16]
+
+An optional ``trades`` list names designs to simulate after the sweep, chosen
+from its results (see ``examples/rtlparam_pick_trades.py``). The loader
+refuses a trade that is the default design, a repeat, outside the space, or
+over the storage budget. ::
+
+        trades:
+          - {scoreboard: 4, l2_mshr: 16}
+
 ``workload_args`` gives a gate program the finish mask and extra ``sims``
 run arguments its run needs, as OpenSPARC T1's multi-thread diags do. A
 ``finish_mask`` left out keeps the mesh's one-per-tile default. ::
@@ -66,6 +92,8 @@ job starts.
 
 from __future__ import annotations
 
+import dataclasses
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +103,8 @@ import yaml
 from chia_openpiton.state_def import DEFAULT_CACHES, PitonConfig
 from mace.baselines.expert import expert_task
 from mace.codesign.area import cache_arrays
+from mace.codesign.rtl import RtlDesign, RtlSpace  # session C
+from mace.codesign.verdict import COMPUTE, FINISH_KINDS  # session C
 from mace.codesign.space import DEFAULT_NETWORK, Design, DesignSpace
 from mace.eval.source_faults import SourceEdit
 from mace.spec import Budget, MaceSpec, Task
@@ -82,9 +112,10 @@ from mace.spec import Budget, MaceSpec, Task
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _TASK_KEYS = frozenset(
     ("id", "core", "mesh", "workloads", "objective", "verified", "expert", "budget", "rtl_timeout", "max_cycle",
-     "codesign", "workload_args", "source_fault")
+     "codesign", "workload_args", "source_fault", "rtlparam")  # "rtlparam": session C
 )
 _CODESIGN_KEYS = frozenset(("simulations", "batch", "area_budget_ratio", "space", "grid"))
+_RTLPARAM_KEYS = frozenset(("simulations", "storage_budget_ratio", "space", "trades", "finish", "win_margin"))  # session C
 
 
 class SuiteError(ValueError):
@@ -112,6 +143,34 @@ class CodesignConfig:
 
 
 @dataclass(frozen=True)
+class RtlParamConfig:  # session C
+    """What an RTL-parameter task searches, and with how many simulations."""
+
+    space: RtlSpace
+    simulations: int = 10
+    # The storage budget as a multiple of the default design's storage in the
+    # searched parameters; None sets no budget.
+    storage_budget_ratio: float | None = 1.0
+    # Designs picked from the sweep's results for rtlparam_trades to simulate;
+    # each is within the budget.
+    trades: tuple[RtlDesign, ...] = ()
+    # The finish time a search minimizes (see mace.codesign.verdict): the
+    # compute time from the per-hart cycles, or the testbench's sim_time.
+    finish: str = COMPUTE
+    # How much faster than the default design, as a fraction of its finish
+    # time, an in-budget design must be to count as beating it.
+    win_margin: float = 0.01
+
+    def storage_budget_bits(self) -> int | None:
+        """The flip-flop bits per tile a design may add over the default
+        design: the ratio's excess over 1 times the default design's storage,
+        rounded down. Zero at a ratio of 1.0; None without a budget."""
+        if self.storage_budget_ratio is None:
+            return None
+        return math.floor((self.storage_budget_ratio - 1) * self.space.default().storage_total() + 1e-9)
+
+
+@dataclass(frozen=True)
 class SuiteTask:
     """One evaluation task."""
 
@@ -131,10 +190,14 @@ class SuiteTask:
     # RTL text replacements every job on this task runs under (see
     # mace.eval.source_faults); empty for a task on the unmodified design.
     source_fault: tuple[SourceEdit, ...] = ()
+    rtlparam: RtlParamConfig | None = None  # session C
 
     @property
     def kind(self) -> str:
-        """``codesign`` for a task with a ``codesign`` block, else ``bringup``."""
+        """``codesign`` for a task with a ``codesign`` block, ``rtlparam`` for
+        one with an ``rtlparam`` block, else ``bringup``."""
+        if self.rtlparam is not None:  # session C
+            return "rtlparam"
         return "codesign" if self.codesign is not None else "bringup"
 
     def spec(self) -> MaceSpec:
@@ -239,6 +302,63 @@ def _codesign(raw: object, task_id: str, core: str, mesh: tuple[int, int]) -> Co
     return config
 
 
+# --- session C: the rtlparam block ---------------------------------------------
+def _rtlparam(raw: object, task_id: str) -> RtlParamConfig | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) - _RTLPARAM_KEYS:
+        raise SuiteError(f"task {task_id}: rtlparam takes only {sorted(_RTLPARAM_KEYS)}")
+    space_raw = raw.get("space")
+    if not (isinstance(space_raw, dict) and space_raw):
+        raise SuiteError(f"task {task_id}: rtlparam needs a space mapping each parameter to its values")
+    if not all(isinstance(values, list) for values in space_raw.values()):
+        raise SuiteError(f"task {task_id}: each rtlparam space entry must be a list of values")
+    try:
+        space = RtlSpace({name: tuple(values) for name, values in space_raw.items()})
+    except ValueError as e:
+        raise SuiteError(f"task {task_id}: rtlparam: {e}") from e
+    simulations = raw.get("simulations", 10)
+    if not isinstance(simulations, int) or isinstance(simulations, bool) or simulations <= 0:
+        raise SuiteError(f"task {task_id}: rtlparam simulations must be a positive int, got {simulations!r}")
+    ratio = raw.get("storage_budget_ratio", 1.0)
+    if ratio is not None and (not isinstance(ratio, (int, float)) or isinstance(ratio, bool) or ratio <= 0):
+        raise SuiteError(f"task {task_id}: rtlparam storage_budget_ratio must be positive or null, got {ratio!r}")
+    finish = raw.get("finish", COMPUTE)
+    if finish not in FINISH_KINDS:
+        raise SuiteError(f"task {task_id}: rtlparam finish must be one of {list(FINISH_KINDS)}, got {finish!r}")
+    margin = raw.get("win_margin", 0.01)
+    if not isinstance(margin, (int, float)) or isinstance(margin, bool) or not 0 <= margin < 1:
+        raise SuiteError(f"task {task_id}: rtlparam win_margin must be a fraction from 0 up to 1, got {margin!r}")
+    config = RtlParamConfig(
+        space=space, simulations=simulations, storage_budget_ratio=ratio, finish=finish, win_margin=margin
+    )
+    trades_raw = raw.get("trades") or []
+    if not isinstance(trades_raw, list):
+        raise SuiteError(f"task {task_id}: rtlparam trades must be a list of designs")
+    trades: list[RtlDesign] = []
+    budget = config.storage_budget_bits()
+    for item in trades_raw:
+        if not (isinstance(item, dict) and item and set(item) <= set(space.values)):
+            raise SuiteError(
+                f"task {task_id}: each rtlparam trade maps searched parameters to values, got {item!r}"
+            )
+        design = space.design(item)
+        if not space.contains(design):
+            raise SuiteError(f"task {task_id}: rtlparam trade {item!r} uses a value outside the space")
+        if design == space.default() or design in trades:
+            raise SuiteError(f"task {task_id}: rtlparam trade {item!r} is the default design or a repeat")
+        if budget is not None and design.storage_delta() > budget:
+            raise SuiteError(
+                f"task {task_id}: rtlparam trade {item!r} adds {design.storage_delta()} storage bits, "
+                f"over the budget of {budget}"
+            )
+        trades.append(design)
+    return dataclasses.replace(config, trades=tuple(trades))
+
+
+# --- end session C -------------------------------------------------------------
+
+
 def _budget(raw: dict, where: str, base: Budget | None = None) -> Budget:
     base = base or Budget()
     unknown = set(raw) - {"max_iterations", "max_usd", "max_wall_s"}
@@ -318,6 +438,8 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
         if name not in DEFAULT_CACHES or not (isinstance(geometry, list) and len(geometry) == 2):
             raise SuiteError(f"task {task_id}: expert cache {name!r} must be one of {sorted(DEFAULT_CACHES)} as [size, assoc]")
         caches[name] = (geometry[0], geometry[1])
+    if entry.get("codesign") is not None and entry.get("rtlparam") is not None:  # session C
+        raise SuiteError(f"task {task_id}: a task has a codesign block or an rtlparam block, not both")
     try:
         task = SuiteTask(
             id=task_id,
@@ -334,6 +456,7 @@ def _task(entry: object, base_budget: Budget) -> SuiteTask:
             codesign=_codesign(entry.get("codesign"), task_id, entry.get("core", "ariane"), (mesh[0], mesh[1])),
             workload_args=_workload_args(entry.get("workload_args"), task_id),
             source_fault=_source_fault(entry.get("source_fault"), task_id),
+            rtlparam=_rtlparam(entry.get("rtlparam"), task_id),  # session C
         )
         spec = task.spec()
         expert_cfg = task.expert_task()

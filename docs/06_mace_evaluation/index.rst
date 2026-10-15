@@ -13,3 +13,4 @@ MACE Evaluation
    cost
    harness
    directed_tests
+   rtl_params

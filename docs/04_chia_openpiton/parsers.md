@@ -30,6 +30,9 @@ sim_time(text: str) -> int | None
 fail_reason(text: str) -> str
 max_cycles(text: str) -> int | None
 
+# fake_uart.log
+hart_cycles(text: str) -> dict[int, tuple[int, int]]
+
 # status.log
 status_diag(text: str) -> tuple[str, str] | None
 cycles(text: str) -> int | None
@@ -61,6 +64,7 @@ first_divergence(reference: str, actual: str) -> tuple[int, str, str] | None
 | `sim_time` | The simulation time that prefixes the verdict line, such as `179911750` |
 | `fail_reason` | The message inside `Simulation -> FAIL(...)`, such as `HIT BAD TRAP`, or `""` |
 | `max_cycles` | The count from a max-cycles abort, or `None` |
+| `hart_cycles` | `{hart: (start, end)}` from the lines `h<id> <start cycle> <end cycle>` that `matmul_scaled.c` prints, in core clock cycles. A log without such lines gives `{}`. A hart that appears twice, or ends before it starts, raises `ValueError`, since keeping one reading would hide a garbled log. A line another hart's output cut into is left out, so fewer harts than tiles shows that the log is incomplete |
 | `status_diag` | `(diag_name, status_text)` from the `Diag:` line. The status is regreport's text, such as `PASS`, `FAIL`, `Timeout`, `MaxCycles Hit`, `FAIL (Monitor)`, or `Unknown (No Status)` |
 | `cycles`, `exec_cycles`, `num_tiles` | The `Cyc=`, `ExecCyc=`, and `NumTiles=` values, or `None` |
 | `regress_summary` | A dict with `passed`, `counts`, and `diag_count`, parsed from a `regreport ... -summary` table. `passed` is `True` or `False` from a `REGRESSION PASSED` or `REGRESSION FAILED` line, else `None`. `counts` maps each status row present (`PASS`, `FAIL`, `Diag Problem`, `License Problem`, `MaxCycles Hit`, `Socket Problem`, `Timeout`, `LessThreads`, `Simics Problem`, `Performance`, `Killed By Job Q`, `Unknown`, `UnFinished`, `flexlm error`) to its count. `diag_count` comes from the `Diag Count:` row |
@@ -74,7 +78,7 @@ first_divergence(reference: str, actual: str) -> tuple[int, str, str] | None
 | `diaglist_group` | The tests of one diaglist group, as `DiagEntry` values |
 | `first_divergence` | The 1-based line number and both lines at the first line where the texts differ. `None` when one text is a line-for-line prefix of the other, which includes identical texts |
 
-[run()](workspace_node.md) calls `sim_verdict` and `sim_time` on the full `sim.log`, and `cycles` and `exec_cycles` on `status.log`. `build()` calls `needs_no_timing`, `build_failure_reason`, and, on the full output of a failed build, `build_errors`. [PitonToolServer](tool_server.md) calls `first_divergence`, and the MACE shell calls `coverage_summary` (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
+[run()](workspace_node.md) calls `sim_verdict` and `sim_time` on the full `sim.log`, and `cycles` and `exec_cycles` on `status.log`. `PitonRunResult.fake_uart` keeps the last 8000 characters of `fake_uart.log`. A `hart_cycles` line takes about 16 characters, so the kept text holds the line of every hart on a mesh of up to about 500 harts. `build()` calls `needs_no_timing`, `build_failure_reason`, and, on the full output of a failed build, `build_errors`. [PitonToolServer](tool_server.md) calls `first_divergence`, and the MACE shell calls `coverage_summary` (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
 
 ## Build failure tags
 

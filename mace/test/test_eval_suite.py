@@ -60,6 +60,47 @@ class TestTheRepositorySuite:
                 assert task.expert_config_rtl == ("CONFIG_DISABLE_BIST_CLEAR",)
 
 
+class TestTheRtlParamSuite:
+    RTLPARAM_SUITE = SUITE.with_name("tasks_rtlparam.yaml")
+
+    def test_loads_one_task_per_mesh_with_the_scaled_program(self):
+        tasks = load_suite(self.RTLPARAM_SUITE)
+        assert [t.id for t in tasks] == [
+            "ariane-2x2-matmul-scaled", "ariane-4x2-matmul-scaled", "ariane-4x4-matmul-scaled",
+        ]
+        assert [t.mesh for t in tasks] == [(2, 2), (4, 2), (4, 4)]
+        assert all(t.kind == "rtlparam" and t.workloads == ("matmul_scaled.c",) for t in tasks)
+
+    def test_every_task_minimizes_the_compute_time_and_needs_a_one_percent_win(self):
+        for task in load_suite(self.RTLPARAM_SUITE):
+            assert (task.rtlparam.finish, task.rtlparam.win_margin) == ("compute_cycles", 0.01)
+
+    def test_no_task_is_a_single_core_chip(self):
+        """A 1x1 mesh has no interconnect to contend for, so it is not part of the study."""
+        assert all(t.mesh[0] * t.mesh[1] > 1 for t in load_suite(self.RTLPARAM_SUITE))
+
+    def test_every_task_searches_the_same_space_with_the_same_budget(self):
+        first, *rest = [t.rtlparam for t in load_suite(self.RTLPARAM_SUITE)]
+        assert all(config == first for config in rest)
+
+    def test_the_workload_is_one_of_the_checksummed_gate_programs(self):
+        from mace.workloads import compute_checksums
+
+        for task in load_suite(self.RTLPARAM_SUITE):
+            assert set(task.workloads) <= set(compute_checksums())
+
+    def test_the_budget_is_the_default_design_s_storage_so_a_larger_buffer_must_be_paid_for(self):
+        (task, *_) = load_suite(self.RTLPARAM_SUITE)
+        assert task.rtlparam.storage_budget_ratio == 1.0
+        budget = task.rtlparam.storage_budget_bits()
+        assert budget == 0
+        costs = [d.storage_delta() for d in task.rtlparam.space.one_at_a_time()]
+        assert any(c <= budget for c in costs) and any(c > budget for c in costs)
+        # A larger buffer paired with a smaller one fits.
+        space = task.rtlparam.space
+        assert space.design({"scoreboard": 4, "l2_mshr": 16}).storage_delta() <= budget
+
+
 class TestLoading:
     def test_a_task_becomes_a_spec_and_an_expert_task(self, tmp_path):
         (task,) = load_suite(write(tmp_path, MINIMAL))
@@ -122,6 +163,146 @@ CODESIGN = MINIMAL.replace("id: pico-2x2-addi", "id: cd-task").replace("mesh: [2
         l1d_size: [4096, 8192]
         network: [2dmesh_config, xbar_config]
 """
+
+
+RTLPARAM = MINIMAL.replace("id: pico-2x2-addi", "id: rp-task").replace("core: pico", "core: ariane").replace(
+    "      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]\n", ""
+) + """\
+    rtlparam:
+      simulations: 6
+      storage_budget_ratio: 1.25
+      space:
+        l2_mshr: [4, 8, 16]
+        home_alloc: [LOW, MIXED]
+"""
+
+
+class TestRtlParamBlock:
+    def test_loads_the_space_the_simulations_and_the_budget(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        assert task.kind == "rtlparam"
+        config = task.rtlparam
+        assert (config.simulations, config.storage_budget_ratio) == (6, 1.25)
+        assert config.space.knobs == {"home_alloc": ("LOW", "MIXED"), "l2_mshr": (4, 8, 16)}
+        assert task.codesign is None
+
+    def test_the_budget_is_the_ratio_s_excess_times_the_default_design_s_storage(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        # The default design holds 8 L2 MSHR entries of 154 bits; the ratio adds a quarter of that.
+        assert task.rtlparam.space.default().storage_total() == 8 * 154
+        assert task.rtlparam.storage_budget_bits() == 308
+
+    def test_a_ratio_of_one_allows_no_added_storage_and_below_one_requires_savings(self, tmp_path):
+        one = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "1.0")))[0].rtlparam
+        below = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "0.5")))[0].rtlparam
+        assert one.storage_budget_bits() == 0
+        assert below.storage_budget_bits() == -616
+
+    def test_the_simulations_default_to_ten_and_the_ratio_to_one(self, tmp_path):
+        text = RTLPARAM.replace("      simulations: 6\n", "").replace("      storage_budget_ratio: 1.25\n", "")
+        (task,) = load_suite(write(tmp_path, text))
+        assert (task.rtlparam.simulations, task.rtlparam.storage_budget_ratio) == (10, 1.0)
+
+    TRADES = RTLPARAM.replace("1.25", "1.0").replace(
+        "        home_alloc: [LOW, MIXED]\n",
+        "        home_alloc: [LOW, MIXED]\n        scoreboard: [4, 8, 16]\n",
+    )
+
+    def test_trades_load_as_designs_of_the_space(self, tmp_path):
+        text = self.TRADES + "      trades:\n        - {l2_mshr: 16, scoreboard: 4}\n        - {home_alloc: LOW}\n"
+        (task,) = load_suite(write(tmp_path, text))
+        trades = task.rtlparam.trades
+        assert [t.changed() for t in trades] == [{"l2_mshr": 16, "scoreboard": 4}, {"home_alloc": "LOW"}]
+        assert all(task.rtlparam.space.contains(t) for t in trades)
+
+    def test_a_task_without_trades_has_none(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        assert task.rtlparam.trades == ()
+
+    @pytest.mark.parametrize(
+        "entry,message",
+        [
+            ("{l2_mshr: 16}", "over the budget"),
+            ("{l2_mshr: 16, scoreboard: 4, store_buffer: 2}", "unknown|maps searched parameters|outside"),
+            ("{l2_mshr: 8}", "default design or a repeat"),
+            ("{}", "maps searched parameters"),
+            ("{l3_mshr: 4}", "maps searched parameters"),
+            ("{scoreboard: 32}", "outside the space"),
+            ("[l2_mshr, 16]", "maps searched parameters"),
+        ],
+    )
+    def test_a_trade_that_cannot_be_simulated_in_budget_is_refused_at_load(self, tmp_path, entry, message):
+        text = self.TRADES + f"      trades:\n        - {entry}\n"
+        with pytest.raises(SuiteError, match=message):
+            load_suite(write(tmp_path, text))
+
+    def test_a_repeated_trade_is_refused(self, tmp_path):
+        text = self.TRADES + "      trades:\n        - {l2_mshr: 16, scoreboard: 4}\n        - {scoreboard: 4, l2_mshr: 16}\n"
+        with pytest.raises(SuiteError, match="repeat"):
+            load_suite(write(tmp_path, text))
+
+    def test_trades_must_be_a_list(self, tmp_path):
+        with pytest.raises(SuiteError, match="list of designs"):
+            load_suite(write(tmp_path, self.TRADES + "      trades: {l2_mshr: 16}\n"))
+
+    def test_the_finish_time_defaults_to_the_compute_time_and_the_margin_to_one_percent(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM))
+        assert (task.rtlparam.finish, task.rtlparam.win_margin) == ("compute_cycles", 0.01)
+
+    def test_the_finish_time_and_the_margin_can_be_set(self, tmp_path):
+        text = RTLPARAM.replace(
+            "      storage_budget_ratio: 1.25\n",
+            "      storage_budget_ratio: 1.25\n      finish: sim_time\n      win_margin: 0.02\n",
+        )
+        (task,) = load_suite(write(tmp_path, text))
+        assert (task.rtlparam.finish, task.rtlparam.win_margin) == ("sim_time", 0.02)
+
+    @pytest.mark.parametrize(
+        "line,message",
+        [
+            ("finish: wall_time", "finish must be one of"),
+            ("win_margin: -0.1", "win_margin"),
+            ("win_margin: 1", "win_margin"),
+            ("win_margin: big", "win_margin"),
+        ],
+    )
+    def test_a_bad_finish_time_or_margin_is_refused(self, tmp_path, line, message):
+        text = RTLPARAM.replace("      storage_budget_ratio: 1.25\n", f"      storage_budget_ratio: 1.25\n      {line}\n")
+        with pytest.raises(SuiteError, match=message):
+            load_suite(write(tmp_path, text))
+
+    def test_a_null_ratio_sets_no_budget(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, RTLPARAM.replace("1.25", "null")))
+        assert task.rtlparam.storage_budget_bits() is None
+
+    def test_a_task_without_the_block_is_not_an_rtl_parameter_task(self, tmp_path):
+        (task,) = load_suite(write(tmp_path, MINIMAL))
+        assert task.rtlparam is None and task.kind == "bringup"
+
+    @pytest.mark.parametrize(
+        "old,new,message",
+        [
+            ("      simulations: 6\n", "      simulations: 0\n", "simulations"),
+            ("      simulations: 6\n", "      simulations: many\n", "simulations"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: 0\n", "storage_budget_ratio"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: -1\n", "storage_budget_ratio"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: big\n", "storage_budget_ratio"),
+            ("      storage_budget_ratio: 1.25\n", "      storage_budget_ratio: 1.25\n      colour: red\n", "takes only"),
+            ("l2_mshr: [4, 8, 16]", "l3_mshr: [4, 8]", "unknown RTL parameter"),
+            ("l2_mshr: [4, 8, 16]", "l2_mshr: [4, 8, 32]", "must come from"),
+            ("l2_mshr: [4, 8, 16]", "l2_mshr: [4, 16]", "include the default"),
+            ("l2_mshr: [4, 8, 16]", "l2_mshr: 8", "list of values"),
+            ("      space:\n        l2_mshr: [4, 8, 16]\n        home_alloc: [LOW, MIXED]\n", "      space: {}\n", "needs a space"),
+        ],
+    )
+    def test_a_malformed_block_fails_to_load(self, tmp_path, old, new, message):
+        with pytest.raises(SuiteError, match=message):
+            load_suite(write(tmp_path, RTLPARAM.replace(old, new)))
+
+    def test_a_task_cannot_have_both_blocks(self, tmp_path):
+        both = RTLPARAM + "    codesign:\n" + CODESIGN.split("    codesign:\n", 1)[1]
+        with pytest.raises(SuiteError, match="not both"):
+            load_suite(write(tmp_path, both))
 
 
 class TestCodesignBlock:
