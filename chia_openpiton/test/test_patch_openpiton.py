@@ -470,6 +470,9 @@ class TestGenericTileFixes:
         tile = (generic_piton_root / TILE_V).read_text()
         assert "if (TILE_TYPE == `GENERIC_TILE) begin : g_generic_core" in tile
         assert "generic_l15_transducer #(" in tile
+        # The L1.5 resets on spc_grst_l and drops a request taken earlier.
+        transducer = tile[tile.index("generic_l15_transducer #("):]
+        assert ".rst_n                              (spc_grst_l)," in transducer.split(");")[0]
         assert tile.index("g_picorv32_core") < tile.index("g_generic_core")
         chip = (generic_piton_root / CHIP_V).read_text()
         assert chip.index("elif (PITON_GENERIC):") < chip.index("elif (PITON_PICO):")
@@ -506,6 +509,8 @@ class TestGenericTileFixes:
         config = (generic_piton_root / MANYCORE_CONFIG).read_text()
         assert "#ifdef FLIST_GENERIC\n" in config
         assert "    -config_rtl=PITON_GENERIC\n" in config
+        generic_block = config.split("#ifdef FLIST_GENERIC")[1].split("#endif")[0]
+        assert "    -config_rtl=CONFIG_DISABLE_BIST_CLEAR\n" in generic_block
         rv32_as = (generic_piton_root / RV32_AS).read_text()
         assert "include/riscv/pico" not in rv32_as
         assert rv32_as.count("include/riscv/${RV32_ENV:-pico}") == 2

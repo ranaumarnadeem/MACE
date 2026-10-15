@@ -1064,11 +1064,13 @@ if (TILE_TYPE == `GENERIC_TILE) begin : g_generic_core
         .spc_grst_l (spc_grst_l)
     );
 
+    // In reset until the L1.5 leaves reset (spc_grst_l): the L1.5 drops a
+    // request it takes earlier, and a core can fetch in its first cycle.
     generic_l15_transducer #(
         .NUM_TILES (`PITON_NUM_TILES)
     ) generic_l15_transducer(
         .clk                                (clk),
-        .rst_n                              (rst_n),
+        .rst_n                              (spc_grst_l),
         .tile_id                            (generic_tile_id),
 
         .core_valid                         (generic_bus_valid),
@@ -1245,8 +1247,10 @@ PYEOF
 fi
 
 # 17. sims -generic: sets PITON_GENERIC and FLIST_GENERIC (manycore.config
-#     then adds the generic tile's two file lists, -rv32, and the
-#     PITON_GENERIC define), an RTL_GENERIC<n> define per tile, and the RV32
+#     then adds the generic tile's two file lists, -rv32, the PITON_GENERIC
+#     define, and CONFIG_DISABLE_BIST_CLEAR: the SRAM model drops writes
+#     until its power-on clear ends, and a generic-tile core can boot before
+#     that, as PicoRV32 does), an RTL_GENERIC<n> define per tile, and the RV32
 #     assembly flow with PicoRV32's defaults (-rv32_march/-rv32_mabi
 #     override them). rv32_as takes its include directory and link script
 #     from RV32_ENV (pico unless -generic), so tests build against the
@@ -1269,6 +1273,7 @@ FLIST_GENERIC_BLOCK = """#ifdef FLIST_GENERIC
     -flist=$DV_ROOT/design/chip/tile/generic/rtl/Flist.core
     -rv32
     -config_rtl=PITON_GENERIC
+    -config_rtl=CONFIG_DISABLE_BIST_CLEAR
 #endif
 """
 
