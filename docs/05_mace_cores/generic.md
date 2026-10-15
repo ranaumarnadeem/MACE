@@ -41,7 +41,7 @@ One request is outstanding at a time, so the transducer sends a core's requests 
 
 ## The transducer
 
-`generic_l15_transducer.v` carries PicoRV32's request and return logic with a request state machine in place of its valid-edge detector. It swaps byte order in both directions, since the L1.5 keeps data big-endian. An address with bit 31 set, or an atomic, goes non-cacheable. A store with any other `wstrb` sets `mon_error`, and the monitor reports the run as failed.
+`generic_l15_transducer.v` carries PicoRV32's request and return logic with a request state machine in place of its valid-edge detector. It stays in reset until the L1.5 leaves reset (`spc_grst_l`), several cycles after the tile's `rst_n`: the L1.5 drops a request it takes earlier, and a core such as SERV fetches in its first cycle. The core's request waits on the bus until then. Every generic build sets `CONFIG_DISABLE_BIST_CLEAR`, since a core that boots before the SRAM model's power-on clear ends loses its first writes (see [PicoRV32](pico.md)). It swaps byte order in both directions, since the L1.5 keeps data big-endian. An address with bit 31 set, or an atomic, goes non-cacheable. A store with any other `wstrb` sets `mon_error`, and the monitor reports the run as failed.
 
 It answers three addresses itself, without an L1.5 request:
 
