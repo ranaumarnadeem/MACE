@@ -207,3 +207,38 @@ class TestBootGate:
     def test_triage_sees_the_boot_problems(self):
         result = dataclasses.replace(step_result(), boot_problems=("tile 0: the core's first request was at x",))
         assert "Boot check" in failure_evidence(result) and "tile 0: the core's first request" in failure_evidence(result)
+
+
+class TestPrompts:
+    def test_every_method_s_inputs_name_the_core_and_its_wrapper(self):
+        from mace.baselines.retry_agent import build_prompt as retry_prompt
+        from mace.planner import build_prompt as planner_prompt
+        from mace.planner import render_inputs
+
+        spec = generic_spec(str(PICORV32))
+        inputs = render_inputs(spec)
+        assert "Core: picorv32 on OpenPiton's generic tile" in inputs
+        assert "piton/design/chip/tile/generic/cores/picorv32/generic_core_wrapper.v" in inputs
+        assert inputs in planner_prompt(spec) and inputs in retry_prompt(spec, [])
+
+    def test_other_cores_get_no_core_lines(self):
+        from mace.planner import render_inputs
+
+        assert "Core:" not in render_inputs(MaceSpec(workloads=("addi.S",), objective="x", core="pico"))
+
+    def test_the_rtl_agent_is_told_how_to_write_the_wrapper(self, tmp_path):
+        from mace.integrator import rtl_prompt
+
+        spec = generic_spec(descriptor_file(tmp_path, bus="obi", atomics="none",
+                                            isa={"march": "rv32imc", "mabi": "ilp32"}))
+        text = rtl_prompt(spec, Task(id="w", deps=(), kind="rtl", spec="write the wrapper"), {})
+        assert "Replace its 'wrapper body' block" in text
+        assert "generic_bridge_obi" in text
+        assert "piton/design/chip/tile/generic/cores/picorv32/generic_core_wrapper.v" in text
+        assert "0x40000000" in text and "bus: obi" in text
+
+    def test_other_cores_rtl_prompts_have_no_wrapper_brief(self):
+        from mace.integrator import rtl_prompt
+
+        spec = MaceSpec(workloads=("addi.S",), objective="x", core="pico")
+        assert "wrapper" not in rtl_prompt(spec, Task(id="w", deps=(), kind="rtl", spec="fix it"), {})

@@ -117,6 +117,9 @@ def rtl_prompt(
         "design is built and every gate workload simulated; you cannot run anything yourself. End with "
         "one line saying what you changed and why.",
     ]
+    brief = generic_core.wrapper_brief(spec)
+    if brief:
+        lines += ["", brief]
     if context.strip():
         lines += ["", "What the earlier attempts in this run reported:", context.strip()]
     if inherited:
