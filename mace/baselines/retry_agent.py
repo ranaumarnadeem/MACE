@@ -37,7 +37,7 @@ from mace.metrics import (
     record_llm_calls,
     start_run,
 )
-from mace.planner import OVERRIDE_RULES, render_inputs
+from mace.planner import OVERRIDE_RULES, LLMCallFailed, render_inputs
 from mace.spec import LoopOptions, LoopResult, MaceSpec, StepResult, Task
 from mace.triage import failure_evidence
 from mace.workloads import verify_checksums
@@ -168,6 +168,8 @@ def _attempts(
                 break
             attempt_started = time.monotonic()
             query = usage.prompt(llm, PHASE, build_prompt(spec, history, rtl_edits))
+            if not getattr(query, "success", True):
+                raise LLMCallFailed(f"the retry agent's LLM call failed: {(query.stderr or 'no reply')[:300]}")
             design = parse_design(query.result)
             if design is not None and design_hook is not None:
                 design = design_hook(attempt, design)

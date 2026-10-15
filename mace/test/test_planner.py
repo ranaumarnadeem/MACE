@@ -69,6 +69,16 @@ class TestWhatATaskCanChange:
         assert RTL_RULE in prompt and NO_RTL_RULE not in prompt
 
 
+class TestFailedCall:
+    def test_a_call_the_backend_could_not_answer_raises_llm_call_failed(self):
+        from mace.planner import LLMCallFailed
+        from mace.llm import QueryResult
+
+        failed = QueryResult(result="", returncode=1, stderr="NameResolutionError", stream_result="", success=False)
+        with pytest.raises(LLMCallFailed, match="NameResolutionError"):
+            plan(make_spec(), FakeLLM(responses=[failed]))
+
+
 class TestPlan:
     def test_returns_the_parsed_task_dag(self):
         llm = FakeLLM(responses=[PLANNER_TRANSCRIPT])

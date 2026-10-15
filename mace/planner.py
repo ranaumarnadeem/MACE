@@ -106,6 +106,12 @@ class PlanningError(Exception):
     """The Planner's response produced no usable task DAG."""
 
 
+class LLMCallFailed(RuntimeError):
+    """The LLM call itself failed: the backend gave no reply, as when the
+    network or the credentials are down. Not a PlanningError, so the run ends
+    as an error a batch runs again rather than as a failed plan."""
+
+
 # What a run without rtl edits can change, in the prompt when LoopOptions.rtl_edits is off.
 NO_RTL_RULE = """- No task in this run can edit a source file. A config or workload task
   changes only what CACHES: and CONFIG_RTL: below set, so plan no task whose
@@ -172,8 +178,11 @@ def plan(
             parsers document (see their module docstring). Deciding what a
             failed plan means (retry with more context, give up) is the
             caller's job; this only refuses to hand back something broken.
+        LLMCallFailed: the backend gave no reply at all.
     """
     query = usage.prompt(llm, phase, build_prompt(spec, feedback, rtl_edits, rejection), tools)
+    if not getattr(query, "success", True):
+        raise LLMCallFailed(f"the planner's LLM call failed: {(query.stderr or 'no reply')[:300]}")
     tasks = parse_tasks(query.result)
     if not tasks:
         raise PlanningError(f"no TASK: lines in the planner's response: {query.result!r}")

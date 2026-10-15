@@ -158,6 +158,19 @@ class TestObjectiveDefines:
         assert ran[0][0].config_rtl is None and ran[1][0].config_rtl == (BIST,)
 
 
+class TestFailedCall:
+    def test_a_planner_call_with_no_reply_ends_the_run_as_an_error_not_a_retry(self, tmp_path, monkeypatch):
+        from mace.planner import LLMCallFailed
+
+        seen = []
+        monkeypatch.setattr("mace.orchestrator.plan", scripted_planner([LLMCallFailed("no reply")], seen))
+        db = make_db(tmp_path)
+        with pytest.raises(LLMCallFailed):
+            run_mace_loop(("/fake/root",), make_spec(objective=NEEDS_BIST), FakeLLM(responses=[]), db=db)
+        assert len(seen) == 1
+        assert db.query_one("SELECT status FROM runs")["status"] == "error"
+
+
 class TestUnusableReplies:
     BAD_LINE = "no TASK: lines in the planner's response: 'TASK: verify | deps= | workload | Run barrier_atomic.c'"
 

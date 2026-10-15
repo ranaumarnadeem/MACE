@@ -54,6 +54,8 @@ An override line applies to the task it names.
 
 `Task.__post_init__` in `mace/spec.py` rejects an empty id, a kind outside `TASK_KINDS`, an empty dependency id, an unknown or duplicated cache name, a non-positive cache size or associativity, and a malformed or duplicated `config_rtl` flag.
 `parse_tasks()` drops any line whose `Task` fails these checks.
+`plan()` raises `LLMCallFailed` when the backend gave no reply at all, as when the network is down; the run then ends as `error`, which a batch runs again, rather than as a failed plan.
+The retry agent treats a failed call the same way.
 `plan()` raises `PlanningError` when no task remains, or when `topological_levels()` finds a duplicate id, a dependency on an unknown id, or a cycle.
 The orchestrator then asks the planner again, up to twice, with the error and the line format (see [Fixed Checks](fixed_checks.md)).
 When the retries are spent, it logs the error, which quotes a reply with no `TASK:` lines or names the graph problem, records the planner's calls with their replies, and ends the run with status `planning_failed`.
