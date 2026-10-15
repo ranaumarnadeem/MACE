@@ -44,7 +44,7 @@ ARIANE_WAY_RULE = "On Ariane, neither the L1D nor the L1I may have more ways tha
 
 | Condition | Example message |
 |---|---|
-| Unknown core | `core must be 'ariane', 'sparc', or 'pico', got 'mips'` |
+| Unknown core | `core must be one of ariane, sparc, pico, generic, got 'mips'` |
 | Tile count not an `int`, or a `bool` | `x_tiles must be an int, got True` |
 | Tile count outside 1 to 256 | `x_tiles must be 1..256, got 0` |
 | Unknown network | `network_config must be '2dmesh_config' or 'xbar_config', got '2d_mesh'` |

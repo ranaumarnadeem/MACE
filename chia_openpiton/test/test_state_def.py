@@ -154,6 +154,19 @@ class TestSimsFlags:
         assert "-rv32_target_triple=riscv64-unknown-elf" in flags
         assert "-rv32_target_triple=riscv64-unknown-elf" not in PitonConfig(core="ariane").sims_flags()
 
+    def test_generic_passes_its_flag_and_the_rv32_target_triple(self):
+        flags = PitonConfig(core="generic").sims_flags()
+        assert "-generic" in flags
+        assert "-pico" not in flags and "-ariane" not in flags
+        assert "-rv32_target_triple=riscv64-unknown-elf" in flags
+
+    def test_generic_and_pico_have_different_build_ids(self):
+        assert PitonConfig(core="generic").build_id != PitonConfig(core="pico").build_id
+
+    def test_an_unknown_core_names_every_supported_core(self):
+        with pytest.raises(ValueError, match="ariane, sparc, pico, generic"):
+            PitonConfig(core="mips")
+
     def test_config_rtl_becomes_one_flag_per_define(self):
         flags = PitonConfig(config_rtl=("MINIMAL_MONITORING", "PITON_X")).sims_flags()
         assert "-config_rtl=MINIMAL_MONITORING" in flags

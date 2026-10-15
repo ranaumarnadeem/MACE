@@ -54,8 +54,9 @@ EVIDENCE_CHARS = 1200
 PROMPT_EVIDENCE_CHARS = 600
 PROMPT_SOURCE_CHARS = 1500
 
-# The test form each core takes: PicoRV32 runs RV32 assembly, Ariane C.
-FORM_BY_CORE = {"pico": "S", "ariane": "c"}
+# The test form each core takes: PicoRV32 and generic-tile cores run RV32
+# assembly, Ariane C.
+FORM_BY_CORE = {"pico": "S", "generic": "S", "ariane": "c"}
 # Verdicts of a test that did not run to a verdict, so it cannot gate anything.
 UNUSABLE = frozenset(("no_verdict", "not_built"))
 # Verdicts of a run that never reached a trap.

@@ -19,6 +19,7 @@ from chia.base.llm_call import QueryResult
 from chia_openpiton.state_def import (
     DEFAULT_CACHES,
     MAX_TILES_PER_AXIS,
+    PITON_CORES,
     PitonBuildArtifact,
     PitonCore,
     PitonRunResult,
@@ -105,8 +106,8 @@ class MaceSpec:
             value = getattr(self, name)
             if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):
                 raise ValueError(f"{name} must be a positive int or None, got {value!r}")
-        if self.core not in ("ariane", "sparc", "pico"):
-            raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
+        if self.core not in PITON_CORES:
+            raise ValueError(f"core must be one of {', '.join(PITON_CORES)}, got {self.core!r}")
         if not isinstance(self.coverage, bool):
             raise ValueError(f"coverage must be a bool, got {self.coverage!r}")
         if not self.workloads:
