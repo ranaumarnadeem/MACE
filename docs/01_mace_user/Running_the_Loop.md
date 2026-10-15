@@ -11,13 +11,14 @@ A frozen `MaceSpec` from `mace/spec.py` describes a loop run.
 |---|---|---|
 | `workloads` | required | Non-empty tuple of gate workload file names. |
 | `objective` | required | Non-empty text for the planner. |
-| `core` | `"ariane"` | `"ariane"`, `"sparc"`, or `"pico"`. |
+| `core` | `"ariane"` | `"ariane"`, `"sparc"`, `"pico"`, or `"generic"`. |
 | `target_mesh` | `(1, 1)` | `(x_tiles, y_tiles)`, each from 1 to 256. |
 | `budget` | `Budget()` | Stop conditions; see below. |
 | `coverage` | `False` | Adds Verilator line coverage to every `config` and `workload` build; see [Code Coverage](Code_Coverage.md). |
 | `rtl_timeout` | `None` | OpenPiton's `TIMEOUT` limit, which caps a gate workload's simulation at this many cycles; `None` uses `RECOMMENDED_RTL_TIMEOUT` (1,000,000). Larger meshes need more. |
 | `max_cycle` | `None` | The most cycles a gate workload's simulation may take before it ends with verdict `maxcycles`; `None` keeps OpenPiton's limit. |
 | `workload_args` | `()` | `(program, finish_mask, run_args)` entries that give a gate workload its own finish mask, in hex digits, and extra `sims` run options starting with `-`, as OpenSPARC T1's multi-thread diags need. |
+| `core_descriptor` | `""` | The core descriptor's YAML file, required for `core="generic"` and refused for the other cores; see [Generic Tile](../05_mace_cores/generic.md). |
 
 `target_mesh` sets `x_tiles` and `y_tiles` for every `config` and `workload` build.
 The planner sees the mesh in its prompt but cannot change it.

@@ -11,4 +11,5 @@ Supported Cores
    ariane
    sparc
    pico
+   generic
    adding_a_core

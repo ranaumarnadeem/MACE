@@ -12,7 +12,7 @@ The three supported cores share one shape:
 - A transducer between the core's memory interface and the L1.5. Examples are T1's CCX transducer, Ariane's L1.5 adapter inside CVA6, and PicoRV32's `pico_l15_transducer.v`.
 - A core-select arm in the tile template, plus `sims` support for selecting the core.
 
-The core's cache decides the size of the job. A core with its own coherent cache, such as Ariane, needs coherence-adapter RTL. A core without one, such as PicoRV32, needs only a transducer. A core with no upstream adapter, such as Ibex or Rocket Chip, needs one written first.
+The core's cache decides the size of the job. A core with its own coherent cache, such as Ariane, needs coherence-adapter RTL. A core without one, such as PicoRV32, needs only a transducer. A core with no upstream adapter needs one written first, or, for an RV32 core with no private cache, a wrapper for the [Generic Tile](generic.md).
 
 The core also needs a way to run a workload: an assembler or compiler for its ISA, and entries in `piton/verif/env/manycore/pc_cmp.v.pyv` so the manycore monitor detects its good and bad traps.
 
@@ -36,4 +36,4 @@ Changes the core needs in the OpenPiton checkout go into `scripts/patch_openpito
 
 ## Planned work
 
-The next step for MACE is turning this shape into a template and adding more cores, with the loop verifying each revision of the adapter RTL in Verilator while an engineer writes it.
+The [Generic Tile](generic.md) is the template for RV32 cores without a private cache: a per-core wrapper, a shared transducer, and a core descriptor. The next step is for MACE to write a new core's wrapper itself and climb the generic tile's verification ladder.
