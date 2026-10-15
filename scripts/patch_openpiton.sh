@@ -1106,7 +1106,8 @@ if (TILE_TYPE == `GENERIC_TILE) begin : g_generic_core
 
         .mon_finish_val                     (),
         .mon_finish_pass                    (),
-        .mon_error                          ()
+        .mon_error                          (),
+        .mon_first_addr                     ()
     );
 `endif // ifdef PITON_GENERIC
 end

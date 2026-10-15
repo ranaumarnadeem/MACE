@@ -283,3 +283,72 @@ def apply_descriptor(desc: CoreDescriptor, piton_root: str) -> tuple[str, ...]:
         with open(os.path.join(piton_root, rel), "w") as f:
             f.write(text)
     return tuple(rel for rel, _ in files)
+
+
+_FIRST_REQUEST = re.compile(r"generic tile (\d+): first request at ([0-9a-fA-F]+)")
+
+
+def first_requests(sim_log: str) -> dict[int, int]:
+    """Each tile's first request address, from the transducer's "first
+    request at" lines in a simulation log."""
+    seen: dict[int, int] = {}
+    for tile, addr in _FIRST_REQUEST.findall(sim_log):
+        seen.setdefault(int(tile), int(addr, 16))
+    return seen
+
+
+def boot_problems(desc: CoreDescriptor, sim_log: str, num_tiles: int) -> tuple[str, ...]:
+    """Ladder step 2: every tile's core must make its first request at the
+    descriptor's reset vector. Empty when all of them did."""
+    seen = first_requests(sim_log)
+    problems = []
+    for tile in range(num_tiles):
+        if tile not in seen:
+            problems.append(f"tile {tile}: the core made no memory request after reset; check its clock, "
+                            "its reset polarity, and any fetch-enable input")
+        elif seen[tile] != desc.reset_vector:
+            problems.append(f"tile {tile}: the core's first request was at {seen[tile]:#010x}, not the "
+                            f"descriptor's reset_vector {desc.reset_vector:#010x}")
+    return tuple(problems)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m chia_openpiton.core_descriptor check <yaml> [piton_root]``
+    prints why a core is unsupported; ``apply <yaml> <piton_root>`` writes
+    its Flist.core and link.ld. Both exit 1 on a problem."""
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="python -m chia_openpiton.core_descriptor")
+    ap.add_argument("action", choices=("check", "apply"))
+    ap.add_argument("descriptor")
+    ap.add_argument("piton_root", nargs="?")
+    args = ap.parse_args(argv)
+    try:
+        desc = load_descriptor(args.descriptor)
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        print(f"{args.descriptor}: {e}")
+        return 1
+    if args.action == "apply":
+        if not args.piton_root:
+            ap.error("apply needs a piton_root")
+        try:
+            written = apply_descriptor(desc, args.piton_root)
+        except ValueError as e:
+            print(e)
+            return 1
+        print("wrote " + ", ".join(written))
+        return 0
+    problems = list(support_problems(desc))
+    if args.piton_root:
+        missing = missing_files(desc, args.piton_root)
+        if missing:
+            problems.append(f"files not found under {TILE_DIR}: {', '.join(missing)}")
+    for p in problems:
+        print(f"unsupported: {p}")
+    if not problems:
+        print(f"{desc.core}: supported")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -17,6 +17,8 @@ from chia_openpiton.core_descriptor import (
     LINK_LD,
     TILE_DIR,
     apply_descriptor,
+    boot_problems,
+    first_requests,
     flist_core,
     link_ld,
     load_descriptor,
@@ -179,6 +181,32 @@ class TestGenerators:
         assert load_descriptor(str(PICORV32)).ladder_tests()["atomics"] == ("generic_amo_counter.S",)
 
 
+class TestBootCheck:
+    LOG = (
+        "250: good_trap 0040000318\n"
+        "1250: generic tile 1: first request at 40000080\n"
+        "1250: generic tile 0: first request at 40000080\n"
+        "9000: generic tile 0: first request at 40000000\n"
+    )
+
+    def test_first_requests_keeps_each_tile_s_first_line(self):
+        assert first_requests(self.LOG) == {0: 0x4000_0080, 1: 0x4000_0080}
+
+    def test_every_tile_at_the_reset_vector_passes(self):
+        assert boot_problems(parse_descriptor(ibex()), self.LOG, 2) == ()
+
+    def test_a_wrong_reset_vector_is_reported_per_tile(self):
+        problems = boot_problems(parse_descriptor(ibex(reset_vector=0x4000_0000)), self.LOG, 2)
+        assert problems == tuple(
+            f"tile {t}: the core's first request was at 0x40000080, not the descriptor's reset_vector 0x40000000"
+            for t in (0, 1)
+        )
+
+    def test_a_silent_tile_is_reported(self):
+        (problem,) = boot_problems(parse_descriptor(ibex()), self.LOG, 3)
+        assert problem.startswith("tile 2: the core made no memory request after reset")
+
+
 @pytest.fixture
 def patched_root(tmp_path) -> Path:
     """A checkout with the directories fixes 14-17 create, and Ibex's files."""
@@ -217,3 +245,32 @@ class TestApply:
         with pytest.raises(ValueError, match="patch the checkout with fixes 14-17 first"):
             apply_descriptor(parse_descriptor(ibex()), str(patched_root))
         assert not (patched_root / FLIST_CORE).exists()
+
+
+class TestCommandLine:
+    def test_check_prints_supported_and_exits_0(self, capsys):
+        from chia_openpiton.core_descriptor import main
+
+        assert main(["check", str(PICORV32)]) == 0
+        assert capsys.readouterr().out == "picorv32: supported\n"
+
+    def test_check_prints_each_problem_and_exits_1(self, tmp_path, capsys):
+        import yaml
+
+        from chia_openpiton.core_descriptor import main
+
+        path = tmp_path / "soc.yaml"
+        path.write_text(yaml.safe_dump(ibex(own_interconnect=True, harts=2)))
+        assert main(["check", str(path)]) == 1
+        out = capsys.readouterr().out.splitlines()
+        assert len(out) == 2 and all(line.startswith("unsupported: ") for line in out)
+
+    def test_apply_writes_the_files(self, patched_root, tmp_path, capsys):
+        import yaml
+
+        from chia_openpiton.core_descriptor import main
+
+        path = tmp_path / "ibex.yaml"
+        path.write_text(yaml.safe_dump(ibex()))
+        assert main(["apply", str(path), str(patched_root)]) == 0
+        assert (patched_root / FLIST_CORE).exists()

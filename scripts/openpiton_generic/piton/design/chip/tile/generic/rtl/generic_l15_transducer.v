@@ -25,6 +25,10 @@
 // The L1.5 keeps data big-endian, so data is byte-swapped in both directions.
 // A store with any other core_wstrb sets mon_error, which the monitor
 // reports as a failed run.
+//
+// mon_first_addr holds the address of the core's first request after reset,
+// and the simulation prints it once ("first request at"), so a run can check
+// that the core starts at its descriptor's reset vector.
 
 `include "iop.h"
 
@@ -75,7 +79,8 @@ module generic_l15_transducer #(
     // read by pc_cmp through `GENERIC_TRANSDUCER<n>
     output reg                            mon_finish_val,
     output reg                            mon_finish_pass,
-    output reg                            mon_error
+    output reg                            mon_error,
+    output reg  [31:0]                    mon_first_addr
 );
 
     localparam [27:0] LOCAL_BASE = 28'hFFFF_FF0;
@@ -93,6 +98,7 @@ module generic_l15_transducer #(
     reg [3:0]                   req_wstrb;
     reg [31:0]                  req_wdata;
     reg [`L15_AMO_OP_WIDTH-1:0] req_amo_op;
+    reg                         first_seen;
 
     wire core_local = (core_addr[31:4] == LOCAL_BASE);
     wire core_store = (core_wstrb != 4'b0000);
@@ -187,10 +193,16 @@ module generic_l15_transducer #(
             mon_finish_val  <= 1'b0;
             mon_finish_pass <= 1'b0;
             mon_error       <= 1'b0;
+            mon_first_addr  <= 32'b0;
+            first_seen      <= 1'b0;
         end else begin
             case (state)
                 S_IDLE: begin
                     if (core_valid) begin
+                        if (!first_seen) begin
+                            first_seen     <= 1'b1;
+                            mon_first_addr <= core_addr;
+                        end
                         req_addr   <= core_addr;
                         req_wstrb  <= core_wstrb;
                         req_wdata  <= core_wdata;
@@ -239,6 +251,13 @@ module generic_l15_transducer #(
             endcase
         end
     end
+
+`ifndef SYNTHESIS
+    always @(posedge clk) begin
+        if (rst_n && state == S_IDLE && core_valid && !first_seen)
+            $display("%0t: generic tile %0d: first request at %h", $time, tile_id, core_addr);
+    end
+`endif
 
 `ifdef GENERIC_L15_DEBUG
     // -config_rtl=GENERIC_L15_DEBUG prints every L1.5 request and return

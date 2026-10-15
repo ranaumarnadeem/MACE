@@ -44,6 +44,7 @@ module generic_l15_transducer_tb;
     wire        req_ack;
 
     wire mon_finish_val, mon_finish_pass, mon_error;
+    wire [31:0] mon_first_addr;
 
     generic_l15_transducer #(.NUM_TILES(NUM_TILES)) dut (
         .clk(clk), .rst_n(rst_n), .tile_id(TILE_ID),
@@ -63,7 +64,7 @@ module generic_l15_transducer_tb;
         .l15_transducer_data_0(l15_data_0), .l15_transducer_data_1(l15_data_1),
         .transducer_l15_req_ack(req_ack),
         .mon_finish_val(mon_finish_val), .mon_finish_pass(mon_finish_pass),
-        .mon_error(mon_error)
+        .mon_error(mon_error), .mon_first_addr(mon_first_addr)
     );
 
     task automatic fail(input string why);
@@ -219,6 +220,7 @@ module generic_l15_transducer_tb;
         if (last_rqtype !== `STORE_RQ || last_size !== `MSG_DATA_SIZE_4B) fail("word store request fields");
         if (last_nc !== 1'b0) fail("cacheable store sent non-cacheable");
         if (mem[12'h100] !== 8'h44 || mem[12'h103] !== 8'h11) fail("store byte order");
+        if (mon_first_addr !== 32'h0000_0100) fail("first request address not recorded");
         expect_load(32'h0000_0100, 32'h1122_3344, "word load");
         if (last_rqtype !== `LOAD_RQ || last_size !== `MSG_DATA_SIZE_4B) fail("load request fields");
 
@@ -306,6 +308,7 @@ module generic_l15_transducer_tb;
         store(32'hFFFF_FF08, 4'b1111, (32'd3 << 1) | 32'd1);
         @(posedge clk);
         if (!mon_finish_val || mon_finish_pass) fail("fail store did not finish with fail");
+        if (mon_first_addr !== 32'hFFFF_FF08) fail("first request after reset not recorded");
 
         // 11. a store the L1.5 cannot take sets mon_error and is not sent
         reset_dut();
