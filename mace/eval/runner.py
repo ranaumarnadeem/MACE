@@ -198,7 +198,9 @@ def applies(method: str, task: SuiteTask) -> bool:
 
 # A run in one of these states counts as done; a run left "running" by a
 # killed process, or ended "error" by an exception, runs again.
-FINISHED = frozenset(("passed", "failed", "planning_failed", "budget_exceeded", "checksum_mismatch"))
+FINISHED = frozenset(
+    ("passed", "failed", "planning_failed", "budget_exceeded", "checksum_mismatch", "unsupported_core")
+)
 
 BUILD_ID_PREFIX = "mace_"
 

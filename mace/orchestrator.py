@@ -35,7 +35,7 @@ from chia.database.sqlite_node import SQLiteNode
 
 from chia_openpiton.state_def import PitonConfig
 from chia_openpiton.tools import PitonToolServer
-from mace import usage
+from mace import generic_core, usage
 from mace.fast_path import collapse_single_design
 from mace.integrator import close_nodes, integrate_parallel, open_nodes
 from mace.llm import thinking_budget
@@ -335,6 +335,11 @@ def _run_started_loop(
     except ValueError:
         finish_run(db, run_id, "checksum_mismatch")
         return LoopResult(run_id=run_id, status="checksum_mismatch", iterations=())
+    checkout = piton_roots[0] if piton_roots and os.path.isdir(piton_roots[0]) else None
+    unsupported = generic_core.unsupported_reasons(spec, checkout)
+    if unsupported:
+        finish_run(db, run_id, "unsupported_core")
+        return LoopResult(run_id=run_id, status="unsupported_core", iterations=(), unsupported=unsupported)
 
     started = time.monotonic()
     feedback_history: list[str] = []
@@ -348,7 +353,6 @@ def _run_started_loop(
     # Sets of changes narrowing showed break the design, for the plan check's known-bad-change rule.
     bad_changes: list[tuple[Change, ...]] = []
     required = objective_defines(spec.objective)
-    checkout = piton_roots[0] if piton_roots and os.path.isdir(piton_roots[0]) else None
 
     # Built on first use, inside the loop below (not here): a run that
     # fails at the planning stage before ever reaching integrate_parallel
@@ -416,6 +420,7 @@ def _run_started_loop(
                         record_fast_path(db, run_id, iteration, tasks[0].id, dropped)
 
                 if nodes is None:
+                    generic_core.prepare_checkouts(spec, piton_roots)
                     nodes = open_nodes(piton_roots)
                 results = integrate_parallel(
                     piton_roots, spec, tasks, llm, tools=tools, run_id=run_id, iteration=iteration,

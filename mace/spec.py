@@ -86,6 +86,10 @@ class MaceSpec:
     # the mesh's one-per-tile default. OpenSPARC T1's multi-thread diags
     # name their thread count this way (-midas_args=-DTHREAD_COUNT=8).
     workload_args: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    # For core="generic", the core descriptor's YAML file
+    # (chia_openpiton.core_descriptor): the core's RTL, ISA, bus, and reset
+    # vector. Required for "generic", empty for the other cores.
+    core_descriptor: str = ""
 
     def run_options(self, program: str) -> tuple[str | None, tuple[str, ...]]:
         """(finish_mask or None, extra run args) for gate *program*."""
@@ -108,6 +112,8 @@ class MaceSpec:
                 raise ValueError(f"{name} must be a positive int or None, got {value!r}")
         if self.core not in PITON_CORES:
             raise ValueError(f"core must be one of {', '.join(PITON_CORES)}, got {self.core!r}")
+        if (self.core == "generic") != bool(self.core_descriptor):
+            raise ValueError("core='generic' needs a core_descriptor, and only it takes one")
         if not isinstance(self.coverage, bool):
             raise ValueError(f"coverage must be a bool, got {self.coverage!r}")
         if not self.workloads:
@@ -400,6 +406,9 @@ class LoopResult:
 
     run_id: str
     status: str  # "passed" | "failed" | "planning_failed" | "budget_exceeded"
-    #             | "checksum_mismatch"
+    #             | "checksum_mismatch" | "unsupported_core"
     iterations: tuple[tuple[StepResult, ...], ...]
     post_mortem: PostMortem | None = None
+    # Why the core descriptor's core cannot run on the generic tile, for
+    # status "unsupported_core"; empty otherwise.
+    unsupported: tuple[str, ...] = ()
