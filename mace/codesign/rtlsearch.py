@@ -154,6 +154,11 @@ _DESIGN_LINE = re.compile(r"(?im)^\s*\**\s*DESIGN:\s*(.+?)\s*$")
 _BOTTLENECK_LINE = re.compile(r"(?im)^\s*\**\s*BOTTLENECK:\s*(.+?)\s*$")
 
 
+def _plain(line: str) -> str:
+    """A DESIGN line without the markdown a model wraps around it: backticks, asterisks, and quotes."""
+    return line.replace("`", "").strip(" *\"'")
+
+
 def _changes(design: RtlDesign) -> str:
     changed = design.changed()
     return " ".join(f"{n}={v}" for n, v in sorted(changed.items())) if changed else "the default design"
@@ -264,7 +269,7 @@ class RtlProposer:
         seen = {e.design for e in history}
         picked: list[RtlDesign] = []
         for line in _DESIGN_LINE.findall(query.result):
-            design = rtl.parse_design(line, self.space)
+            design = rtl.parse_design(_plain(line), self.space)
             if design is None or design in seen or design in picked:
                 continue
             picked.append(design)

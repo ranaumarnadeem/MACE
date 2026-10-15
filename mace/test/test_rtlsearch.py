@@ -20,7 +20,7 @@ import pytest
 from chia_openpiton.state_def import PitonBuildArtifact, PitonRunResult
 from mace import metrics, usage
 from mace.codesign import search
-from mace.codesign.rtl import RtlSpace
+from mace.codesign.rtl import CATALOG, RtlSpace
 from mace.codesign.rtlsearch import RtlEvaluation, RtlProposer, hart_table, run_rtlsearch
 from mace.spec import Budget, MaceSpec
 from mace.test.conftest import FakeLLM
@@ -457,6 +457,22 @@ class TestRtlProposer:
         [design] = proposer.propose([evaluation(tried)], 1)
         assert design == SPACE.design({"l2_mshr": 16, "dcache_wbuf": 4, "home_alloc": "LOW"})
         assert proposer.notes[design] == "tile 3 stalls on L2 misses"
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            # The reply line of the first real-model pilot (Gemini 2.5 Flash), which the parser used to reject.
+            "DESIGN: `dcache_wbuf=8 home_alloc=HIGH l2_mshr=16 l2_req_buf=8 l2_req_data_buf=4 scoreboard=4 store_buffer=4`",
+            "**DESIGN: dcache_wbuf=8 home_alloc=HIGH l2_mshr=16 l2_req_buf=8 l2_req_data_buf=4 scoreboard=4 store_buffer=4**",
+            'DESIGN: "dcache_wbuf=8 home_alloc=HIGH l2_mshr=16 l2_req_buf=8 l2_req_data_buf=4 scoreboard=4 store_buffer=4"',
+            "DESIGN: dcache_wbuf=8 `home_alloc=HIGH` l2_mshr=16 l2_req_buf=8 l2_req_data_buf=4 scoreboard=4 store_buffer=4",
+        ],
+    )
+    def test_a_design_line_wrapped_in_markdown_is_still_read(self, line):
+        full = RtlSpace({name: param.values for name, param in CATALOG.items()})
+        proposer = RtlProposer(FakeLLM(responses=[f"BOTTLENECK: the L2.\n{line}"]), make_spec(), full, None)
+        [design] = proposer.propose([evaluation(full.default())], 1)
+        assert design == full.design({"home_alloc": "HIGH", "l2_mshr": 16, "scoreboard": 4})
 
     def test_a_reply_without_a_valid_design_proposes_nothing(self):
         assert self._proposer(["I cannot decide."]).propose([evaluation(SPACE.default())], 1) == []
