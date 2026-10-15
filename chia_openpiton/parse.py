@@ -127,6 +127,20 @@ def hart_cycles(text: str) -> dict[int, tuple[int, int]]:
     return found
 
 
+# The generic tile's transducer prints each tile's first request after reset,
+#   "158000: generic tile 3: first request at 40000080"
+_FIRST_REQUEST_RE = re.compile(r"generic tile (\d+): first request at ([0-9a-fA-F]+)")
+
+
+def first_requests(text: str) -> dict[int, int]:
+    """``{tile: address}`` of each generic-tile core's first request, from a
+    ``sim.log``; the first line per tile counts. ``{}`` for the other cores."""
+    seen: dict[int, int] = {}
+    for tile, addr in _FIRST_REQUEST_RE.findall(text or ""):
+        seen.setdefault(int(tile), int(addr, 16))
+    return seen
+
+
 # --- status.log (regreport -1) ----------------------------------------------
 
 _DIAG_RE = re.compile(r"^Diag:\s+(\S+)\s+(.+?)\s*$", re.MULTILINE)

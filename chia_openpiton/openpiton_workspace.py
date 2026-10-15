@@ -1088,6 +1088,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             fake_uart=_read_if_present(os.path.join(run_dir, "fake_uart.log")),
             stdout=_tail(stdout),
             stderr=_tail(stderr),
+            first_requests=parse.first_requests(sim_log),
         )
 
     @staticmethod

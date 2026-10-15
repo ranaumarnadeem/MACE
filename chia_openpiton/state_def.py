@@ -302,6 +302,9 @@ class PitonRunResult:
     fake_uart: str = ""  # what the program printed to the UART
     stdout: str = ""
     stderr: str = ""
+    # For core="generic": each tile's first request address (parse.first_requests),
+    # read from the whole sim.log, since sim_log_tail may not reach back to it.
+    first_requests: dict[int, int] = field(default_factory=dict)
 
     @staticmethod
     def decide(returncode: int, verdict: Verdict | None) -> bool:
