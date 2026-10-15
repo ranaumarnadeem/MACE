@@ -365,6 +365,10 @@ class StepResult:
     # The directed tests a ``test`` task wrote, every attempt's, with their
     # verdicts on the design the task built.
     tests: tuple[DirectedTest, ...] = ()
+    # For core="generic", the tiles whose core did not start at the core
+    # descriptor's reset vector (mace.generic_core.boot_failures); a task
+    # with any fails.
+    boot_problems: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

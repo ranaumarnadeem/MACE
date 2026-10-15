@@ -8,7 +8,9 @@ fails the check ends with status ``"unsupported_core"`` and no build. Before
 its first build the run writes the descriptor's ``Flist.core`` and
 ``link.ld`` into each local checkout (:func:`prepare_checkouts`), and every
 build's configuration carries the descriptor's ISA flags and digest
-(:func:`config_fields`).
+(:func:`config_fields`). A task passes only when every tile's core made its
+first request at the descriptor's reset vector (:func:`boot_failures`): a
+gate program can pass from the wrong start address.
 """
 
 from __future__ import annotations
@@ -20,10 +22,12 @@ import yaml
 from chia_openpiton.core_descriptor import (
     CoreDescriptor,
     apply_descriptor,
+    boot_problems,
     load_descriptor,
     missing_files,
     support_problems,
 )
+from chia_openpiton.state_def import PitonRunResult
 from mace.spec import MaceSpec
 
 
@@ -44,7 +48,7 @@ def unsupported_reasons(spec: MaceSpec, checkout: str | None) -> tuple[str, ...]
         return (f"core descriptor {spec.core_descriptor}: {e}",)
     problems = list(support_problems(desc))
     if checkout:
-        missing = missing_files(desc, checkout)
+        missing = missing_files(desc, checkout, wrapper=False)
         if missing:
             problems.append(
                 "files the core descriptor names are not under piton/design/chip/tile/: " + ", ".join(missing)
@@ -71,3 +75,14 @@ def config_fields(spec: MaceSpec) -> tuple[tuple[str, ...], str]:
     if desc is None:
         return (), ""
     return desc.sims_flags(), f"{desc.core}@{desc.digest}"
+
+
+def boot_failures(spec: MaceSpec, runs: tuple[PitonRunResult, ...], num_tiles: int) -> tuple[str, ...]:
+    """Ladder step 2 on a task's first simulation that ran: the tiles whose
+    core did not start at the descriptor's reset vector. Empty when they all
+    did, when nothing ran, and for a core other than "generic"."""
+    desc = descriptor(spec)
+    ran = [r for r in runs if r.run_dir]
+    if desc is None or not ran:
+        return ()
+    return boot_problems(desc, ran[0].first_requests, num_tiles)

@@ -8,20 +8,23 @@ Run:
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
 import yaml
 
 from chia_openpiton.core_descriptor import FLIST_CORE, LINK_LD, TILE_DIR
+from chia_openpiton.state_def import PitonRunResult
 from mace import metrics
 from mace.baselines.retry_agent import run_retry_agent
-from mace.generic_core import config_fields, unsupported_reasons
+from mace.generic_core import boot_failures, config_fields, unsupported_reasons
 from mace.loop import _config_for_task
 from mace.orchestrator import run_mace_loop
 from mace.spec import Budget, MaceSpec, Task
 from mace.test.conftest import FakeLLM
 from mace.test.test_orchestrator import fake_integrate_parallel, step_result
+from mace.triage import failure_evidence
 
 REPO = Path(__file__).resolve().parents[2]
 PICORV32 = REPO / "examples" / "cores" / "picorv32.yaml"
@@ -169,3 +172,38 @@ class TestSupportedRun:
         assert result.status == "passed"
         assert len(seen) == 1 and "../../pico/rtl/picorv32.v" in seen[0]
         assert "0x40000000" in (checkout / LINK_LD).read_text()
+
+
+def ran(first_requests, run_dir="/x/runs/1"):
+    return PitonRunResult(
+        success=True, returncode=0, test="addi.S", sim_type="vlt", run_dir=run_dir, verdict="pass",
+        first_requests=first_requests,
+    )
+
+
+class TestBootGate:
+    """A gate program can pass from the wrong start address, so a generic
+    task passes only when every tile started at the reset vector."""
+
+    def test_every_tile_at_the_reset_vector(self):
+        spec = generic_spec(str(PICORV32))
+        assert boot_failures(spec, (ran({0: 0x4000_0000, 1: 0x4000_0000}),), 2) == ()
+
+    def test_a_tile_elsewhere_or_silent_is_a_failure(self):
+        spec = generic_spec(str(PICORV32))
+        problems = boot_failures(spec, (ran({0: 0x4000_0080}),), 2)
+        assert len(problems) == 2
+        assert "0x40000080" in problems[0] and problems[1].startswith("tile 1: the core made no memory request")
+
+    def test_only_the_first_run_that_ran_counts(self):
+        spec = generic_spec(str(PICORV32))
+        assert boot_failures(spec, (ran({}, run_dir=""), ran({0: 0x4000_0000})), 1) == ()
+        assert boot_failures(spec, (ran({}, run_dir=""),), 1) == ()
+
+    def test_other_cores_are_not_checked(self):
+        spec = MaceSpec(workloads=("addi.S",), objective="x", core="pico")
+        assert boot_failures(spec, (ran({}),), 4) == ()
+
+    def test_triage_sees_the_boot_problems(self):
+        result = dataclasses.replace(step_result(), boot_problems=("tile 0: the core's first request was at x",))
+        assert "Boot check" in failure_evidence(result) and "tile 0: the core's first request" in failure_evidence(result)

@@ -35,7 +35,7 @@ from chia.base.ChiaFunction import get
 from chia.base.llm_call import QueryResult
 from chia_openpiton.openpiton_workspace import EDIT_STAGING_DIR, OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
-from mace import directed, usage
+from mace import directed, generic_core, usage
 from mace.loop import _config_for_task, run_gate_programs, run_mace_step
 from mace.replay import tag_for
 from mace.spec import DirectedTest, LoopOptions, MaceSpec, StepResult, Task
@@ -632,7 +632,11 @@ def _run_batch(
         runs, passed = run_gate_programs(
             lambda program: _run_program(node, config, task, program, roots.get(program)), programs
         )
-        return StepResult(task=task, query=query, build=build, run=runs[-1], passed=passed, runs=runs)
+        boot = generic_core.boot_failures(spec, runs, config.num_tiles)
+        return StepResult(
+            task=task, query=query, build=build, run=runs[-1], passed=passed and not boot, runs=runs,
+            boot_problems=boot,
+        )
 
     def _test_task(node, config: PitonConfig, task: Task, inherited: dict[str, str]) -> StepResult:
         """A ``test`` task: the design as it stands, with the RTL edits of the
