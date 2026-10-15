@@ -291,7 +291,7 @@ class TestStatusTransitions:
         assert result.iterations == ()
 
     def test_a_failed_plan_still_records_the_planner_s_call(self, tmp_path):
-        reply = "TASK: t1 | deps= | workload | addi.S"  # no kind=, so no task parses
+        reply = "TASK: t1 | deps= | verify | addi.S"  # no known kind, so no task parses
         db = make_db(tmp_path)
 
         # The planner is asked again twice, with the format; all three calls are recorded.
@@ -304,7 +304,7 @@ class TestStatusTransitions:
         ]
 
     def test_a_reply_with_no_plan_is_asked_again_with_the_line_format_and_the_run_goes_on(self, tmp_path, monkeypatch):
-        bad = "TASK: t1 | deps= | workload | hello_world.c"
+        bad = "TASK: t1 | deps= | verify | hello_world.c"
         good = "TASK: t1 | deps= | kind=workload | hello_world.c"
         llm = FakeLLM(responses=[bad, good])
         db = make_db(tmp_path)

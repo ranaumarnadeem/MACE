@@ -42,7 +42,8 @@ A task that builds on `rtl` edits skips the last two rules, since its flags do n
 The `missing_module` rule needs a checkout, and the other rules need only the plan and the run's history.
 
 A rejected plan goes back to `plan()` with the reasons in its `rejection` argument, as a call in the `plan_retry` phase.
-A planner reply that holds no plan at all goes back the same way, with the line format in `rejection`: a `TASK:` line without its `kind=` field, an empty reply, or a graph with a cycle.
+A planner reply that holds no plan at all goes back the same way, with the line format in `rejection`: a `TASK:` line whose third field names no known kind, an empty reply, or a graph with a cycle.
+A bare known kind in that field no longer counts as no plan (see [Planner](planner.md)).
 Such a reply used to end the run as `planning_failed`, and one that arrived right after an expensive narrowing lost the probes' work.
 An iteration sends its plan back at most `MAX_PLAN_REJECTIONS` times, which is 2, and the two kinds of retry share that count.
 A plan still rejected after that runs as it stands, and so does the rejected plan when the retry gives no usable plan.

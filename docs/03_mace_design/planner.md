@@ -35,6 +35,7 @@ Triage and post-mortem directives follow the same rules, and each keeps its last
 
 `TASK:` lines accumulate in response order.
 Each needs four `|`-separated fields: a non-empty id, a `deps=` field, a `kind=` field naming a known kind, and the instruction.
+A third field that is a bare known kind, such as `| rtl |`, reads as `kind=rtl`: planners drop the prefix, and it was the most common reply that held no plan.
 
 `CACHES:` accepts `l1i`, `l1d`, `l15`, and `l2`, each with a positive integer size and associativity, and drops malformed entries.
 Several lines for one task merge, and a later value for the same cache wins.

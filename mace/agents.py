@@ -83,7 +83,8 @@ def _footer_lines(text: str, tag: str) -> list[str]:
 
 
 def parse_tasks(text: str) -> tuple[Task, ...]:
-    """Every well-formed ``TASK: <id> | deps=<ids> | kind=<kind> | <spec>`` line.
+    """Every well-formed ``TASK: <id> | deps=<ids> | kind=<kind> | <spec>`` line; the
+    ``kind=`` prefix may be left out.
 
     Order matches the text. A line that doesn't split into exactly those four
     ``|``-separated fields, has a blank id, or a kind outside
@@ -114,9 +115,14 @@ def _parse_task_line(
     if len(parts) != 4:
         return None
     task_id, deps_field, kind_field, spec = (p.strip() for p in parts)
-    if not task_id or not deps_field.lower().startswith("deps=") or not kind_field.lower().startswith("kind="):
+    if not task_id or not deps_field.lower().startswith("deps="):
         return None
-    kind = kind_field[len("kind="):].strip().lower()
+    # A bare known kind (``| rtl |``) reads as ``kind=rtl``: planners drop the prefix,
+    # and a known kind name in that field cannot mean anything else.
+    if kind_field.lower().startswith("kind="):
+        kind = kind_field[len("kind="):].strip().lower()
+    else:
+        kind = kind_field.lower()
     if kind not in PLANNED_KINDS:
         return None
     deps = tuple(d.strip() for d in deps_field[len("deps="):].split(",") if d.strip())

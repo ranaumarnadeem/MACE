@@ -399,3 +399,16 @@ class TestIsTestbenchPortMismatch:
 
     def test_empty_stderr_is_not_a_mismatch(self):
         assert is_testbench_port_mismatch("") is False
+
+
+class TestBareKind:
+    def test_a_bare_known_kind_reads_as_kind(self):
+        from mace.agents import parse_tasks
+
+        (task,) = parse_tasks("TASK: fix | deps= | rtl | add the missing wire in picorv32.v")
+        assert (task.id, task.kind) == ("fix", "rtl")
+
+    def test_a_bare_unknown_word_is_still_skipped(self):
+        from mace.agents import parse_tasks
+
+        assert parse_tasks("TASK: t | deps= | verify | run hello_world.c") == ()
