@@ -15,17 +15,19 @@ import pytest
 from chia_openpiton.core_descriptor import (
     FLIST_CORE,
     LINK_LD,
+    SKELETON_MARK,
     TILE_DIR,
     apply_descriptor,
     boot_problems,
-    first_requests,
     flist_core,
     link_ld,
     load_descriptor,
     missing_files,
     parse_descriptor,
     support_problems,
+    wrapper_skeleton,
 )
+from chia_openpiton.parse import first_requests
 
 REPO = Path(__file__).resolve().parents[2]
 PICORV32 = REPO / "examples" / "cores" / "picorv32.yaml"
@@ -194,17 +196,17 @@ class TestBootCheck:
         assert first_requests(self.LOG) == {0: 0x4000_0080, 1: 0x4000_0080}
 
     def test_every_tile_at_the_reset_vector_passes(self):
-        assert boot_problems(parse_descriptor(ibex()), self.LOG, 2) == ()
+        assert boot_problems(parse_descriptor(ibex()), first_requests(self.LOG), 2) == ()
 
     def test_a_wrong_reset_vector_is_reported_per_tile(self):
-        problems = boot_problems(parse_descriptor(ibex(reset_vector=0x4000_0000)), self.LOG, 2)
+        problems = boot_problems(parse_descriptor(ibex(reset_vector=0x4000_0000)), first_requests(self.LOG), 2)
         assert problems == tuple(
             f"tile {t}: the core's first request was at 0x40000080, not the descriptor's reset_vector 0x40000000"
             for t in (0, 1)
         )
 
     def test_a_silent_tile_is_reported(self):
-        (problem,) = boot_problems(parse_descriptor(ibex()), self.LOG, 3)
+        (problem,) = boot_problems(parse_descriptor(ibex()), first_requests(self.LOG), 3)
         assert problem.startswith("tile 2: the core made no memory request after reset")
 
 
@@ -275,3 +277,29 @@ class TestCommandLine:
         path.write_text(yaml.safe_dump(ibex()))
         assert main(["apply", str(path), str(patched_root)]) == 0
         assert (patched_root / FLIST_CORE).exists()
+
+
+class TestWrapperSkeleton:
+    def test_a_missing_wrapper_gets_a_skeleton(self, patched_root):
+        os.remove(patched_root / TILE_DIR / "ibex/generic_core_wrapper.sv")
+        desc = parse_descriptor(ibex())
+        assert missing_files(desc, str(patched_root)) == ("ibex/generic_core_wrapper.sv",)
+        assert missing_files(desc, str(patched_root), wrapper=False) == ()
+        written = apply_descriptor(desc, str(patched_root))
+        assert written == (FLIST_CORE, LINK_LD, "piton/design/chip/tile/ibex/generic_core_wrapper.sv")
+        text = (patched_root / TILE_DIR / "ibex/generic_core_wrapper.sv").read_text()
+        assert text == wrapper_skeleton(desc)
+
+    def test_an_existing_wrapper_is_kept(self, patched_root):
+        apply_descriptor(parse_descriptor(ibex()), str(patched_root))
+        assert (patched_root / TILE_DIR / "ibex/generic_core_wrapper.sv").read_text() == "// rtl\n"
+
+    def test_the_skeleton_has_the_fixed_ports_and_drives_no_request(self):
+        text = wrapper_skeleton(parse_descriptor(ibex()))
+        assert "module generic_core_wrapper (" in text
+        for port in ("clk", "rst_n", "hart_id", "bus_valid", "bus_addr", "bus_wstrb", "bus_wdata",
+                     "bus_amo_op", "bus_ready", "bus_rdata", "wake"):
+            assert f" {port}" in text, port
+        assert "assign bus_valid  = 1'b0;" in text
+        assert "generic_bridge_obi" in text and "0x40000080" in text
+        assert text.count(SKELETON_MARK) == 2

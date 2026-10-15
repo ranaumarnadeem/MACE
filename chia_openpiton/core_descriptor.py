@@ -260,51 +260,93 @@ def link_ld(desc: CoreDescriptor) -> str:
     )
 
 
-def missing_files(desc: CoreDescriptor, piton_root: str) -> tuple[str, ...]:
-    """Sources, the wrapper, and include directories the checkout lacks."""
+def missing_files(desc: CoreDescriptor, piton_root: str, wrapper: bool = True) -> tuple[str, ...]:
+    """Sources, the wrapper, and include directories the checkout lacks.
+    With *wrapper* false the wrapper is not checked, since
+    :func:`apply_descriptor` writes a skeleton in its place."""
     tile = os.path.join(piton_root, TILE_DIR)
-    missing = [p for p in (*desc.sources, desc.wrapper) if not os.path.isfile(os.path.join(tile, p))]
+    files = (*desc.sources, desc.wrapper) if wrapper else tuple(s for s in desc.sources if s != desc.wrapper)
+    missing = [p for p in files if not os.path.isfile(os.path.join(tile, p))]
     missing += [d for d in desc.include_dirs if not os.path.isdir(os.path.join(tile, d))]
     return tuple(dict.fromkeys(missing))
 
 
+def wrapper_skeleton(desc: CoreDescriptor) -> str:
+    """A ``generic_core_wrapper`` with the fixed ports and no core: its bus
+    is tied off, so a build of it alone fails the boot check. An agent (or a
+    person) replaces the marked block with the core and its bridge."""
+    bridge = {
+        "simple": "no bridge: the core's memory interface is the simple bus",
+        "obi": "generic_bridge_obi (tile/generic/rtl/generic_bridge_obi.v)",
+        "wishbone": "generic_bridge_wishbone (tile/generic/rtl/generic_bridge_wishbone.v)",
+    }[desc.bus]
+    lines = [
+        f"// generic_core_wrapper for {desc.core} ({desc.top_module}) on the generic tile.",
+        f"// Bus: {desc.bus}, through {bridge}. Reset vector: {desc.reset_vector:#010x}.",
+        "// The ports are fixed; see generic_l15_transducer.v for the simple bus.",
+        "",
+        "module generic_core_wrapper (",
+        "    input  wire                         clk,",
+        "    input  wire                         rst_n,",
+        "    input  wire [31:0]                  hart_id,",
+        "",
+        "    output wire                         bus_valid,",
+        "    output wire [31:0]                  bus_addr,",
+        "    output wire [3:0]                   bus_wstrb,",
+        "    output wire [31:0]                  bus_wdata,",
+        "    output wire [`L15_AMO_OP_WIDTH-1:0] bus_amo_op,",
+        "    input  wire                         bus_ready,",
+        "    input  wire [31:0]                  bus_rdata,",
+        "    input  wire                         wake",
+        ");",
+        "",
+        f"    // {SKELETON_MARK}: replace this block with the {desc.top_module} instance and its bridge.",
+        "    assign bus_valid  = 1'b0;",
+        "    assign bus_addr   = 32'b0;",
+        "    assign bus_wstrb  = 4'b0;",
+        "    assign bus_wdata  = 32'b0;",
+        "    assign bus_amo_op = `L15_AMO_OP_NONE;",
+        f"    // end of {SKELETON_MARK}",
+        "",
+        "endmodule",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+SKELETON_MARK = "wrapper body"
+
+
 def apply_descriptor(desc: CoreDescriptor, piton_root: str) -> tuple[str, ...]:
     """Write ``Flist.core`` and ``link.ld`` for this core into a checkout
-    patched with fixes 14-17. Returns the paths written, relative to the
-    checkout. Raises ``ValueError`` for an unsupported core or missing files,
-    before writing anything."""
+    patched with fixes 14-17, and :func:`wrapper_skeleton` in place of a
+    missing wrapper. Returns the paths written, relative to the checkout.
+    Raises ``ValueError`` for an unsupported core or missing files, before
+    writing anything."""
     problems = support_problems(desc)
     if problems:
         raise ValueError("unsupported core: " + "; ".join(problems))
-    missing = missing_files(desc, piton_root)
+    missing = missing_files(desc, piton_root, wrapper=False)
     if missing:
         raise ValueError(f"files not found under {TILE_DIR}: {', '.join(missing)}")
-    files = ((FLIST_CORE, flist_core(desc)), (LINK_LD, link_ld(desc)))
+    files = [(FLIST_CORE, flist_core(desc)), (LINK_LD, link_ld(desc))]
     for rel, _ in files:
         if not os.path.isdir(os.path.join(piton_root, os.path.dirname(rel))):
             raise ValueError(f"{os.path.dirname(rel)} not found: patch the checkout with fixes 14-17 first")
+    wrapper = os.path.join(TILE_DIR, desc.wrapper).replace(os.sep, "/")
+    if not os.path.isfile(os.path.join(piton_root, wrapper)):
+        files.append((wrapper, wrapper_skeleton(desc)))
     for rel, text in files:
-        with open(os.path.join(piton_root, rel), "w") as f:
+        path = os.path.join(piton_root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
             f.write(text)
     return tuple(rel for rel, _ in files)
 
 
-_FIRST_REQUEST = re.compile(r"generic tile (\d+): first request at ([0-9a-fA-F]+)")
-
-
-def first_requests(sim_log: str) -> dict[int, int]:
-    """Each tile's first request address, from the transducer's "first
-    request at" lines in a simulation log."""
-    seen: dict[int, int] = {}
-    for tile, addr in _FIRST_REQUEST.findall(sim_log):
-        seen.setdefault(int(tile), int(addr, 16))
-    return seen
-
-
-def boot_problems(desc: CoreDescriptor, sim_log: str, num_tiles: int) -> tuple[str, ...]:
+def boot_problems(desc: CoreDescriptor, seen: dict[int, int], num_tiles: int) -> tuple[str, ...]:
     """Ladder step 2: every tile's core must make its first request at the
-    descriptor's reset vector. Empty when all of them did."""
-    seen = first_requests(sim_log)
+    descriptor's reset vector. *seen* is each tile's first request address
+    (:func:`chia_openpiton.parse.first_requests`). Empty when all of them did."""
     problems = []
     for tile in range(num_tiles):
         if tile not in seen:
