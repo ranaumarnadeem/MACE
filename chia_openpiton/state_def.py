@@ -123,10 +123,16 @@ class PitonConfig:
     # build (see OpenPitonWorkspaceNode.apply_edits); "" for none. It changes
     # the build_id, so an edited build never reuses an unedited model.
     source_edits: str = ""
+    # For core="generic": "<name>@<descriptor digest>" of the core descriptor
+    # applied to the checkout (chia_openpiton.core_descriptor), so two cores
+    # never share a model directory. "" for the other cores.
+    generic_core: str = ""
 
     def __post_init__(self) -> None:
         if self.core not in PITON_CORES:
             raise ValueError(f"core must be one of {', '.join(PITON_CORES)}, got {self.core!r}")
+        if self.generic_core and self.core != "generic":
+            raise ValueError(f"generic_core is for core='generic', not {self.core!r}")
         for axis, n in (("x_tiles", self.x_tiles), ("y_tiles", self.y_tiles)):
             if not isinstance(n, int) or isinstance(n, bool):
                 raise ValueError(f"{axis} must be an int, got {n!r}")
@@ -190,6 +196,8 @@ class PitonConfig:
         # stays the same.
         if self.source_edits:
             identity["source_edits"] = self.source_edits
+        if self.generic_core:
+            identity["generic_core"] = self.generic_core
         blob = json.dumps(identity, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()
 

@@ -163,6 +163,15 @@ class TestSimsFlags:
     def test_generic_and_pico_have_different_build_ids(self):
         assert PitonConfig(core="generic").build_id != PitonConfig(core="pico").build_id
 
+    def test_generic_core_is_part_of_the_identity_only_when_set(self):
+        plain = PitonConfig(core="generic")
+        assert PitonConfig(core="generic", generic_core="ibex@abc").build_id != plain.build_id
+        assert PitonConfig(core="generic", generic_core="").key == plain.key
+
+    def test_generic_core_is_only_for_the_generic_core(self):
+        with pytest.raises(ValueError, match="generic_core is for core='generic'"):
+            PitonConfig(core="pico", generic_core="ibex@abc")
+
     def test_an_unknown_core_names_every_supported_core(self):
         with pytest.raises(ValueError, match="ariane, sparc, pico, generic"):
             PitonConfig(core="mips")
