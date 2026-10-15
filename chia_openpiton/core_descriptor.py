@@ -53,6 +53,10 @@ LINK_LD = os.path.join("piton", "verif", "diag", "assembly", "include", "riscv",
 # Tests for each ladder step after boot, in the generic test environment.
 ISA_TESTS = ("addi.S", "beq.S", "jal.S", "lw.S", "sw.S", "lb.S", "sb.S", "lh.S", "sh.S")
 M_TESTS = ("mul.S", "div.S")
+# The store tests write different values to one shared word in different test
+# cases, so on a mesh one tile's store can land between another tile's store
+# and load. A mesh runs the ISA tests that keep their stores to themselves.
+MESH_TESTS = ("addi.S", "beq.S", "jal.S", "lw.S")
 SHARED_TESTS = ("generic_tile_id.S", "generic_shared_flag.S")
 ATOMIC_TESTS = ("generic_amo_counter.S",)
 
@@ -143,8 +147,8 @@ class CoreDescriptor:
 
     def ladder_tests(self) -> dict[str, tuple[str, ...]]:
         """Test programs per ladder step, chosen from the ISA and atomics."""
-        isa = ISA_TESTS + (M_TESTS if "m" in self.extensions else ())
-        steps = {"isa": isa, "shared": SHARED_TESTS}
+        m_tests = M_TESTS if "m" in self.extensions else ()
+        steps = {"isa": ISA_TESTS + m_tests, "mesh": MESH_TESTS + m_tests, "shared": SHARED_TESTS}
         if self.atomics == "bus":
             steps["atomics"] = ATOMIC_TESTS
         return steps

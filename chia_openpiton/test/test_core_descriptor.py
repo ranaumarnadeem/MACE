@@ -176,6 +176,7 @@ class TestGenerators:
     def test_ladder_tests_follow_the_isa_and_atomics(self):
         steps = parse_descriptor(ibex()).ladder_tests()
         assert "mul.S" in steps["isa"] and "atomics" not in steps
+        assert "sw.S" in steps["isa"] and "sw.S" not in steps["mesh"] and "mul.S" in steps["mesh"]
         steps = parse_descriptor(ibex(isa={"march": "rv32i", "mabi": "ilp32"})).ladder_tests()
         assert "mul.S" not in steps["isa"]
         assert load_descriptor(str(PICORV32)).ladder_tests()["atomics"] == ("generic_amo_counter.S",)
