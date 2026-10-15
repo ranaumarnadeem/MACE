@@ -6,6 +6,9 @@
 // 1 for pass, (TESTNUM << 1) | 1 for fail, as riscv-tests does with tohost.
 // The pass and fail labels from test_macros.h still give sims its good_trap
 // and bad_trap symbols, which pc_cmp reports when the finish register is set.
+// Tests are assembled without compressed instructions, whatever -rv32_march
+// says: the RV32I tests assume 4-byte instructions (jal.S adds 4 to a link
+// address).
 
 #ifndef TEST_FUNC_NAME
 #  define TEST_FUNC_NAME mytest
@@ -22,6 +25,7 @@
 
 #define RVTEST_CODE_BEGIN		\
 	.section .text.init;		\
+	.option norvc;			\
 	.global _start;			\
 	.global TEST_FUNC_NAME;		\
 	.global TEST_FUNC_RET;		\
