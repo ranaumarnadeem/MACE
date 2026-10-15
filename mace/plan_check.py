@@ -151,6 +151,32 @@ def define_index(checkout: str) -> frozenset[str]:
     return frozenset(w.decode("ascii", "replace") for w in words)
 
 
+REQUIRED_DEFINE_ADDED = "required_define_added"
+# Every task kind that builds the chip: config and workload tasks, and rtl tasks, which build the edited design.
+_DEFINE_KINDS = ("config", "workload", "rtl")
+
+
+def add_required_defines(
+    tasks: tuple[Task, ...], required: tuple[str, ...]
+) -> tuple[tuple[Task, ...], tuple[tuple[str, tuple[str, ...]], ...]]:
+    """*tasks* with every define in *required* added to each task that builds,
+    and, for each task changed, its id and the defines added.
+
+    The objective names these defines as ones the build needs, so fixed code
+    adds them rather than asking the planner again: a planner that leaves one
+    out of an rtl task builds a design that cannot pass."""
+    out = []
+    added: list[tuple[str, tuple[str, ...]]] = []
+    for task in tasks:
+        missing = tuple(d for d in required if d not in (task.config_rtl or ()))
+        if task.kind not in _DEFINE_KINDS or not missing:
+            out.append(task)
+            continue
+        out.append(dataclasses.replace(task, config_rtl=tuple(sorted({*(task.config_rtl or ()), *missing}))))
+        added.append((task.id, missing))
+    return tuple(out), tuple(added)
+
+
 def strip_unknown_defines(
     tasks: tuple[Task, ...], known_defines: frozenset[str] | None, keep: tuple[str, ...] = ()
 ) -> tuple[tuple[Task, ...], tuple[str, ...]]:

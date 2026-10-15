@@ -15,12 +15,16 @@ Each is a `LoopOptions` field that is on by default, and an ablation method turn
 ## Plan Check
 
 `_plan_checked()` in `mace/orchestrator.py` makes the iteration's plan: one `plan()` call, then a look at the result before any build.
-The look has two parts.
+The look has three parts.
 
 `strip_unknown_defines()` removes each RTL define that no file mentions.
 `define_index()` collects the upper-snake-case words of the text files under `piton/design`, `piton/verif`, `piton/tools/src`, and `piton/tools/verilator` in the first checkout, once per process.
 A define in none of them changes nothing, so a plan that carries one only builds a second model that behaves like the first.
 A define the objective names stays.
+
+`add_required_defines()` then adds each RTL define that a sentence of the objective names as needed to every task that builds: `config`, `workload`, and `rtl` tasks, not `unit_test` tasks.
+The objective states the define, so fixed code applies it rather than asking the planner again: the planner had left the PicoRV32 define out of its `rtl` tasks, so every repair built a design that timed out.
+Each task it changes is recorded as a `required_define_added` entry, which does not reject the plan.
 
 `check_plan()` then returns one `PlanProblem` per reason the plan cannot work.
 It builds nothing and calls no LLM.
@@ -28,7 +32,7 @@ It builds nothing and calls no LLM.
 | Rule | A task is rejected when |
 |---|---|
 | `source_edit` | In a run without RTL edits, it has kind `rtl`, or its `config` or `workload` instruction asks to edit a Verilog or SystemVerilog file |
-| `required_define` | It builds without an RTL define that a sentence of the objective names as needed |
+| `required_define` | It builds without an RTL define that a sentence of the objective names as needed; after `add_required_defines()` this fires only for a task kind that function does not cover |
 | `way_rule` | Its caches break [Ariane's way rule](../04_chia_openpiton/piton_config.md) |
 | `missing_module` | It is a `unit_test` of a path that is not in the checkout |
 | `repeated_failure` | It builds the same flags as a configuration that already failed in the run, a failed probe included |
@@ -45,7 +49,7 @@ A plan still rejected after that runs as it stands, and so does the rejected pla
 A reply with no plan after the last retry ends the run as `planning_failed`.
 The seeded-fault `plan_hook` runs after the check, so a fault always reaches a build.
 
-`record_plan_check()` writes one row of the `plan_checks` table for each look that found a problem or removed a define, and for each retry's look.
+`record_plan_check()` writes one row of the `plan_checks` table for each look that found a problem, removed a define, or added one, and for each retry's look.
 `action` is `rejected`, `accepted`, `kept`, or `unusable` (a reply with no plan), and the row holds the rules, tasks, and reasons as JSON, and the stripped defines.
 `mace.eval.plan_replay.replay_plans()` runs the same check over the plans recorded in a database, with no LLM call and no build.
 

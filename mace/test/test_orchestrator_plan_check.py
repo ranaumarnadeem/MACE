@@ -35,6 +35,11 @@ def base_task(id="t1", **kwargs):
     return Task(id=id, deps=(), kind="workload", spec="hello_world.c", **kwargs)
 
 
+def edit_task(id="t1"):
+    """A task the check rejects: it asks for a source edit in a run without RTL edits."""
+    return Task(id=id, deps=(), kind="workload", spec="Edit manycore_top.v to declare async_mux", config_rtl=(BIST,))
+
+
 def scripted_planner(replies, seen):
     """A planner stand-in: the next of *replies* per call (an exception is raised), and each call's
     feedback, rejection note, and phase appended to *seen*."""
@@ -83,33 +88,33 @@ def run(tmp_path, monkeypatch, replies, spec=None, passes=None, options=None, ro
 
 class TestRejection:
     def test_a_plan_that_cannot_work_goes_back_with_its_reasons(self, tmp_path, monkeypatch):
-        bad, good = (base_task(),), (base_task(config_rtl=(BIST,)),)
+        bad, good = (edit_task(),), (base_task(config_rtl=(BIST,)),)
         result, db, seen, ran = run(tmp_path, monkeypatch, [bad, good])
         assert [s["phase"] for s in seen] == ["plan", "plan_retry"]
         assert seen[0]["rejection"] == ""
         assert "rejected before any build" in seen[1]["rejection"]
-        assert BIST in seen[1]["rejection"] and "task t1" in seen[1]["rejection"]
+        assert "manycore_top.v" in seen[1]["rejection"] and "task t1" in seen[1]["rejection"]
         assert ran == [good] and result.status == "passed"
         assert check_rows(db, result.run_id) == [
-            (0, 0, "rejected", ["required_define"], []),
+            (0, 0, "rejected", ["source_edit"], []),
             (0, 1, "accepted", [], []),
         ]
 
     def test_the_failures_feedback_goes_to_the_retry_as_well(self, tmp_path, monkeypatch):
-        bad, good = (base_task(),), (base_task(config_rtl=(BIST,)),)
+        bad, good = (edit_task(),), (base_task(config_rtl=(BIST,)),)
         _, _, seen, _ = run(tmp_path, monkeypatch, [good, bad, good], passes=[False, True])
         assert seen[1]["feedback"] != "" and seen[1]["feedback"] == seen[2]["feedback"]
 
     def test_a_plan_rejected_every_time_runs_as_it_stands_after_the_cap(self, tmp_path, monkeypatch):
-        bad = (base_task(),)
+        bad = (edit_task(),)
         result, db, seen, ran = run(tmp_path, monkeypatch, [bad] * (MAX_PLAN_REJECTIONS + 1))
         assert len(seen) == MAX_PLAN_REJECTIONS + 1 and ran == [bad]
         rows = check_rows(db, result.run_id)
         assert [row[2] for row in rows] == ["rejected"] * MAX_PLAN_REJECTIONS + ["accepted"]
-        assert rows[-1][3] == ["required_define"]
+        assert rows[-1][3] == ["source_edit"]
 
     def test_a_retry_with_no_usable_plan_leaves_the_rejected_plan_in_force(self, tmp_path, monkeypatch):
-        bad = (base_task(),)
+        bad = (edit_task(),)
         result, db, _, ran = run(tmp_path, monkeypatch, [bad, PlanningError("no TASK: lines")])
         assert ran == [bad] and result.status == "passed"
         assert [row[2] for row in check_rows(db, result.run_id)] == ["rejected", "kept"]
@@ -122,6 +127,35 @@ class TestRejection:
         bad = (base_task(),)
         result, db, seen, ran = run(tmp_path, monkeypatch, [bad], options=LoopOptions(plan_check=False))
         assert len(seen) == 1 and ran == [bad] and check_rows(db, result.run_id) == []
+
+
+class TestObjectiveDefines:
+    def test_a_task_missing_the_objective_s_define_gets_it_without_a_retry(self, tmp_path, monkeypatch):
+        result, db, seen, ran = run(tmp_path, monkeypatch, [(base_task(),)])
+        assert len(seen) == 1 and ran[0][0].config_rtl == (BIST,)
+        assert check_rows(db, result.run_id) == [(0, 0, "accepted", ["required_define_added"], [])]
+
+    def test_an_rtl_task_gets_the_define_too(self, tmp_path, monkeypatch):
+        rtl = Task(id="fix", deps=(), kind="rtl", spec="fix the typo in picorv32.v")
+        _, _, _, ran = run(tmp_path, monkeypatch, [(rtl,)], options=LoopOptions(rtl_edits=True))
+        assert ran[0][0].config_rtl == (BIST,)
+
+    def test_a_unit_test_task_is_left_alone(self, tmp_path, monkeypatch):
+        unit = Task(id="u", deps=(), kind="unit_test", spec="piton/design/x.v")
+        monkeypatch.setattr(plan_check, "define_index", lambda checkout: None)
+        _, _, _, ran = run(tmp_path, monkeypatch, [(unit, base_task())], roots=("/fake/root",))
+        assert ran[0][0].config_rtl is None and ran[0][1].config_rtl == (BIST,)
+
+    def test_with_the_check_off_nothing_is_added(self, tmp_path, monkeypatch):
+        _, _, _, ran = run(tmp_path, monkeypatch, [(base_task(),)], options=LoopOptions(plan_check=False))
+        assert ran[0][0].config_rtl is None
+
+    def test_a_seeded_fault_still_breaks_the_first_plan(self, tmp_path, monkeypatch):
+        def drop_bist(iteration, tasks):
+            return tuple(Task(id=t.id, deps=t.deps, kind=t.kind, spec=t.spec) for t in tasks) if iteration == 0 else tasks
+
+        _, _, _, ran = run(tmp_path, monkeypatch, [(base_task(),), (base_task(),)], passes=[False, True], hook=drop_bist)
+        assert ran[0][0].config_rtl is None and ran[1][0].config_rtl == (BIST,)
 
 
 class TestUnusableReplies:
@@ -148,13 +182,13 @@ class TestUnusableReplies:
         assert [row[2] for row in check_rows(db, result.run_id)] == ["unusable"] * MAX_PLAN_REJECTIONS
 
     def test_rejected_plans_and_unusable_replies_share_the_retries(self, tmp_path, monkeypatch):
-        bad, good = (base_task(),), (base_task(config_rtl=(BIST,)),)
+        bad, good = (edit_task(),), (base_task(config_rtl=(BIST,)),)
         result, db, seen, ran = run(tmp_path, monkeypatch, [PlanningError(self.BAD_LINE), bad, good])
         assert [s["phase"] for s in seen] == ["plan", "plan_retry", "plan_retry"]
         assert ran == [good]
         assert check_rows(db, result.run_id) == [
             (0, 0, "unusable", ["unusable_reply"], []),
-            (0, 1, "rejected", ["required_define"], []),
+            (0, 1, "rejected", ["source_edit"], []),
             (0, 2, "accepted", [], []),
         ]
 
@@ -178,7 +212,7 @@ class TestUnusableReplies:
 
 class TestPlannerThinkingCap:
     def test_every_planner_call_carries_the_cap_the_first_and_the_retries(self, tmp_path, monkeypatch):
-        bad, good = (base_task(),), (base_task(config_rtl=(BIST,)),)
+        bad, good = (edit_task(),), (base_task(config_rtl=(BIST,)),)
         _, _, seen, _ = run(
             tmp_path, monkeypatch, [PlanningError("no plan"), bad, good], options=LoopOptions(planner_thinking=300)
         )

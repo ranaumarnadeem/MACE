@@ -55,7 +55,9 @@ from mace.metrics import (
 )
 from mace.narrowing import SKIPPED, Change, Narrowing, narrow
 from mace.plan_check import (
+    REQUIRED_DEFINE_ADDED,
     UNUSABLE_REPLY,
+    add_required_defines,
     check_plan,
     define_index,
     format_rejection,
@@ -166,13 +168,17 @@ def _plan_checked(
         if not options.plan_check:
             return tasks
         tasks, stripped = strip_unknown_defines(tasks, known, keep)
+        # The objective's defines go on every task that builds, rtl tasks included.
+        tasks, added = add_required_defines(tasks, keep)
         problems = check_plan(
             spec, tasks, rtl_edits=options.rtl_edits, path_exists=path_exists, failed_configs=failed_configs,
             bad_changes=bad_changes,
         )
-        recorded = tuple((p.rule, p.task_id, p.reason) for p in problems)
+        recorded = tuple((p.rule, p.task_id, p.reason) for p in problems) + tuple(
+            (REQUIRED_DEFINE_ADDED, task_id, "added " + " ".join(defines)) for task_id, defines in added
+        )
         rejected = bool(problems) and retries < MAX_PLAN_REJECTIONS
-        if problems or stripped or retries:
+        if problems or stripped or retries or added:
             record_plan_check(db, run_id, iteration, retries, "rejected" if rejected else "accepted", recorded, stripped)
         if not rejected:
             return tasks
