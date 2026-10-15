@@ -59,6 +59,8 @@ RUN mkdir -p /opt/riscv \
     && /opt/riscv/bin/riscv64-unknown-elf-gcc --version | head -1
 
 COPY scripts/patch_openpiton.sh /opt/mace/patch_openpiton.sh
+# Fix 14 installs the generic tile's files from beside the script.
+COPY scripts/openpiton_generic /opt/mace/openpiton_generic
 RUN chmod +x /opt/mace/patch_openpiton.sh
 
 ENV RISCV=/opt/riscv
