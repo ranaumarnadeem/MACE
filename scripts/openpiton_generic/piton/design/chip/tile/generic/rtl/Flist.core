@@ -1,0 +1,2 @@
+../cores/picorv32/generic_core_wrapper.v
+../../pico/rtl/picorv32.v
