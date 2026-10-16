@@ -51,6 +51,7 @@ def main() -> int:
     ap.add_argument("--max-usd", type=float, default=20.0)
     ap.add_argument("--max-wall-s", type=int, default=3 * 3600)
     ap.add_argument("--repeat", type=int, default=0, help="Recorded in the run's labels")
+    ap.add_argument("--tag", default="", help="Appended to the run's task label, to tell batches apart")
     ap.add_argument("--db-path", default=os.path.abspath("runs/generic_integrate.db"))
     args = ap.parse_args()
     if args.backend == "vertex" and not os.environ.get("GOOGLE_CLOUD_PROJECT"):
@@ -77,7 +78,7 @@ def main() -> int:
     llm = make_llm(args.backend, **({"model": model} if model else {}))
     os.makedirs(os.path.dirname(args.db_path), exist_ok=True)
     db = open_db(args.db_path, ray_placement=False)
-    labels = RunLabels(method=args.method, task=f"integrate-{desc.core}-{x}x{y}", repeat=args.repeat)
+    labels = RunLabels(method=args.method, task=f"integrate-{desc.core}-{x}x{y}{args.tag}", repeat=args.repeat)
     if args.method == "mace":
         result = run_mace_loop(
             (root,), spec, llm, db, labels=labels, options=dataclasses.replace(LoopOptions(), rtl_edits=True)
