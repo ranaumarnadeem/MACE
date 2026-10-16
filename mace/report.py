@@ -122,7 +122,7 @@ def generate_post_mortem(
             fail-open posture :func:`mace.triage.triage` documents.
     """
     prompt = build_prompt(spec, iterations, diagnoses, stop_reason)
-    query = usage.prompt(llm, "post_mortem", prompt, tools)
+    query = usage.prompt_retrying(llm, "post_mortem", prompt, tools)
     assessment = parse_assessment(query.result)
     if assessment is None:
         raise ReportError(f"no ASSESSMENT: line in the post-mortem response: {query.result!r}")

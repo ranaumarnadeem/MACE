@@ -1,0 +1,15 @@
+# PicoRV32 on the generic tile: the regression core. Its memory interface is
+# the simple bus, and the BYOC version of picorv32.v puts its atomics on it.
+core: picorv32
+top_module: picorv32
+wrapper: generic/cores/picorv32/generic_core_wrapper.v
+sources: [pico/rtl/picorv32.v]
+isa: {march: rv32ima, mabi: ilp32}
+bus: simple
+reset_vector: 0x40000000
+atomics: bus
+private_cache: none
+hart_id: register
+notes: |
+  PicoRV32 has no hart ID input; programs read the tile ID register.
+  It does not implement fence.

@@ -110,7 +110,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-BUD-6:** MACE shall record the cost and wall-clock time of each iteration.
 - **REQ-BUD-7:** Before any LLM call or checkout access, MACE shall verify the SHA-256 digest of every C program in `mace/workloads/` against `mace/workloads/CHECKSUMS`.
 - **REQ-BUD-8:** MACE shall end the run with status `checksum_mismatch`, and run no iteration, when a digest differs or when the programs present differ from the programs `CHECKSUMS` lists.
-- **REQ-BUD-9:** MACE shall record a run with status `running` when it starts, and replace that status with `passed`, `failed`, `planning_failed`, `budget_exceeded`, `checksum_mismatch`, or `error` when the loop ends.
+- **REQ-BUD-9:** MACE shall record a run with status `running` when it starts, and replace that status with `passed`, `failed`, `planning_failed`, `budget_exceeded`, `checksum_mismatch`, `unsupported_core`, or `error` when the loop ends.
 - **REQ-BUD-10:** MACE shall record status `error` for a run that an exception ends, then re-raise the exception.
 - **REQ-BUD-11:** MACE shall cap each build's and simulation's timeout at the time left in the run's wall-clock limit, and shall not start a build or simulation after that limit has passed.
 - **REQ-BUD-12:** MACE shall record, for each LLM call, its phase, its input, output, and thinking tokens, its cost, its wall-clock time, whether it succeeded, and the text of its reply.

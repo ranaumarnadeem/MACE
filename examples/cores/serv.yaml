@@ -1,0 +1,38 @@
+# SERV (olofk/serv, serv_rf_top, RV32I) on the generic tile: the held-out
+# core MACE integrates. Its wrapper is not written here: a run writes a
+# skeleton in its place, and MACE fills it in.
+# examples/cores/serv/install.sh copies SERV's RTL under
+# piton/design/chip/tile/serv/.
+core: serv
+top_module: serv_rf_top
+wrapper: serv/generic_core_wrapper.v
+sources:
+  - serv/rtl/serv_aligner.v
+  - serv/rtl/serv_alu.v
+  - serv/rtl/serv_bufreg.v
+  - serv/rtl/serv_bufreg2.v
+  - serv/rtl/serv_compdec.v
+  - serv/rtl/serv_csr.v
+  - serv/rtl/serv_ctrl.v
+  - serv/rtl/serv_debug.v
+  - serv/rtl/serv_decode.v
+  - serv/rtl/serv_immdec.v
+  - serv/rtl/serv_mem_if.v
+  - serv/rtl/serv_rf_if.v
+  - serv/rtl/serv_rf_ram.v
+  - serv/rtl/serv_rf_ram_if.v
+  - serv/rtl/serv_state.v
+  - serv/rtl/serv_top.v
+  - serv/rtl/serv_rf_top.v
+isa: {march: rv32i, mabi: ilp32}
+bus: obi
+reset_vector: 0x40000000
+atomics: none
+private_cache: none
+hart_id: register
+notes: |
+  SERV is bit-serial, so programs run slowly.
+  Its instruction port (o_ibus_*) and data port (o_dbus_*) are Wishbone-style:
+  o_*_cyc stays high until i_*_ack, and there is no stb.
+  i_rst is active high. The RESET_PC parameter sets the reset vector.
+  The multiply unit is off (MDU = 0), so the ISA is RV32I.

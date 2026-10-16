@@ -1,0 +1,3 @@
+// picorv32 (picorv32), written from its core descriptor
+../../pico/rtl/picorv32.v
+../../generic/cores/picorv32/generic_core_wrapper.v

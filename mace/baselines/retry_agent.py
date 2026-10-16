@@ -20,12 +20,13 @@ the planner's parser.
 from __future__ import annotations
 
 import dataclasses
+import os
 import time
 from typing import Callable
 
 from chia.database.sqlite_node import SQLiteNode
 
-from mace import usage
+from mace import generic_core, usage
 from mace.agents import parse_tasks
 from mace.integrator import close_nodes, integrate_parallel, open_nodes
 from mace.metrics import (
@@ -132,7 +133,8 @@ def run_retry_agent(
     Stops on the same wall-clock and cost limits the loop checks, before
     each attempt. A reply that names no design uses up its attempt, and
     the agent is told so. The run ends ``passed`` or ``budget_exceeded``,
-    or ``checksum_mismatch`` before any attempt when a gate program changed.
+    or ``checksum_mismatch`` before any attempt when a gate program changed,
+    or ``unsupported_core`` when the generic tile cannot run the spec's core.
     """
     run_id = start_run(db, spec, labels=labels or RunLabels(method="retry_agent"))
     calls = usage.UsageLog()
@@ -152,6 +154,10 @@ def _attempts(
     except ValueError:
         finish_run(db, run_id, "checksum_mismatch")
         return LoopResult(run_id=run_id, status="checksum_mismatch", iterations=())
+    unsupported = generic_core.unsupported_reasons(spec, piton_root if os.path.isdir(piton_root) else None)
+    if unsupported:
+        finish_run(db, run_id, "unsupported_core")
+        return LoopResult(run_id=run_id, status="unsupported_core", iterations=(), unsupported=unsupported)
 
     started = time.monotonic()
     deadline = started + spec.budget.max_wall_s
@@ -167,7 +173,7 @@ def _attempts(
             if calls.total_usd() > spec.budget.max_usd:
                 break
             attempt_started = time.monotonic()
-            query = usage.prompt(llm, PHASE, build_prompt(spec, history, rtl_edits))
+            query = usage.prompt_retrying(llm, PHASE, build_prompt(spec, history, rtl_edits))
             if not getattr(query, "success", True):
                 raise LLMCallFailed(f"the retry agent's LLM call failed: {(query.stderr or 'no reply')[:300]}")
             design = parse_design(query.result)
@@ -176,6 +182,7 @@ def _attempts(
             results: tuple[StepResult, ...] = ()
             if design is not None:
                 if nodes is None:
+                    generic_core.prepare_checkouts(spec, (piton_root,))
                     nodes = open_nodes((piton_root,))
                 results = integrate_parallel(
                     (piton_root,), spec, (design,), llm, run_id=run_id, iteration=attempt,

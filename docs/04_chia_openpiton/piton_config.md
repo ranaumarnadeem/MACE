@@ -9,7 +9,7 @@
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `sys` | `str` | `"manycore"` | `sims -sys=` value. `"manycore"` is the full-chip mesh; any other name selects a registered OpenPiton unit-test environment, `piton/tools/src/sims/<sys>.config` |
-| `core` | `PitonCore` | `"ariane"` | `"ariane"`, `"sparc"`, or `"pico"` |
+| `core` | `PitonCore` | `"ariane"` | `"ariane"`, `"sparc"`, `"pico"`, or `"generic"` (the [Generic Tile](../05_mace_cores/generic.md)) |
 | `x_tiles` | `int` | `1` | Mesh width |
 | `y_tiles` | `int` | `1` | Mesh height |
 | `network_config` | `NetworkConfig` | `"2dmesh_config"` | `"2dmesh_config"` or `"xbar_config"`; OpenPiton builds the crossbar only with `y_tiles=1` |
@@ -21,6 +21,7 @@
 | `verilator_version` | `str` | `""` | `verilator --version` text, set by `configure()` |
 | `diff` | `str` | `""` | Unstaged diff under `piton/verif/env/manycore`, set by `configure()` |
 | `source_edits` | `str` | `""` | Hash of the edits a caller applied with [apply_edits()](workspace_node.md) for this build |
+| `generic_core` | `str` | `""` | For `core="generic"`, `<name>@<digest>` of the core descriptor applied to the checkout; only that core takes it |
 
 ## Constants
 
@@ -44,7 +45,7 @@ ARIANE_WAY_RULE = "On Ariane, neither the L1D nor the L1I may have more ways tha
 
 | Condition | Example message |
 |---|---|
-| Unknown core | `core must be 'ariane', 'sparc', or 'pico', got 'mips'` |
+| Unknown core | `core must be one of ariane, sparc, pico, generic, got 'mips'` |
 | Tile count not an `int`, or a `bool` | `x_tiles must be an int, got True` |
 | Tile count outside 1 to 256 | `x_tiles must be 1..256, got 0` |
 | Unknown network | `network_config must be '2dmesh_config' or 'xbar_config', got '2d_mesh'` |
@@ -73,7 +74,7 @@ A Verilator build of a configuration that breaks the rule therefore compiles and
 
 ### key and build_id
 
-`key` hashes a JSON object, serialized with sorted keys, that holds `sys`, `core`, `x_tiles`, `y_tiles`, `network_config`, `config_rtl` (sorted), `caches` (sorted by name), `extra_flags` (in order), `source_rev`, `ariane_rev`, `verilator_version`, and `diff`, plus `source_edits` when it is set, so a key recorded before that field existed stays the same. [build()](workspace_node.md) passes `build_id` to `sims` as `-build_id`. `sims` writes every model to `rel-0.1` by default, so without a per-configuration ID two configurations overwrite each other's model.
+`key` hashes a JSON object, serialized with sorted keys, that holds `sys`, `core`, `x_tiles`, `y_tiles`, `network_config`, `config_rtl` (sorted), `caches` (sorted by name), `extra_flags` (in order), `source_rev`, `ariane_rev`, `verilator_version`, and `diff`, plus `source_edits` and `generic_core` when they are set, so a key recorded before those fields existed stays the same. [build()](workspace_node.md) passes `build_id` to `sims` as `-build_id`. `sims` writes every model to `rel-0.1` by default, so without a per-configuration ID two configurations overwrite each other's model.
 
 `caches` always holds all four caches, so a mapping that names only some of them and the same mapping with the defaults written out share a key and a model directory.
 Earlier versions hashed a partial mapping as given.

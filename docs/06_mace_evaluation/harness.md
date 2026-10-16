@@ -56,7 +56,7 @@ The LLM methods state a task's inputs with the planner's own `render_inputs()` a
 ## Batch runs
 
 `mace.eval.runner.plan_jobs()` expands the suite into one job per task, method, and repeat, and shuffles the jobs with `--shuffle-seed`, so a slow hour on Vertex does not fall on one method.
-`run_batch()` skips each job whose run in the database already ended `passed`, `failed`, `planning_failed`, `budget_exceeded`, or `checksum_mismatch`, so a stopped batch resumes where it left off; a run left `running` or ended `error` runs again.
+`run_batch()` skips each job whose run in the database already ended `passed`, `failed`, `planning_failed`, `budget_exceeded`, `checksum_mismatch`, or `unsupported_core`, so a stopped batch resumes where it left off; a run left `running` or ended `error` runs again.
 
 Before each job, `clear_build_cache()` removes every directory under `build/manycore/` whose name starts with `mace_` on every checkout, so each run starts from an empty build cache.
 Models built by hand or by other tools stay.

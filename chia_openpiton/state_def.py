@@ -30,7 +30,11 @@ from typing import Literal
 # toolchain exists on this machine or in OpenPiton's own CI; it reuses the
 # installed riscv64-unknown-elf-gcc as an rv32ima/ilp32 cross-compiler via
 # sims' own -rv32_target_triple override (see PitonConfig.sims_flags).
-PitonCore = Literal["ariane", "sparc", "pico"]
+# "generic" is the generic tile of scripts/patch_openpiton.sh fixes 14-17: an
+# RV32 core wired through its own wrapper (tile/generic/rtl/Flist.core says
+# which core) to generic_l15_transducer. It uses the same RV32 toolchain.
+PitonCore = Literal["ariane", "sparc", "pico", "generic"]
+PITON_CORES: tuple[str, ...] = ("ariane", "sparc", "pico", "generic")
 
 # sims simulator selectors (-<sim>_build / -<sim>_run / -sim_type=<sim>).
 # Only "vlt" (Verilator) is license-free; the rest need commercial tools.
@@ -119,10 +123,16 @@ class PitonConfig:
     # build (see OpenPitonWorkspaceNode.apply_edits); "" for none. It changes
     # the build_id, so an edited build never reuses an unedited model.
     source_edits: str = ""
+    # For core="generic": "<name>@<descriptor digest>" of the core descriptor
+    # applied to the checkout (chia_openpiton.core_descriptor), so two cores
+    # never share a model directory. "" for the other cores.
+    generic_core: str = ""
 
     def __post_init__(self) -> None:
-        if self.core not in ("ariane", "sparc", "pico"):
-            raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
+        if self.core not in PITON_CORES:
+            raise ValueError(f"core must be one of {', '.join(PITON_CORES)}, got {self.core!r}")
+        if self.generic_core and self.core != "generic":
+            raise ValueError(f"generic_core is for core='generic', not {self.core!r}")
         for axis, n in (("x_tiles", self.x_tiles), ("y_tiles", self.y_tiles)):
             if not isinstance(n, int) or isinstance(n, bool):
                 raise ValueError(f"{axis} must be an int, got {n!r}")
@@ -186,6 +196,8 @@ class PitonConfig:
         # stays the same.
         if self.source_edits:
             identity["source_edits"] = self.source_edits
+        if self.generic_core:
+            identity["generic_core"] = self.generic_core
         blob = json.dumps(identity, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()
 
@@ -220,8 +232,8 @@ class PitonConfig:
         ]
         if self.core == "ariane":
             flags.append("-ariane")
-        elif self.core == "pico":
-            flags.append("-pico")
+        elif self.core in ("pico", "generic"):
+            flags.append(f"-{self.core}")
             # No riscv32-unknown-elf toolchain exists on this machine (or is
             # apt-packaged for this distro); the installed riscv64-unknown-elf-gcc
             # supports rv32ima/ilp32 via multilib (confirmed:
@@ -290,6 +302,9 @@ class PitonRunResult:
     fake_uart: str = ""  # what the program printed to the UART
     stdout: str = ""
     stderr: str = ""
+    # For core="generic": each tile's first request address (parse.first_requests),
+    # read from the whole sim.log, since sim_log_tail may not reach back to it.
+    first_requests: dict[int, int] = field(default_factory=dict)
 
     @staticmethod
     def decide(returncode: int, verdict: Verdict | None) -> bool:

@@ -22,7 +22,7 @@ from chia.base.llm_call import QueryResult
 
 from chia_openpiton.openpiton_workspace import OpenPitonWorkspaceNode
 from chia_openpiton.state_def import COVERAGE_LINE_FLAG, PitonBuildArtifact, PitonConfig, PitonRunResult
-from mace import usage
+from mace import generic_core, usage
 from mace.spec import MaceSpec, StepResult, Task
 from mace.tools import TestbenchEditTool
 from mace.unit_test_scaffold import (
@@ -248,10 +248,14 @@ def _config_for_task(spec: MaceSpec, task: Task) -> PitonConfig:
     should not silently cost the run MINIMAL_MONITORING (PitonConfig's own
     default) just because a task asked for one specific extra flag. Only a
     task's ``drop_rtl`` (set by a seeded fault) removes a default.
+
+    A generic-tile core adds its descriptor's ISA flags and digest.
     """
+    isa_flags, generic = generic_core.config_fields(spec)
     kwargs: dict = dict(
         core=spec.core, x_tiles=spec.target_mesh[0], y_tiles=spec.target_mesh[1],
-        extra_flags=(COVERAGE_LINE_FLAG,) if spec.coverage else (),
+        extra_flags=((COVERAGE_LINE_FLAG,) if spec.coverage else ()) + isa_flags,
+        generic_core=generic,
     )
     if task.caches is not None:
         kwargs["caches"] = task.caches_dict

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from mace import usage
+from mace import generic_core, usage
 from mace.agents import parse_tasks
 from mace.integrator import topological_levels, topological_order
 from mace.spec import MaceSpec, Task
@@ -79,7 +79,7 @@ def render_inputs(spec: MaceSpec) -> str:
         x_tiles=spec.target_mesh[0],
         y_tiles=spec.target_mesh[1],
         workloads=", ".join(spec.workloads),
-    )
+    ) + generic_core.inputs_brief(spec)
 
 
 def inherit_config_rtl(tasks: tuple[Task, ...]) -> tuple[Task, ...]:
@@ -180,7 +180,7 @@ def plan(
             caller's job; this only refuses to hand back something broken.
         LLMCallFailed: the backend gave no reply at all.
     """
-    query = usage.prompt(llm, phase, build_prompt(spec, feedback, rtl_edits, rejection), tools)
+    query = usage.prompt_retrying(llm, phase, build_prompt(spec, feedback, rtl_edits, rejection), tools)
     if not getattr(query, "success", True):
         raise LLMCallFailed(f"the planner's LLM call failed: {(query.stderr or 'no reply')[:300]}")
     tasks = parse_tasks(query.result)

@@ -45,6 +45,7 @@ Every insert except into `llm_calls` uses `INSERT OR REPLACE` on the table's pri
 | `planning_failed` | The planner's reply held no valid task DAG. |
 | `failed` | An iteration produced no task results. |
 | `checksum_mismatch` | A C program in `mace/workloads/` failed its checksum; nothing ran. |
+| `unsupported_core` | The generic tile cannot run the core descriptor's core, or the checkout lacks its files; nothing ran. `LoopResult.unsupported` holds the reasons. |
 | `error` | An exception stopped the run. |
 
 A run that ends `failed` or `budget_exceeded` after at least one iteration gets a post-mortem, unless the LLM's reply cannot be parsed.

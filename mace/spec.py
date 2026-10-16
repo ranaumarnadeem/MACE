@@ -19,6 +19,7 @@ from chia.base.llm_call import QueryResult
 from chia_openpiton.state_def import (
     DEFAULT_CACHES,
     MAX_TILES_PER_AXIS,
+    PITON_CORES,
     PitonBuildArtifact,
     PitonCore,
     PitonRunResult,
@@ -85,6 +86,10 @@ class MaceSpec:
     # the mesh's one-per-tile default. OpenSPARC T1's multi-thread diags
     # name their thread count this way (-midas_args=-DTHREAD_COUNT=8).
     workload_args: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    # For core="generic", the core descriptor's YAML file
+    # (chia_openpiton.core_descriptor): the core's RTL, ISA, bus, and reset
+    # vector. Required for "generic", empty for the other cores.
+    core_descriptor: str = ""
 
     def run_options(self, program: str) -> tuple[str | None, tuple[str, ...]]:
         """(finish_mask or None, extra run args) for gate *program*."""
@@ -105,8 +110,10 @@ class MaceSpec:
             value = getattr(self, name)
             if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):
                 raise ValueError(f"{name} must be a positive int or None, got {value!r}")
-        if self.core not in ("ariane", "sparc", "pico"):
-            raise ValueError(f"core must be 'ariane', 'sparc', or 'pico', got {self.core!r}")
+        if self.core not in PITON_CORES:
+            raise ValueError(f"core must be one of {', '.join(PITON_CORES)}, got {self.core!r}")
+        if (self.core == "generic") != bool(self.core_descriptor):
+            raise ValueError("core='generic' needs a core_descriptor, and only it takes one")
         if not isinstance(self.coverage, bool):
             raise ValueError(f"coverage must be a bool, got {self.coverage!r}")
         if not self.workloads:
@@ -179,6 +186,13 @@ class LoopOptions:
       amount to the model. A backend that cannot cap thinking ignores it. The
       cap applies to the planner only, so every method that runs the planner
       (``one_shot``, the ablations) has it, and the retry agent does not.
+    - ``gate_pass_ends_run``: ``False`` passes a run only when every task of
+      an iteration passes; the default also passes it when one task ran every
+      gate program to a pass, since that design meets the objective, whatever
+      a speculative extra task did.
+    - ``carry_edits``: ``False`` starts every iteration from the design as it
+      stands; the default carries the RTL edits of the last task whose build
+      succeeded into the next iteration, as the edits its tasks start from.
     """
 
     triage: str = "llm"
@@ -192,6 +206,8 @@ class LoopOptions:
     narrowing: bool = True
     fast_path: bool = True
     planner_thinking: int | None = PLANNER_THINKING_BUDGET
+    gate_pass_ends_run: bool = True
+    carry_edits: bool = True
 
     def __post_init__(self) -> None:
         if self.planner_thinking is not None and (
@@ -358,6 +374,10 @@ class StepResult:
     # The directed tests a ``test`` task wrote, every attempt's, with their
     # verdicts on the design the task built.
     tests: tuple[DirectedTest, ...] = ()
+    # For core="generic", the tiles whose core did not start at the core
+    # descriptor's reset vector (mace.generic_core.boot_failures); a task
+    # with any fails.
+    boot_problems: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -399,6 +419,9 @@ class LoopResult:
 
     run_id: str
     status: str  # "passed" | "failed" | "planning_failed" | "budget_exceeded"
-    #             | "checksum_mismatch"
+    #             | "checksum_mismatch" | "unsupported_core"
     iterations: tuple[tuple[StepResult, ...], ...]
     post_mortem: PostMortem | None = None
+    # Why the core descriptor's core cannot run on the generic tile, for
+    # status "unsupported_core"; empty otherwise.
+    unsupported: tuple[str, ...] = ()

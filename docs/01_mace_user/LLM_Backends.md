@@ -79,5 +79,9 @@ A model missing from that table costs 0, and its tokens are still counted.
 The Gemini 3 models above answer only through Vertex's `global` endpoint; set `GOOGLE_CLOUD_LOCATION=global` to use them.
 A call that raises, for example on a reply cut off at the output limit, records no tokens.
 
+When the backend rate-limits a call (Vertex's HTTP 429), `mace.usage.prompt_retrying()` waits 30, 60, and then 120 seconds, trying the call again after each wait.
+The planner, triage, the post-mortem, the retry agent, an `rtl` task's agent, and a directed-test agent call through it.
+A rate limit that lasts past the last wait ends the run with status `error`, which a batch runs again.
+
 The loop records every planner, task, triage, and post-mortem call in the `llm_calls` table, and `Budget.max_usd` counts all of them but the post-mortem; see [Results and Metrics](Results_and_Metrics.md).
 [Cost](../06_mace_evaluation/cost.md) gives the per-run costs of the evaluation runs.

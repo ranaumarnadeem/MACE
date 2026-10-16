@@ -960,3 +960,376 @@ CEOF
         echo "patched: registered pico_reset_ut.config in sims.config"
     fi
 )
+
+# 14-17 add the generic tile: a fourth tile type whose core is any RV32 core
+# wired through a per-core wrapper (generic_core_wrapper) to a simple memory
+# bus, and from there through generic_l15_transducer to the tile's L1.5. The
+# bus and the transducer's registers are described at the top of
+# generic_l15_transducer.v. `sims -generic` selects the tile. The other cores
+# build as before, since every change is behind PITON_GENERIC, FLIST_GENERIC,
+# RTL_GENERIC<n>, or -generic.
+
+# 14. Install the generic tile's files from scripts/openpiton_generic/: the
+#     transducer, reset helper, and bridges (tile/generic/rtl/), PicoRV32's
+#     wrapper (tile/generic/cores/picorv32/), the test environment
+#     (verif/diag/assembly/include/riscv/generic/, with PicoRV32's
+#     test_macros.h), and the generic tile's own test programs
+#     (verif/diag/assembly/riscv/generic/). Flist.core (which core is
+#     built) and link.ld are defaults: a core descriptor replaces them, so
+#     they are written only when missing.
+if ! skip 14; then
+(
+    SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/openpiton_generic"
+    cd "$ROOT"
+    if [ ! -d "$SRC/piton" ]; then
+        echo "not found, skipping fix 14: $SRC"
+    else
+        installed=0
+        while IFS= read -r -d '' f; do
+            rel="${f#"$SRC"/}"
+            case "$rel" in
+                piton/design/chip/tile/generic/rtl/Flist.core|piton/verif/diag/assembly/include/riscv/generic/link.ld)
+                    if [ -e "$rel" ]; then continue; fi ;;
+            esac
+            if ! cmp -s "$f" "$rel"; then
+                mkdir -p "$(dirname "$rel")"
+                cp "$f" "$rel"
+                echo "installed: $rel"
+                installed=1
+            fi
+        done < <(find "$SRC/piton" -type f -print0 | sort -z)
+        PICO_MACROS="piton/verif/diag/assembly/include/riscv/pico/test_macros.h"
+        GENERIC_MACROS="piton/verif/diag/assembly/include/riscv/generic/test_macros.h"
+        if [ -f "$PICO_MACROS" ] && ! cmp -s "$PICO_MACROS" "$GENERIC_MACROS"; then
+            cp "$PICO_MACROS" "$GENERIC_MACROS"
+            echo "installed: $GENERIC_MACROS"
+            installed=1
+        fi
+        if [ "$installed" -eq 0 ]; then
+            echo "already patched: generic tile files (fix 14)"
+        fi
+    fi
+)
+fi
+
+# 15. Make GENERIC_TILE a tile type: its number (define.h.pyv), the generate
+#     block that instantiates the wrapper, reset helper, and transducer
+#     (tile.v.pyv), the tile type chip.v.pyv gives every tile under
+#     PITON_GENERIC, one thread per tile in pyhplib.py (as for PicoRV32 and
+#     Ariane), and the hierarchy names pc_cmp uses (cross_module.h.pyv).
+if ! skip 15; then
+(
+    cd "$ROOT"
+    python3 - <<'PYEOF'
+import os
+import sys
+
+TILE_BLOCK = """generate
+if (TILE_TYPE == `GENERIC_TILE) begin : g_generic_core
+`ifdef PITON_GENERIC
+    //////////////////
+    // Generic Core //
+    //////////////////
+    // generic_core_wrapper (listed in tile/generic/rtl/Flist.core) holds the
+    // core and drives the simple bus of generic_l15_transducer.
+    wire                         generic_bus_valid;
+    wire [31:0]                  generic_bus_addr;
+    wire [3:0]                   generic_bus_wstrb;
+    wire [31:0]                  generic_bus_wdata;
+    wire [`L15_AMO_OP_WIDTH-1:0] generic_bus_amo_op;
+    wire                         generic_bus_ready;
+    wire [31:0]                  generic_bus_rdata;
+    wire                         generic_wake;
+    wire [31:0]                  generic_tile_id;
+
+    assign generic_tile_id = {{(32-`JTAG_FLATID_WIDTH){1'b0}}, flat_tileid};
+
+    generic_core_wrapper core(
+        .clk        (clk_gated),
+        .rst_n      (rst_n_f),
+        .hart_id    (generic_tile_id),
+        .bus_valid  (generic_bus_valid),
+        .bus_addr   (generic_bus_addr),
+        .bus_wstrb  (generic_bus_wstrb),
+        .bus_wdata  (generic_bus_wdata),
+        .bus_amo_op (generic_bus_amo_op),
+        .bus_ready  (generic_bus_ready),
+        .bus_rdata  (generic_bus_rdata),
+        .wake       (generic_wake)
+    );
+
+    generic_reset generic_reset(
+        .gclk       (clk_gated),
+        .rst_n      (rst_n_f),
+        .spc_grst_l (spc_grst_l)
+    );
+
+    // In reset until the L1.5 leaves reset (spc_grst_l): the L1.5 drops a
+    // request it takes earlier, and a core can fetch in its first cycle.
+    generic_l15_transducer #(
+        .NUM_TILES (`PITON_NUM_TILES)
+    ) generic_l15_transducer(
+        .clk                                (clk),
+        .rst_n                              (spc_grst_l),
+        .tile_id                            (generic_tile_id),
+
+        .core_valid                         (generic_bus_valid),
+        .core_addr                          (generic_bus_addr),
+        .core_wstrb                         (generic_bus_wstrb),
+        .core_wdata                         (generic_bus_wdata),
+        .core_amo_op                        (generic_bus_amo_op),
+        .core_ready                         (generic_bus_ready),
+        .core_rdata                         (generic_bus_rdata),
+        .core_wake                          (generic_wake),
+
+        .transducer_l15_rqtype              (transducer_l15_rqtype),
+        .transducer_l15_amo_op              (transducer_l15_amo_op),
+        .transducer_l15_size                (transducer_l15_size),
+        .transducer_l15_val                 (transducer_l15_val),
+        .transducer_l15_address             (transducer_l15_address),
+        .transducer_l15_data                (transducer_l15_data),
+        .transducer_l15_nc                  (transducer_l15_nc),
+        .transducer_l15_threadid            (transducer_l15_threadid),
+        .transducer_l15_prefetch            (transducer_l15_prefetch),
+        .transducer_l15_invalidate_cacheline(transducer_l15_invalidate_cacheline),
+        .transducer_l15_blockstore          (transducer_l15_blockstore),
+        .transducer_l15_blockinitstore      (transducer_l15_blockinitstore),
+        .transducer_l15_l1rplway            (transducer_l15_l1rplway),
+        .transducer_l15_data_next_entry     (transducer_l15_data_next_entry),
+        .transducer_l15_csm_data            (transducer_l15_csm_data),
+        .l15_transducer_ack                 (l15_transducer_ack),
+        .l15_transducer_header_ack          (l15_transducer_header_ack),
+
+        .l15_transducer_val                 (l15_transducer_val),
+        .l15_transducer_returntype          (l15_transducer_returntype),
+        .l15_transducer_data_0              (l15_transducer_data_0),
+        .l15_transducer_data_1              (l15_transducer_data_1),
+        .transducer_l15_req_ack             (transducer_l15_req_ack),
+
+        .mon_finish_val                     (),
+        .mon_finish_pass                    (),
+        .mon_error                          (),
+        .mon_first_addr                     ()
+    );
+`endif // ifdef PITON_GENERIC
+end
+endgenerate
+"""
+
+PICO_END = "`endif // ifdef PITON_PICO\nend\nendgenerate\n"
+
+EDITS = [
+    ("piton/design/include/define.h.pyv", "GENERIC_TILE", [
+        ("`define ARIANE_RV64_TILE 2\n",
+         "`define ARIANE_RV64_TILE 2\n`define GENERIC_TILE     3\n"),
+    ]),
+    ("piton/design/chip/tile/rtl/tile.v.pyv", "g_generic_core", [
+        (PICO_END, PICO_END + TILE_BLOCK),
+    ]),
+    ("piton/design/chip/rtl/chip.v.pyv", "GENERIC_TILE", [
+        ("            elif (PITON_PICO):\n",
+         "            elif (PITON_GENERIC):\n"
+         "                currenttype = \"`GENERIC_TILE\"\n"
+         "            elif (PITON_PICO):\n"),
+    ]),
+    ("piton/tools/bin/pyhplib.py", "PITON_GENERIC", [
+        ("PITON_PICO_HET = int(os.environ.get('PITON_PICO_HET', '0'))\n",
+         "PITON_PICO_HET = int(os.environ.get('PITON_PICO_HET', '0'))\n"
+         "PITON_GENERIC  = int(os.environ.get('PITON_GENERIC', '0'))\n"),
+        ("if PITON_ARIANE or PITON_PICO:\n",
+         "if PITON_ARIANE or PITON_PICO or PITON_GENERIC:\n"),
+    ]),
+    ("piton/verif/env/manycore/cross_module.h.pyv", "GENERIC_TRANSDUCER", [
+        ("    `define PICO_TRANSDUCER%d `TILE%d.g_picorv32_core.pico_l15_transducer\n",
+         "    `define PICO_TRANSDUCER%d `TILE%d.g_picorv32_core.pico_l15_transducer\n"
+         "    `define GENERIC_CORE%d    `TILE%d.g_generic_core.core\n"
+         "    `define GENERIC_TRANSDUCER%d `TILE%d.g_generic_core.generic_l15_transducer\n"),
+    ]),
+]
+
+failed = False
+for path, marker, swaps in EDITS:
+    if not os.path.isfile(path):
+        print(f"not found, skipping fix 15 for: {path}")
+        continue
+    with open(path) as f:
+        content = f.read()
+    if marker in content:
+        print(f"already patched: {path} (fix 15)")
+        continue
+    for old, new in swaps:
+        count = content.count(old)
+        if count != 1:
+            print(f"ERROR: {path}: expected exactly 1 match for {old.splitlines()[0]!r}, found {count}", file=sys.stderr)
+            failed = True
+            break
+        content = content.replace(old, new)
+    else:
+        with open(path, "w") as f:
+            f.write(content)
+        print(f"patched: {path} knows the generic tile")
+sys.exit(1 if failed else 0)
+PYEOF
+)
+fi
+
+# 16. pc_cmp.v.pyv: an RTL_GENERIC<n> branch beside RTL_PICO<n>. A generic
+#     core has no retired-PC signal pc_cmp could compare, so the transducer's
+#     finish register stands in for one: when it is set, the branch reports,
+#     for one cycle, the program's good_trap address (pass) or bad_trap
+#     address (fail, or a store the transducer could not send), and the
+#     existing compare, finish_mask, and timeout logic decide the run. A
+#     program that never writes the register times out.
+if ! skip 16; then
+(
+    cd "$ROOT"
+    PC_CMP="piton/verif/env/manycore/pc_cmp.v.pyv"
+    if [ ! -f "$PC_CMP" ]; then
+        echo "not found, skipping fix 16: $PC_CMP"
+    elif grep -q "RTL_GENERIC0" "$PC_CMP"; then
+        echo "already patched: $PC_CMP (fix 16)"
+    elif ! grep -q "ifdef RTL_PICO0" "$PC_CMP"; then
+        echo "not found, skipping fix 16 (no RTL_PICO0 branch): $PC_CMP"
+    else
+        python3 - "$PC_CMP" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+generic = """        `else // RTL_ARIANE0
+        `ifdef RTL_GENERIC0
+                assign spc0_thread_id = 2'b00;
+                assign spc0_rtl_pc = spc0_phy_pc_w;
+                reg spc0_generic_seen;
+
+                always @(posedge clk) begin
+                    if (~rst_l) begin
+                      active_thread[(0*4)]   <= 1'b0;
+                      active_thread[(0*4)+1] <= 1'b0;
+                      active_thread[(0*4)+2] <= 1'b0;
+                      active_thread[(0*4)+3] <= 1'b0;
+                      spc0_inst_done         <= 1'b0;
+                      spc0_phy_pc_w          <= 64'b0;
+                      spc0_generic_seen      <= 1'b0;
+                    end else begin
+                      active_thread[(0*4)]   <= 1'b1;
+                      active_thread[(0*4)+1] <= 1'b1;
+                      active_thread[(0*4)+2] <= 1'b1;
+                      active_thread[(0*4)+3] <= 1'b1;
+                      spc0_inst_done         <= (`GENERIC_TRANSDUCER0.mon_finish_val | `GENERIC_TRANSDUCER0.mon_error) & ~spc0_generic_seen;
+                      spc0_generic_seen      <= spc0_generic_seen | `GENERIC_TRANSDUCER0.mon_finish_val | `GENERIC_TRANSDUCER0.mon_error;
+                      spc0_phy_pc_w          <= (`GENERIC_TRANSDUCER0.mon_finish_pass & ~`GENERIC_TRANSDUCER0.mon_error)
+                                                ? {24'b0, good_trap[0]} : {24'b0, bad_trap[0]};
+                    end
+                end
+        `else // RTL_GENERIC0
+        `ifdef RTL_PICO0
+"""
+swaps = [
+    ("        `else // RTL_ARIANE0\n        `ifdef RTL_PICO0\n", generic),
+    ("        `endif // RTL_PICO0\n        `endif // RTL_ARIANE0\n",
+     "        `endif // RTL_PICO0\n        `endif // RTL_GENERIC0\n        `endif // RTL_ARIANE0\n"),
+    ('"ARIANE_CORE0", "active_thread[(0"]',
+     '"ARIANE_CORE0", "active_thread[(0", "RTL_GENERIC0", "GENERIC_TRANSDUCER0"]'),
+]
+for old, new in swaps:
+    count = content.count(old)
+    if count != 1:
+        print(f"ERROR: expected exactly 1 match for {old.strip().splitlines()[0]!r}, found {count}", file=sys.stderr)
+        sys.exit(1)
+    content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print("patched: pc_cmp.v.pyv reports a generic tile's finish register as its good or bad trap")
+PYEOF
+    fi
+)
+fi
+
+# 17. sims -generic: sets PITON_GENERIC and FLIST_GENERIC (manycore.config
+#     then adds the generic tile's two file lists, -rv32, the PITON_GENERIC
+#     define, and CONFIG_DISABLE_BIST_CLEAR: the SRAM model drops writes
+#     until its power-on clear ends, and a generic-tile core can boot before
+#     that, as PicoRV32 does), an RTL_GENERIC<n> define per tile, and the RV32
+#     assembly flow with PicoRV32's defaults (-rv32_march/-rv32_mabi
+#     override them). rv32_as takes its include directory and link script
+#     from RV32_ENV (pico unless -generic), so tests build against the
+#     generic test environment.
+if ! skip 17; then
+(
+    cd "$ROOT"
+    python3 - <<'PYEOF'
+import os
+import sys
+
+FLIST_PICO_BLOCK = """#ifdef FLIST_PICO
+    -flist=$DV_ROOT/design/chip/tile/pico/rtl/Flist.pico
+    -rv32
+    -config_rtl=PITON_PICO
+#endif
+"""
+FLIST_GENERIC_BLOCK = """#ifdef FLIST_GENERIC
+    -flist=$DV_ROOT/design/chip/tile/generic/rtl/Flist.generic
+    -flist=$DV_ROOT/design/chip/tile/generic/rtl/Flist.core
+    -rv32
+    -config_rtl=PITON_GENERIC
+    -config_rtl=CONFIG_DISABLE_BIST_CLEAR
+#endif
+"""
+
+EDITS = [
+    ("piton/tools/src/sims/sims,2.0", "'generic!'", [
+        ("        'pico' => 0,\n", "        'pico' => 0,\n        'generic' => 0,\n", 1),
+        ("            'pico!',\n", "            'pico!',\n            'generic!',\n", 1),
+        ('die ("DIE. -pico and -pico_het cannot both be set") if ($opt{pico} && $opt{pico_het}) ;\n',
+         'die ("DIE. -pico and -pico_het cannot both be set") if ($opt{pico} && $opt{pico_het}) ;\n'
+         'die ("DIE. -generic cannot be set with -ariane, -pico, or -pico_het") '
+         'if ($opt{generic} && ($opt{ariane} || $opt{pico} || $opt{pico_het})) ;\n', 1),
+        ("if (!$opt{pico} && !$opt{ariane}) {\n",
+         "if (!$opt{pico} && !$opt{ariane} && !$opt{generic}) {\n", 1),
+        ('push (@{$opt{config_cpp_args}}, "-DFLIST_ARIANE")   if ($opt{ariane}) ;\n',
+         'push (@{$opt{config_cpp_args}}, "-DFLIST_ARIANE")   if ($opt{ariane}) ;\n'
+         'push (@{$opt{config_cpp_args}}, "-DFLIST_GENERIC")  if ($opt{generic}) ;\n', 1),
+        ("  $ENV{PITON_ARIANE}   = $opt{ariane};\n",
+         "  $ENV{PITON_ARIANE}   = $opt{ariane};\n  $ENV{PITON_GENERIC}  = $opt{generic};\n", 1),
+        ("    if ($opt{pico} || ($opt{pico_het} && ($i % 2 == 1))) {\n",
+         "    if ($opt{generic}) {\n"
+         "        push (@{$opt{config_rtl}}, \"RTL_GENERIC\" . $i);\n"
+         "    } elsif ($opt{pico} || ($opt{pico_het} && ($i % 2 == 1))) {\n", 1),
+        ("        if ($opt{pico}) {\n", "        if ($opt{pico} || $opt{generic}) {\n", 3),
+        ('      my $cmd = "rv32_as " ;\n',
+         '      $ENV{RV32_ENV} = $opt{generic} ? "generic" : "pico" ;\n      my $cmd = "rv32_as " ;\n', 1),
+    ]),
+    ("piton/tools/src/sims/manycore.config", "FLIST_GENERIC", [
+        (FLIST_PICO_BLOCK, FLIST_PICO_BLOCK + FLIST_GENERIC_BLOCK, 1),
+    ]),
+    ("piton/tools/bin/rv32_as", "RV32_ENV", [
+        ("include/riscv/pico", "include/riscv/${RV32_ENV:-pico}", 2),
+    ]),
+]
+
+failed = False
+for path, marker, swaps in EDITS:
+    if not os.path.isfile(path):
+        print(f"not found, skipping fix 17 for: {path}")
+        continue
+    with open(path) as f:
+        content = f.read()
+    if marker in content:
+        print(f"already patched: {path} (fix 17)")
+        continue
+    for old, new, expected in swaps:
+        count = content.count(old)
+        if count != expected:
+            print(f"ERROR: {path}: expected {expected} match(es) for {old.splitlines()[0]!r}, found {count}", file=sys.stderr)
+            failed = True
+            break
+        content = content.replace(old, new)
+    else:
+        with open(path, "w") as f:
+            f.write(content)
+        print(f"patched: {path} supports -generic")
+sys.exit(1 if failed else 0)
+PYEOF
+)
+fi

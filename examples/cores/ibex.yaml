@@ -1,0 +1,54 @@
+# Ibex (lowRISC ibex_top, RV32IMC) on the generic tile, wired by hand.
+# examples/cores/ibex/install.sh copies Ibex's RTL into the checkout under
+# piton/design/chip/tile/ibex/ and writes this core's Flist.core and link.ld.
+core: ibex
+top_module: ibex_top
+wrapper: ibex/generic_core_wrapper.sv
+include_dirs:
+  - ibex/vendor/lowrisc_ip/ip/prim/rtl
+  - ibex/vendor/lowrisc_ip/dv/sv/dv_utils
+sources:
+  - ibex/vendor/lowrisc_ip/ip/prim/rtl/prim_count_pkg.sv
+  - ibex/vendor/lowrisc_ip/ip/prim/rtl/prim_mubi_pkg.sv
+  - ibex/vendor/lowrisc_ip/ip/prim/rtl/prim_cipher_pkg.sv
+  - ibex/vendor/lowrisc_ip/ip/prim/rtl/prim_util_pkg.sv
+  - ibex/vendor/lowrisc_ip/ip/prim/rtl/prim_secded_pkg.sv
+  - ibex/vendor/lowrisc_ip/ip/prim_generic/rtl/prim_ram_1p_pkg.sv
+  - ibex/rtl/ibex_pkg.sv
+  - ibex/rtl/ibex_cheriot_pkg.sv
+  - ibex/rtl/ibex_alu.sv
+  - ibex/rtl/ibex_compressed_decoder.sv
+  - ibex/rtl/ibex_controller.sv
+  - ibex/rtl/ibex_counter.sv
+  - ibex/rtl/ibex_cs_registers.sv
+  - ibex/rtl/ibex_decoder.sv
+  - ibex/rtl/ibex_ex_block.sv
+  - ibex/rtl/ibex_id_stage.sv
+  - ibex/rtl/ibex_if_stage.sv
+  - ibex/rtl/ibex_load_store_unit.sv
+  - ibex/rtl/ibex_multdiv_slow.sv
+  - ibex/rtl/ibex_multdiv_fast.sv
+  - ibex/rtl/ibex_prefetch_buffer.sv
+  - ibex/rtl/ibex_fetch_fifo.sv
+  - ibex/rtl/ibex_register_file_ff.sv
+  - ibex/rtl/ibex_core.sv
+  - ibex/rtl/ibex_wb_stage.sv
+  - ibex/rtl/ibex_csr.sv
+  - ibex/rtl/ibex_cheriot_ex.sv
+  - ibex/rtl/ibex_trvk.sv
+  - ibex/rtl/ibex_dummy_instr.sv
+  - ibex/rtl/ibex_pmp.sv
+  - ibex/rtl/ibex_lockstep.sv
+  - ibex/rtl/ibex_icache.sv
+  - ibex/rtl/ibex_top.sv
+  - ibex/vendor/lowrisc_ip/ip/prim_generic/rtl/prim_clock_gating.sv
+  - ibex/vendor/lowrisc_ip/ip/prim_generic/rtl/prim_buf.sv
+isa: {march: rv32imc, mabi: ilp32}
+bus: obi
+reset_vector: 0x40000080
+atomics: none
+private_cache: none
+hart_id: port
+notes: |
+  Ibex starts at boot_addr + 0x80; the wrapper sets boot_addr to 0x40000000.
+  The instruction cache is off (ICache = 0).

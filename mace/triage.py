@@ -206,6 +206,11 @@ def failure_evidence(result: StepResult) -> str:
         output = build.stderr or build.stdout
         context_parts.append(f"Build output (tail):\n{output[-1500:]}")
     elif run is not None:
+        if result.boot_problems:
+            context_parts.append(
+                "Boot check: the gate's verdict does not count, since these cores did not start at the core "
+                "descriptor's reset vector:\n" + "\n".join(result.boot_problems[:8])
+            )
         context_parts.append(f"Sim log (tail):\n{run.sim_log_tail[-1500:]}")
         context_parts.append(f"Status log:\n{run.status_log}")
     # After the errors, so a cut to the evidence's head keeps the file and line.
@@ -279,7 +284,7 @@ def triage(
             ),
         )
 
-    query = usage.prompt(llm, "triage", build_prompt(result, objective, rtl_edits, narrowing), tools)
+    query = usage.prompt_retrying(llm, "triage", build_prompt(result, objective, rtl_edits, narrowing), tools)
     diagnosis = parse_diagnosis(query.result)
     if diagnosis is None:
         raise TriageError(f"no DIAGNOSIS: line in the triage response: {query.result!r}")

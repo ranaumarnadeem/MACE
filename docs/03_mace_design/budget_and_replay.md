@@ -42,6 +42,7 @@ A changed file, a file missing from `CHECKSUMS`, or a listed file that no longer
 | `planning_failed` | `plan()` raised `PlanningError` |
 | `budget_exceeded` | A limit ran out before any iteration passed |
 | `checksum_mismatch` | A C program in `mace/workloads/` does not match `CHECKSUMS` |
+| `unsupported_core` | The core descriptor's core fails the [Generic Tile](../05_mace_cores/generic.md) support check |
 | `error` | An exception escaped the loop; it is recorded, then re-raised |
 
 ## Deterministic Replay

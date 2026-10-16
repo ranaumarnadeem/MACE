@@ -35,7 +35,7 @@ from chia.base.ChiaFunction import get
 from chia.base.llm_call import QueryResult
 from chia_openpiton.openpiton_workspace import EDIT_STAGING_DIR, OpenPitonWorkspaceNode
 from chia_openpiton.state_def import PitonBuildArtifact, PitonConfig, PitonRunResult
-from mace import directed, usage
+from mace import directed, generic_core, usage
 from mace.loop import _config_for_task, run_gate_programs, run_mace_step
 from mace.replay import tag_for
 from mace.spec import DirectedTest, LoopOptions, MaceSpec, StepResult, Task
@@ -81,11 +81,18 @@ def edits_digest(edits: dict[str, str]) -> str:
     return hashlib.sha256(blob).hexdigest()[:16]
 
 
+# The key in integrate_parallel's map of applied edits that holds the edits
+# every task of the iteration starts from (its base_edits). No task has an
+# empty id.
+BASE_EDITS = ""
+
+
 def inherited_edits(task: Task, applied: dict[str, dict[str, str]]) -> dict[str, str]:
-    """The RTL edits of the tasks *task* depends on, merged in ``deps``
-    order. *applied* maps each passed task to every edit its build carried,
-    its dependencies' included, so this reaches indirect dependencies."""
-    merged: dict[str, str] = {}
+    """The iteration's base edits, then the RTL edits of the tasks *task*
+    depends on, merged in ``deps`` order. *applied* maps each passed task to
+    every edit its build carried, its dependencies' included, so this
+    reaches indirect dependencies."""
+    merged: dict[str, str] = dict(applied.get(BASE_EDITS) or {})
     for dep in task.deps:
         merged.update(applied.get(dep) or {})
     return merged
@@ -117,10 +124,13 @@ def rtl_prompt(
         "design is built and every gate workload simulated; you cannot run anything yourself. End with "
         "one line saying what you changed and why.",
     ]
+    brief = generic_core.wrapper_brief(spec)
+    if brief:
+        lines += ["", brief]
     if context.strip():
         lines += ["", "What the earlier attempts in this run reported:", context.strip()]
     if inherited:
-        lines += ["", "Edits from the tasks this one depends on are already applied to: " + ", ".join(sorted(inherited))]
+        lines += ["", "Edits from earlier tasks are already applied to: " + ", ".join(sorted(inherited))]
     if tests:
         lines += [
             "",
@@ -301,8 +311,13 @@ def integrate_parallel(
     options: LoopOptions | None = None,
     deadline: float | None = None,
     rtl_context: str = "",
+    base_edits: dict[str, str] | None = None,
 ) -> tuple[StepResult, ...]:
     """Apply *tasks* across *piton_roots* in parallel, one level at a time.
+
+    *base_edits* (path -> full new content) are RTL edits every task builds
+    with, under its own and its dependencies' edits; the loop passes the
+    last edits that built when it carries them into a new iteration.
 
     Each level's tasks are dispatched round-robin, one per checkout, batched
     in groups of ``len(piton_roots)`` when a level has more tasks than
@@ -372,7 +387,7 @@ def integrate_parallel(
         results: list[StepResult] = []
         # Each passed task's RTL edits, its dependencies' included, for the
         # tasks in later levels that depend on it.
-        applied: dict[str, dict[str, str]] = {}
+        applied: dict[str, dict[str, str]] = {BASE_EDITS: dict(base_edits)} if base_edits else {}
         # Each passed task's directed tests that ran, its dependencies' included.
         applied_tests: dict[str, tuple[DirectedTest, ...]] = {}
         for level in topological_levels(tasks):
@@ -632,7 +647,11 @@ def _run_batch(
         runs, passed = run_gate_programs(
             lambda program: _run_program(node, config, task, program, roots.get(program)), programs
         )
-        return StepResult(task=task, query=query, build=build, run=runs[-1], passed=passed, runs=runs)
+        boot = generic_core.boot_failures(spec, runs, config.num_tiles)
+        return StepResult(
+            task=task, query=query, build=build, run=runs[-1], passed=passed and not boot, runs=runs,
+            boot_problems=boot,
+        )
 
     def _test_task(node, config: PitonConfig, task: Task, inherited: dict[str, str]) -> StepResult:
         """A ``test`` task: the design as it stands, with the RTL edits of the

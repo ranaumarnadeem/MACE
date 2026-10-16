@@ -362,3 +362,181 @@ class TestPatchSkip:
     def test_without_patch_skip_nothing_is_skipped(self, multitile_piton_root):
         result = _run_patch(multitile_piton_root)
         assert "skipped fix" not in result.stdout
+
+
+# Fixes 14-17: the generic tile. Upstream text each fix anchors on, as in
+# OpenPiton 1c6bfd2.
+GENERIC_SRC = SCRIPT.parent / "openpiton_generic" / "piton"
+DEFINE_H = "piton/design/include/define.h.pyv"
+TILE_V = "piton/design/chip/tile/rtl/tile.v.pyv"
+CHIP_V = "piton/design/chip/rtl/chip.v.pyv"
+PYHPLIB = "piton/tools/bin/pyhplib.py"
+CROSS_MODULE = "piton/verif/env/manycore/cross_module.h.pyv"
+SIMS_PL = "piton/tools/src/sims/sims,2.0"
+MANYCORE_CONFIG = "piton/tools/src/sims/manycore.config"
+RV32_AS = "piton/tools/bin/rv32_as"
+PICO_MACROS = "piton/verif/diag/assembly/include/riscv/pico/test_macros.h"
+GENERIC_INCLUDE = "piton/verif/diag/assembly/include/riscv/generic"
+FLIST_CORE = "piton/design/chip/tile/generic/rtl/Flist.core"
+
+UPSTREAM = {
+    DEFINE_H: "`define SPARC_TILE       0\n`define PICORV32_TILE    1\n`define ARIANE_RV64_TILE 2\n",
+    TILE_V: (
+        "generate\nif (TILE_TYPE == `PICORV32_TILE) begin : g_picorv32_core\n"
+        "`ifdef PITON_PICO\n`endif // ifdef PITON_PICO\nend\nendgenerate\n"
+    ),
+    CHIP_V: (
+        "            elif (PITON_PICO):\n"
+        "                currenttype = \"`PICORV32_TILE\"\n"
+    ),
+    PYHPLIB: (
+        "PITON_PICO_HET = int(os.environ.get('PITON_PICO_HET', '0'))\n"
+        "if PITON_ARIANE or PITON_PICO:\n    NUM_THREADS = PITON_NUM_TILES\n"
+    ),
+    CROSS_MODULE: "    `define PICO_TRANSDUCER%d `TILE%d.g_picorv32_core.pico_l15_transducer\n",
+    SIMS_PL: (
+        "        'pico' => 0,\n"
+        "            'pico!',\n"
+        'die ("DIE. -pico and -pico_het cannot both be set") if ($opt{pico} && $opt{pico_het}) ;\n'
+        "if (!$opt{pico} && !$opt{ariane}) {\n"
+        'push (@{$opt{config_cpp_args}}, "-DFLIST_ARIANE")   if ($opt{ariane}) ;\n'
+        "  $ENV{PITON_ARIANE}   = $opt{ariane};\n"
+        "    if ($opt{pico} || ($opt{pico_het} && ($i % 2 == 1))) {\n"
+        + "        if ($opt{pico}) {\n" * 3
+        + '      my $cmd = "rv32_as " ;\n'
+    ),
+    MANYCORE_CONFIG: (
+        "#ifdef FLIST_PICO\n    -flist=$DV_ROOT/design/chip/tile/pico/rtl/Flist.pico\n"
+        "    -rv32\n    -config_rtl=PITON_PICO\n#endif\n"
+    ),
+    RV32_AS: (
+        "-I${DV_ROOT}/verif/diag/assembly/include/riscv/pico  \\\n"
+        "-T${DV_ROOT}/verif/diag/assembly/include/riscv/pico/link.ld diag.S -o diag.exe\n"
+    ),
+    PICO_MACROS: "#define TEST_PASSFAIL\n",
+}
+PC_CMP_GENERIC_ANCHORS = (
+    "        `else // RTL_ARIANE0\n        `ifdef RTL_PICO0\n"
+    "        `endif // RTL_PICO0\n        `endif // RTL_ARIANE0\n"
+    '    pattern = ["SPARC0", "PICO_CORE0", "ARIANE_CORE0", "active_thread[(0"];\n'
+)
+
+
+@pytest.fixture
+def generic_piton_root(multitile_piton_root) -> Path:
+    """multitile_piton_root plus the upstream text fixes 14-17 target. Runs
+    leave out fixes 8 and 9, whose own sims,2.0 anchors this tree lacks."""
+    root = multitile_piton_root
+    for rel, text in UPSTREAM.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    pc_cmp = root / PC_CMP
+    pc_cmp.write_text(pc_cmp.read_text().replace("endmodule\n", PC_CMP_GENERIC_ANCHORS + "endmodule\n"))
+    return root
+
+
+class TestGenericTileFixes:
+    def test_fix_14_installs_the_generic_tile_files(self, generic_piton_root):
+        result = _run_patch_skipping(generic_piton_root, "8 9")
+        assert result.returncode == 0, result.stderr
+        sources = [p for p in GENERIC_SRC.rglob("*") if p.is_file()]
+        assert sources
+        for src in sources:
+            installed = generic_piton_root / "piton" / src.relative_to(GENERIC_SRC)
+            assert installed.read_bytes() == src.read_bytes(), installed
+        assert (generic_piton_root / GENERIC_INCLUDE / "test_macros.h").read_text() == UPSTREAM[PICO_MACROS]
+
+    def test_fix_14_keeps_a_descriptor_s_flist_core(self, generic_piton_root):
+        flist = generic_piton_root / FLIST_CORE
+        flist.parent.mkdir(parents=True)
+        flist.write_text("../../ibex/rtl/generic_core_wrapper.sv\n")
+        result = _run_patch_skipping(generic_piton_root, "8 9")
+        assert result.returncode == 0, result.stderr
+        assert flist.read_text() == "../../ibex/rtl/generic_core_wrapper.sv\n"
+
+    def test_fix_14_restores_an_edited_transducer(self, generic_piton_root):
+        _run_patch_skipping(generic_piton_root, "8 9")
+        rel = "design/chip/tile/generic/rtl/generic_l15_transducer.v"
+        (generic_piton_root / "piton" / rel).write_text("// edited\n")
+        result = _run_patch_skipping(generic_piton_root, "8 9")
+        assert result.returncode == 0, result.stderr
+        assert f"installed: piton/{rel}" in result.stdout
+        assert (generic_piton_root / "piton" / rel).read_bytes() == (GENERIC_SRC / rel).read_bytes()
+
+    def test_fix_15_adds_the_generic_tile_type(self, generic_piton_root):
+        result = _run_patch_skipping(generic_piton_root, "8 9")
+        assert result.returncode == 0, result.stderr
+        assert "`define GENERIC_TILE     3\n" in (generic_piton_root / DEFINE_H).read_text()
+        tile = (generic_piton_root / TILE_V).read_text()
+        assert "if (TILE_TYPE == `GENERIC_TILE) begin : g_generic_core" in tile
+        assert "generic_l15_transducer #(" in tile
+        # The L1.5 resets on spc_grst_l and drops a request taken earlier.
+        transducer = tile[tile.index("generic_l15_transducer #("):]
+        assert ".rst_n                              (spc_grst_l)," in transducer.split(");")[0]
+        assert tile.index("g_picorv32_core") < tile.index("g_generic_core")
+        chip = (generic_piton_root / CHIP_V).read_text()
+        assert chip.index("elif (PITON_GENERIC):") < chip.index("elif (PITON_PICO):")
+        pyhplib = (generic_piton_root / PYHPLIB).read_text()
+        assert "PITON_GENERIC  = int(os.environ.get('PITON_GENERIC', '0'))" in pyhplib
+        assert "if PITON_ARIANE or PITON_PICO or PITON_GENERIC:" in pyhplib
+        cross = (generic_piton_root / CROSS_MODULE).read_text()
+        assert "`define GENERIC_TRANSDUCER%d `TILE%d.g_generic_core.generic_l15_transducer" in cross
+
+    def test_fix_16_adds_the_rtl_generic_branch_to_pc_cmp(self, generic_piton_root):
+        result = _run_patch_skipping(generic_piton_root, "8 9")
+        assert result.returncode == 0, result.stderr
+        text = (generic_piton_root / PC_CMP).read_text()
+        assert text.index("`ifdef RTL_GENERIC0") < text.index("`ifdef RTL_PICO0")
+        assert "`endif // RTL_PICO0\n        `endif // RTL_GENERIC0\n        `endif // RTL_ARIANE0\n" in text
+        assert "{24'b0, good_trap[0]} : {24'b0, bad_trap[0]}" in text
+        assert '"RTL_GENERIC0", "GENERIC_TRANSDUCER0"]' in text
+
+    def test_fix_17_adds_sims_generic(self, generic_piton_root):
+        result = _run_patch_skipping(generic_piton_root, "8 9")
+        assert result.returncode == 0, result.stderr
+        sims = (generic_piton_root / SIMS_PL).read_text()
+        for line in (
+            "        'generic' => 0,\n",
+            "            'generic!',\n",
+            "if (!$opt{pico} && !$opt{ariane} && !$opt{generic}) {\n",
+            'push (@{$opt{config_cpp_args}}, "-DFLIST_GENERIC")  if ($opt{generic}) ;\n',
+            "  $ENV{PITON_GENERIC}  = $opt{generic};\n",
+            '        push (@{$opt{config_rtl}}, "RTL_GENERIC" . $i);\n',
+            '      $ENV{RV32_ENV} = $opt{generic} ? "generic" : "pico" ;\n',
+        ):
+            assert line in sims, line
+        assert sims.count("        if ($opt{pico} || $opt{generic}) {\n") == 3
+        config = (generic_piton_root / MANYCORE_CONFIG).read_text()
+        assert "#ifdef FLIST_GENERIC\n" in config
+        assert "    -config_rtl=PITON_GENERIC\n" in config
+        generic_block = config.split("#ifdef FLIST_GENERIC")[1].split("#endif")[0]
+        assert "    -config_rtl=CONFIG_DISABLE_BIST_CLEAR\n" in generic_block
+        rv32_as = (generic_piton_root / RV32_AS).read_text()
+        assert "include/riscv/pico" not in rv32_as
+        assert rv32_as.count("include/riscv/${RV32_ENV:-pico}") == 2
+
+    def test_fixes_14_to_17_are_idempotent(self, generic_piton_root):
+        first = _run_patch_skipping(generic_piton_root, "8 9")
+        assert first.returncode == 0, first.stderr
+        paths = [*UPSTREAM, PC_CMP]
+        after_first = {p: (generic_piton_root / p).read_text() for p in paths}
+        second = _run_patch_skipping(generic_piton_root, "8 9")
+        assert second.returncode == 0, second.stderr
+        for fix in ("fix 14", "fix 15", "fix 16", "fix 17"):
+            assert f"({fix})" in second.stdout, fix
+        assert "installed:" not in second.stdout
+        for p, text in after_first.items():
+            assert (generic_piton_root / p).read_text() == text, p
+
+    def test_skipping_fix_17_leaves_sims_alone(self, generic_piton_root):
+        result = _run_patch_skipping(generic_piton_root, "8 9 17")
+        assert result.returncode == 0, result.stderr
+        assert (generic_piton_root / SIMS_PL).read_text() == UPSTREAM[SIMS_PL]
+        assert (generic_piton_root / RV32_AS).read_text() == UPSTREAM[RV32_AS]
+        assert "GENERIC_TILE" in (generic_piton_root / DEFINE_H).read_text()
+
+    def test_a_changed_anchor_fails_loudly(self, generic_piton_root):
+        (generic_piton_root / CHIP_V).write_text("            elif (PITON_PICO) :\n")
+        result = _run_patch_skipping(generic_piton_root, "8 9")
+        assert result.returncode != 0
+        assert "chip.v.pyv: expected exactly 1 match" in result.stderr

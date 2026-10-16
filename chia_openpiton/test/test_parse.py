@@ -139,6 +139,20 @@ class TestHartCycles:
         assert parse.hart_cycles("0 1 2\nh1 3 4\n") == {1: (3, 4)}
 
 
+class TestFirstRequests:
+    def test_each_tile_s_first_line_counts(self):
+        log = "\n".join((
+            "158000: generic tile 1: first request at 40000080",
+            "158000: generic tile 0: first request at 40000000",
+            "900000: generic tile 1: first request at deadbeef",
+        ))
+        assert parse.first_requests(log) == {0: 0x4000_0000, 1: 0x4000_0080}
+
+    def test_other_cores_give_nothing(self):
+        assert parse.first_requests("Simulation -> PASS (HIT GOOD TRAP)") == {}
+        assert parse.first_requests("") == {}
+
+
 class TestStatusLog:
     # regreport renders "Diag: %-40s   %s"
     STATUS = (

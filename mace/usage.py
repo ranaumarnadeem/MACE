@@ -146,9 +146,10 @@ def prompt_retrying(llm, phase: str, message: str, tools=(), waits=RATE_LIMIT_WA
     backend rate-limits the call (see :func:`is_rate_limit`); the last rate
     limit raises. Each try is recorded, so the log shows the failed ones.
 
-    For a call whose reply decides the outcome, such as an agent that edits
-    RTL or writes a test: ending the run at the first 429 would throw away a
-    build that can take minutes.
+    For a call whose reply decides the outcome: an agent that edits RTL or
+    writes a test, the planner, triage, the post-mortem, and the retry
+    agent. Ending the run at the first 429 would throw away the builds the
+    run has made so far, which can take minutes each.
     """
     for wait in (*waits, None):
         try:
