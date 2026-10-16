@@ -186,6 +186,13 @@ class LoopOptions:
       amount to the model. A backend that cannot cap thinking ignores it. The
       cap applies to the planner only, so every method that runs the planner
       (``one_shot``, the ablations) has it, and the retry agent does not.
+    - ``gate_pass_ends_run``: ``False`` passes a run only when every task of
+      an iteration passes; the default also passes it when one task ran every
+      gate program to a pass, since that design meets the objective, whatever
+      a speculative extra task did.
+    - ``carry_edits``: ``False`` starts every iteration from the design as it
+      stands; the default carries the RTL edits of the last task whose build
+      succeeded into the next iteration, as the edits its tasks start from.
     """
 
     triage: str = "llm"
@@ -199,6 +206,8 @@ class LoopOptions:
     narrowing: bool = True
     fast_path: bool = True
     planner_thinking: int | None = PLANNER_THINKING_BUDGET
+    gate_pass_ends_run: bool = True
+    carry_edits: bool = True
 
     def __post_init__(self) -> None:
         if self.planner_thinking is not None and (

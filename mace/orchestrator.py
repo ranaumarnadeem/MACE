@@ -187,6 +187,20 @@ def _plan_checked(
         retries += 1
 
 
+def gate_passed(spec: MaceSpec, options: LoopOptions, result: StepResult) -> bool:
+    """Whether *result*'s design ran every gate program to a pass in
+    simulation (a ``test`` or ``unit_test`` task never does)."""
+    if options.check != "sim" or not result.passed or result.task.kind in ("test", "unit_test"):
+        return False
+    passed = {run.test for run in result.runs if run.success}
+    return all(program in passed for program in spec.workloads)
+
+
+def _last_built_edits(results) -> StepResult | None:
+    """The last of *results* whose build carried RTL edits and succeeded."""
+    return next((r for r in reversed(results) if r.edits and r.build.success), None)
+
+
 def _rtl_context(feedback_history: list[str], last_evidence: str) -> str:
     """What an rtl task's agent is told earlier attempts reported: every
     failure's feedback, then the last failed task's own evidence (its build
@@ -353,6 +367,8 @@ def _run_started_loop(
     # Sets of changes narrowing showed break the design, for the plan check's known-bad-change rule.
     bad_changes: list[tuple[Change, ...]] = []
     required = objective_defines(spec.objective)
+    # RTL edits the next iteration's tasks start from (options.carry_edits).
+    carried: dict[str, str] = {}
 
     # Built on first use, inside the loop below (not here): a run that
     # fails at the planning stage before ever reaching integrate_parallel
@@ -427,6 +443,7 @@ def _run_started_loop(
                     on_task_progress=on_task_progress, nodes=nodes, options=iteration_options,
                     deadline=started + spec.budget.max_wall_s,
                     rtl_context=_rtl_context(feedback_history, last_evidence),
+                    base_edits=carried,
                 )
                 iter_wall_s = time.monotonic() - iter_started
                 iter_calls = calls.take()
@@ -444,6 +461,16 @@ def _run_started_loop(
                 if results and all(r.passed for r in results):
                     status = "passed"
                     break
+                if options.gate_pass_ends_run and any(gate_passed(spec, options, r) for r in results):
+                    status = "passed"
+                    break
+                built = _last_built_edits(results) if options.carry_edits else None
+                if built is not None and built.edits != carried:
+                    carried = dict(built.edits)
+                    feedback_history.append(
+                        f"Task {built.task.id}'s RTL edits built, so they stay applied for every task of the next "
+                        f"plan: {', '.join(sorted(carried))}. Change them with an rtl task; do not start over."
+                    )
 
                 failed = next((r for r in results if not r.passed), None)
                 if failed is None:
