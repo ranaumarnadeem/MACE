@@ -79,6 +79,8 @@ The defaults are the full loop.
 | `narrowing` | `True` | `False`: a failed task goes to triage without any probe. |
 | `fast_path` | `True` | `False`: every plan keeps all its tasks and their LLM calls. |
 | `planner_thinking` | `512` | The most thinking tokens one planner call may spend, set on the Vertex request. `None` leaves the amount to the model. |
+| `gate_pass_ends_run` | `True` | `False`: a run passes only when every task of an iteration passes. By default it also passes when one task ran every gate program to a pass. |
+| `carry_edits` | `True` | `False`: each iteration starts from the design as it stands. By default the RTL edits of the last task whose build succeeded carry into the next iteration. |
 
 ## Package Boundary
 

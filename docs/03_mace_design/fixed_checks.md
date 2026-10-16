@@ -2,7 +2,7 @@
 
 # Fixed Checks
 
-Four checks make the loop stronger without another LLM call.
+Six checks make the loop stronger without another LLM call.
 Each is a `LoopOptions` field that is on by default, and an ablation method turns it off (see [Evaluation Harness](../06_mace_evaluation/harness.md)).
 
 | Check | Field | Module | What it does |
@@ -11,6 +11,8 @@ Each is a `LoopOptions` field that is on by default, and an ablation method turn
 | Raw evidence | `raw_evidence` | `mace/triage.py` | Gives the re-plan the build's own report beside the diagnosis |
 | Narrowing | `narrowing` | `mace/narrowing.py` | Rebuilds a failed task with its changes undone to find which one breaks it |
 | Fast path | `fast_path` | `mace/fast_path.py` | Runs every plan without the per-task LLM calls, and a plan that builds one design as a single task |
+| Gate pass ends the run | `gate_pass_ends_run` | `mace/orchestrator.py` | Passes the run once one task ran every gate program to a pass, whatever the plan's other tasks did |
+| Carried edits | `carry_edits` | `mace/orchestrator.py` | Starts the next iteration's tasks from the RTL edits of the last task that built, and tells the planner so |
 
 ## Plan Check
 
@@ -118,3 +120,13 @@ A plan with more than one design keeps all its tasks.
 An `rtl` task still makes its agent call, since that call is the edit.
 The collapse follows the seeded-fault `plan_hook`, so a fault applies to the task that runs.
 With `fast_path=False`, every plan runs as the planner wrote it, with each task's call.
+
+## Gate Pass and Carried Edits
+
+`gate_passed()` in `mace/orchestrator.py` says whether a task's design ran every gate program to a pass in simulation; a `test` or `unit_test` task never does.
+When one task of an iteration did, the run ends with status `passed`, even if another task of the plan failed.
+A speculative extra task in the plan, such as one that changes a passing design further, cannot then undo a design that met the objective.
+
+After a failed iteration, the RTL edits of the last task whose build succeeded become the edits every task of the next iteration starts from (`integrate_parallel(base_edits=...)`), under its own and its dependencies' edits.
+The re-plan's feedback names the files, so the planner changes them with an `rtl` task rather than writing them again.
+Edits whose build failed do not carry.
