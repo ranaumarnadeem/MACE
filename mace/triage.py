@@ -284,7 +284,7 @@ def triage(
             ),
         )
 
-    query = usage.prompt(llm, "triage", build_prompt(result, objective, rtl_edits, narrowing), tools)
+    query = usage.prompt_retrying(llm, "triage", build_prompt(result, objective, rtl_edits, narrowing), tools)
     diagnosis = parse_diagnosis(query.result)
     if diagnosis is None:
         raise TriageError(f"no DIAGNOSIS: line in the triage response: {query.result!r}")

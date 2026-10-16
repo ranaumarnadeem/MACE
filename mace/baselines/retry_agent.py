@@ -173,7 +173,7 @@ def _attempts(
             if calls.total_usd() > spec.budget.max_usd:
                 break
             attempt_started = time.monotonic()
-            query = usage.prompt(llm, PHASE, build_prompt(spec, history, rtl_edits))
+            query = usage.prompt_retrying(llm, PHASE, build_prompt(spec, history, rtl_edits))
             if not getattr(query, "success", True):
                 raise LLMCallFailed(f"the retry agent's LLM call failed: {(query.stderr or 'no reply')[:300]}")
             design = parse_design(query.result)

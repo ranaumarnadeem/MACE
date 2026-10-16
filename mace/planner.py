@@ -180,7 +180,7 @@ def plan(
             caller's job; this only refuses to hand back something broken.
         LLMCallFailed: the backend gave no reply at all.
     """
-    query = usage.prompt(llm, phase, build_prompt(spec, feedback, rtl_edits, rejection), tools)
+    query = usage.prompt_retrying(llm, phase, build_prompt(spec, feedback, rtl_edits, rejection), tools)
     if not getattr(query, "success", True):
         raise LLMCallFailed(f"the planner's LLM call failed: {(query.stderr or 'no reply')[:300]}")
     tasks = parse_tasks(query.result)
