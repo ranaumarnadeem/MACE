@@ -86,8 +86,8 @@ The shell keeps command history in `~/.mace/.shell_history`.
 | `picorv32`, `pico` | `pico` |
 
 When nothing matches, `run` builds nothing and prints a static post-mortem with the assessment `likely_hardware_limitation`.
-OpenPiton has no generic core-to-NoC bridge, so each core needs a hand-written L15 adapter.
-[Adding a Core](../05_mace_cores/adding_a_core.md) describes that work.
+The shell runs only these native cores.
+An RV32 core with no OpenPiton adapter runs on the [Generic Tile](../05_mace_cores/generic.md) instead, through `examples/generic_integrate.py`, and [Adding a Core](../05_mace_cores/adding_a_core.md) describes both routes.
 
 ## Session defaults
 

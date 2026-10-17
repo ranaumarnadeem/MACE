@@ -17,12 +17,11 @@ from pathlib import Path
 
 from chia_openpiton.state_def import MAX_TILES_PER_AXIS, PitonCore
 
-# Cores chia_openpiton actually has a working L15 adapter for -- the real
-# boundary this project's own research established (docs/TECHNICAL_GUIDE.md
-# section 1: OpenPiton has no generic core-to-NoC bridge, every core needs a
-# hand-written adapter, and these are the only ones that exist). Matched by
-# case-insensitive substring against a declared top_module name, including a
-# couple of the cores' own upstream project names.
+# The native cores, which have an L15 adapter of their own in OpenPiton.
+# Matched by case-insensitive substring against a declared top_module name,
+# including a couple of the cores' own upstream project names. An RV32 core
+# without an adapter runs on the generic tile through a core descriptor
+# (examples/generic_integrate.py), which the shell does not take.
 SUPPORTED_CORES: dict[str, PitonCore] = {
     "ariane": "ariane",
     "cva6": "ariane",

@@ -2,11 +2,11 @@
 
 # Adding a Core
 
-OpenPiton has no reusable core-to-NoC bridge. Under BYOC, each core reaches the tile's L1.5 through its own transducer. A new core needs RTL in OpenPiton and a small amount of code in MACE.
+Under BYOC, each OpenPiton core reaches the tile's L1.5 through its own transducer. There are two ways to add a core. An RV32 core with one hart and no private cache can use the [Generic Tile](generic.md), where only a per-core wrapper is new RTL and MACE can write that wrapper itself. Any other core needs RTL in OpenPiton and a small amount of code in MACE, as this page describes.
 
 ## What a core needs in OpenPiton
 
-The three supported cores share one shape:
+The three native cores share one shape:
 
 - A per-core RTL directory under `piton/design/chip/tile/`.
 - A transducer between the core's memory interface and the L1.5. Examples are T1's CCX transducer, Ariane's L1.5 adapter inside CVA6, and PicoRV32's `pico_l15_transducer.v`.
@@ -34,6 +34,6 @@ Changes the core needs in the OpenPiton checkout go into `scripts/patch_openpito
 3. If the run ends with the `maxcycles` verdict, rule out a build or toolchain problem before you look at the RTL. Compare the transcript with a passing one, and check the diag binary's symbols against `symbol.tbl`. The failure-analysis tools `compare_to_fixture` and `symbol_check` automate both checks. See [PitonToolServer](../04_chia_openpiton/tool_server.md).
 4. Scale to 2x2 and 4x4 and confirm one `Hit Good trap` per tile.
 
-## Planned work
+## On the generic tile
 
-The [Generic Tile](generic.md) is the template for RV32 cores without a private cache: a per-core wrapper, a shared transducer, and a core descriptor. The next step is for MACE to write a new core's wrapper itself and climb the generic tile's verification ladder.
+A core on the generic tile needs none of the MACE changes above: it runs as core `generic` with a core descriptor. Write the descriptor, copy the core's RTL, and either write the wrapper by hand and climb the verification ladder, or let MACE write it with `examples/generic_integrate.py`. Both are on the [Generic Tile](generic.md) page.
