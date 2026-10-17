@@ -1,0 +1,20 @@
+# PicoRV32's Wishbone top (picorv32_wb, in OpenPiton's picorv32.v) on the
+# generic tile, through generic_bridge_wishbone. The first core on a Wishbone
+# bridge. The wrapper is hand-written: examples/cores/picorv32_wb/install.sh
+# copies it into the checkout.
+core: picorv32_wb
+top_module: picorv32_wb
+wrapper: picorv32_wb/generic_core_wrapper.v
+sources: [pico/rtl/picorv32.v]
+isa: {march: rv32im, mabi: ilp32}
+bus: wishbone
+reset_vector: 0x40000000
+atomics: none
+private_cache: none
+hart_id: register
+notes: |
+  picorv32_wb resets on wb_rst_i (active high) and starts at PROGADDR_RESET.
+  It leaves mem_amo_op and pico_int unconnected, so atomics never reach the
+  bus and the tile's wake interrupt is unused. MUL and DIV are the core's own
+  PCPI units (ENABLE_MUL, ENABLE_DIV). It has no hart ID input; programs read
+  the tile ID register.

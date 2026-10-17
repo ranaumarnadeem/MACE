@@ -33,4 +33,4 @@ done < "$GEN/Flist.core"
 
 "$VERILATOR" --lint-only -Wall -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
     -Wno-PINCONNECTEMPTY -Wno-MODDUP -Wno-TIMESCALEMOD -I"$INC" --top-module generic_core_wrapper \
-    "$WORK/prelude.sv" "$GEN/generic_bridge_obi.v" "$GEN/generic_bridge_wishbone.v" "${args[@]}" > "$LOG" 2>&1
+    "$WORK/prelude.sv" "$GEN/generic_bridge_obi.v" "$GEN/generic_bridge_wishbone.v" "$GEN/generic_bridge_wishbone2.v" "${args[@]}" > "$LOG" 2>&1

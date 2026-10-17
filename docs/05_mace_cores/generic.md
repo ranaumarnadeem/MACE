@@ -9,7 +9,7 @@ core RTL -- wrapper -- bridge -- simple bus -- generic_l15_transducer -- tile L1
             (per core)  (shared)               (shared)
 ```
 
-`scripts/patch_openpiton.sh` fixes 14 to 17 install the tile into a checkout. See [Environment Patches](../04_chia_openpiton/environment_patches.md).
+`scripts/patch_openpiton.sh` fixes 14 to 17 install the tile into a checkout; fix 18 lets a program load at the descriptor's RAM base, and fix 19 builds C programs. See [Environment Patches](../04_chia_openpiton/environment_patches.md).
 
 ## Status
 
@@ -61,9 +61,14 @@ The transducer also prints each tile's first request address (`generic tile <n>:
 |---|---|
 | none | Cores whose memory interface is the simple bus, such as PicoRV32 |
 | `generic_bridge_obi.v` | Separate instruction and data ports in OBI style (req/gnt, then rvalid), such as Ibex. Data goes before instruction, one request at a time. |
-| `generic_bridge_wishbone.v` | Wishbone classic masters |
+| `generic_bridge_wishbone.v` | One Wishbone classic master (`bus: wishbone`), such as PicoRV32's Wishbone top, `picorv32_wb` |
+| `generic_bridge_wishbone2.v` | Separate instruction and data Wishbone classic masters (`bus: wishbone_split`), such as VexRiscv. Data goes before instruction, one request at a time. |
 
-Neither bridge carries atomics. Each core has a module named `generic_core_wrapper` with a fixed interface: `clk`, `rst_n`, `hart_id`, the simple bus as master, and `wake` (the L1.5's wake-up interrupt). The wrapper instantiates the core and its bridge and ties off the inputs the tile doesn't drive. `examples/cores/ibex/generic_core_wrapper.sv` is Ibex's.
+No bridge carries atomics. Both Wishbone bridges take a request when `cyc` and `stb` are both high and raise `ack` for one cycle, with the simple bus's ready. Their `adr` ports are byte addresses: a core with a word address, such as VexRiscv's 30-bit `ADR`, drives `{adr, 2'b00}`. A read is a word read. `sel` gives the byte lanes of a write. The bridges never raise `err` or `rty`.
+
+Each core has a module named `generic_core_wrapper` with a fixed interface: `clk`, `rst_n`, `hart_id`, the simple bus as master, and `wake` (the L1.5's wake-up interrupt). The wrapper instantiates the core and its bridge and ties off the inputs the tile doesn't drive. `examples/cores/ibex/generic_core_wrapper.sv` is Ibex's, and `examples/cores/picorv32_wb/generic_core_wrapper.v` is the one-port Wishbone example.
+
+`scripts/generic_ut/run_bridge_wishbone_ut.sh` runs a unit testbench for both Wishbone bridges against a stub simple bus, and `scripts/generic_ut/mutate_wishbone_ut.py` runs it against 24 mutated copies of the bridges, each of which it must fail.
 
 ## The core descriptor
 
@@ -74,14 +79,16 @@ wrapper: ibex/generic_core_wrapper.sv
 include_dirs: [ibex/vendor/lowrisc_ip/ip/prim/rtl]
 sources: [ibex/rtl/ibex_pkg.sv, ibex/rtl/ibex_top.sv]
 isa: {march: rv32imc, mabi: ilp32}
-bus: obi                    # simple | obi | wishbone
+bus: obi                    # simple | obi | wishbone | wishbone_split
 reset_vector: 0x40000080
 atomics: none               # none | bus
 private_cache: none         # none | disabled | write_through | write_back
 hart_id: port               # port | register
 ```
 
-Paths are relative to `piton/design/chip/tile/`. `ram_base` (default `0x40000000`), `harts` (default 1), `own_interconnect` (default false), and `notes` are optional. `chia_openpiton/core_descriptor.py` reads it and writes two files into the checkout: `tile/generic/rtl/Flist.core`, which lists the core's sources and wrapper, and the test environment's `link.ld`, which places the program's first instruction at the reset vector. The descriptor's digest is part of the build ID, so two cores never share a model.
+Paths are relative to `piton/design/chip/tile/`. `ram_base` (default `0x40000000`), `ram_size` (default `0x100000`, 1 MB), `harts` (default 1), `own_interconnect` (default false), and `notes` are optional. `chia_openpiton/core_descriptor.py` reads it and writes two files into the checkout: `tile/generic/rtl/Flist.core`, which lists the core's sources and wrapper, and the test environment's `link.ld`. The descriptor's digest is part of the build ID, so two cores never share a model.
+
+The RAM is `ram_base` up to `ram_base + ram_size`. The build passes `-rv32_image_base=<ram_base>` to `sims`, so `rv32_as` loads the program image at `ram_base` (patch fix 18). The link script starts there, puts `.text.init` at the reset vector, then `.text`, `.rodata`, `.data`, and `.bss`, and defines `__bss_start`, `__bss_end`, `_end`, and `__stack_top` (the end of RAM). The link fails if the program does not fit. A core that resets elsewhere than `0x40000000` needs a wrapper that sets its boot address to match: `examples/cores/ibex_moved.yaml` is Ibex with its RAM at `0x20000000`.
 
 `support_problems()` checks the descriptor before any build. It rejects:
 
@@ -89,8 +96,8 @@ Paths are relative to `piton/design/chip/tile/`. `ram_base` (default `0x40000000
 - more than one hart;
 - a write-back or write-through private cache, since the tile has no invalidation path to keep it coherent;
 - a core with its own L2, L3, or NoC;
-- RAM other than `0x40000000`, where `rv32_as` loads programs;
-- a reset vector outside the first 4 KB of RAM, or not word-aligned;
+- RAM outside `0x40`-`0x7fffffff`, the addresses a 32-bit tile reaches DRAM for in the simulation (an address with bit 31 set is I/O), or a `ram_base` or `ram_size` that is not a multiple of 64, the image loader's line size;
+- a reset vector that is not word-aligned or not inside RAM;
 - `atomics: bus` on a bus other than `simple`;
 - an A extension in `isa.march` with `atomics: none`.
 
@@ -113,10 +120,38 @@ Each step runs only when the one before it passes.
 | 4 | The ISA tests whose stores stay private, at 2x2 and 4x4 | `ladder_tests()["mesh"]` |
 | 5 | `generic_tile_id.S` and `generic_shared_flag.S`: ID registers, and shared memory without atomics | `ladder_tests()["shared"]` |
 | 6 | `generic_amo_counter.S`, for `atomics: bus` only | `ladder_tests()["atomics"]` |
+| 7 | C programs: `generic_c_hello.c` and `generic_c_flags.c`, plus MACE's atomic workloads for `atomics: bus` | `ladder_tests()["c"]` |
 
 Tests run in `piton/verif/diag/assembly/include/riscv/generic/`. Its `riscv_test.h` stores to the finish register and assembles tests without compressed instructions, since the RV32I tests assume 4-byte instructions. The generic tile's own programs are in `piton/verif/diag/assembly/riscv/generic/`, beside `generic_expect_fail.S` and `generic_expect_timeout.S`, which must end in a failure and a timeout.
 
 `scripts/generic_ut/run_generic_ut.sh` runs the transducer's unit testbench against a stub L1.5.
+
+## C programs
+
+A C program runs on the generic tile with the runtime in `piton/verif/diag/assembly/include/riscv/generic/`: `crt.S`, `syscalls.c`, `util.h`, and the link script. Fix 19 teaches `rv32_as` to build a `diag.c` with them. It passes the descriptor's `-rv32_march` and `-rv32_mabi`, `-nostdlib -nostartfiles`, and libgcc. The toolchain has no newlib, so it adds picolibc's headers when the toolchain has them. An assembly test is built as before. `mem.image` starts at `RV32_IMAGE_BASE`, 16 hex digits with a default of `0000000040000000`.
+
+libgcc comes from the nearest multilib the compiler has: `rv32ima` links the `rv32ia` library and `rv32imc` the `rv32im` one. `rv32i` and `rv32im` have their own.
+
+The link script defines `__bss_start`, `__bss_end`, and `__stack_top`. `crt.S` starts every tile:
+
+- It clears the registers and reads the tile ID and the number of tiles from the transducer's registers.
+- It gives each tile a 4 KB stack, below `__stack_top` by tile ID.
+- Tile 0 clears `.bss` between `__bss_start` and `__bss_end`, then sets a flag in `.data`. The other tiles wait for it.
+- It calls `main(1, argv)`. `argv[0][0]` is the tile ID and `argv[0][1]` the number of tiles, as in Ariane's runtime.
+- It writes `main`'s return value to the finish register: 0 becomes 1 (pass), and any other value `v` becomes `(v << 1) | 1` (fail).
+
+The `pass` and `fail` labels at the two stores give `rv32_as` its good-trap and bad-trap symbols. There is no trap handler, so a trap ends in a timeout.
+
+`syscalls.c` has `exit`, `putchar`, `printstr`, a small `printf` (`%d %i %u %x %c %s %%`, a `0` flag, and a width), and the string functions gcc may call on its own. Output goes to the fake UART at `0xF0C2C000`, one character per store, and lands in `fake_uart.log` in the run directory. `util.h` has `ATOMIC_OP` and `ATOMIC_FETCH_OP` for cores with the A extension, and `read_csr`.
+
+| Program | Where | Checks |
+|---|---|---|
+| `generic_c_hello.c` | `riscv/generic/` | Every hart prints its ID, one after another, and returns 0. |
+| `generic_c_flags.c` | `riscv/generic/` | Hart 0 writes sixteen words, then a flag. The other harts wait for the flag and check the words. No atomics. |
+| `generic_c_fail.c` | `riscv/generic/` | Returns 3. A run of it must fail. |
+| `barrier_atomic.c`, `producer_consumer.c`, `scatter_gather.c` | `mace/workloads/` | MACE's gate workloads. They build unchanged and need `atomics: bus`. A run finds them through `asm_diag_root`. |
+
+On a 2x2 mesh, PicoRV32 passes all five programs it can run and fails `generic_c_fail.c`. Ibex passes `generic_c_hello.c` and `generic_c_flags.c`, with every tile starting at its reset vector, and fails `generic_c_fail.c`.
 
 ## Adding a core
 

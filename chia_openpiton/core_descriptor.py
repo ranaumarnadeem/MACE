@@ -1,12 +1,12 @@
 """Core descriptors for the generic tile.
 
 A core descriptor is a short YAML file that says what a RISC-V core needs to
-run on the generic tile (scripts/patch_openpiton.sh fixes 14-17): where its
+run on the generic tile (scripts/patch_openpiton.sh fixes 14-18): where its
 RTL is, its ISA, which bus its wrapper presents, its reset vector, and what
 it has that the tile cannot support. :func:`support_problems` checks it
 before any build, and the generators write the two files the build reads:
 ``tile/generic/rtl/Flist.core`` (the core's sources and wrapper) and the
-generic test environment's ``link.ld`` (the reset vector).
+generic test environment's ``link.ld`` (the RAM and the reset vector).
 
 Example::
 
@@ -18,6 +18,8 @@ Example::
     isa: {march: rv32imc, mabi: ilp32}
     bus: obi
     reset_vector: 0x40000080
+    ram_base: 0x40000000
+    ram_size: 0x100000
     atomics: none
     private_cache: none
     hart_id: register
@@ -35,16 +37,25 @@ from dataclasses import asdict, dataclass
 
 import yaml
 
-BUSES = ("simple", "obi", "wishbone")
+BUSES = ("simple", "obi", "wishbone", "wishbone_split")
 ATOMICS = ("none", "bus")
 PRIVATE_CACHES = ("none", "disabled", "write_through", "write_back")
 HART_IDS = ("register", "port")
 
-# rv32_as loads every program image at this address.
+# The default RAM base, where PicoRV32 resets (PROGADDR_RESET in picorv32.v),
+# and the default RAM size. sims -rv32_image_base (fix 18) loads the image at
+# the descriptor's ram_base.
 RAM_BASE = 0x4000_0000
-# The default link script puts .text at the first 4 KB boundary after
-# .text.init, so the reset vector must fall in the first 4 KB of RAM.
-RESET_WINDOW = 0x1000
+RAM_SIZE = 0x10_0000
+# The addresses a 32-bit tile reaches DRAM for in the Verilator manycore model.
+# The chipset's fake_mem_ctrl.v passes the 40-bit address to a sparse C store
+# of 64-byte lines (tools/pli/iop/bw_lib.c, iob_main.cc), which has no range
+# check, and a tile sign-extends its 32-bit address (generic_l15_transducer.v),
+# so bit 31 set means non-cacheable I/O. The first line is left out: a first
+# read there dereferences a null pointer (iob_main.cc, line 187).
+BACKED_RAM = (0x40, 0x8000_0000)
+# The image loader works in 64-byte lines and drops a partial one (bw_lib.c).
+RAM_ALIGN = 64
 
 TILE_DIR = os.path.join("piton", "design", "chip", "tile")
 FLIST_CORE = os.path.join(TILE_DIR, "generic", "rtl", "Flist.core")
@@ -59,13 +70,18 @@ M_TESTS = ("mul.S", "div.S")
 MESH_TESTS = ("addi.S", "beq.S", "jal.S", "lw.S")
 SHARED_TESTS = ("generic_tile_id.S", "generic_shared_flag.S")
 ATOMIC_TESTS = ("generic_amo_counter.S",)
+# C programs (crt.S and syscalls.c in the generic test environment). The
+# atomic ones are MACE's gate workloads under mace/workloads/, which a run
+# finds with asm_diag_root; they use amo instructions.
+C_TESTS = ("generic_c_hello.c", "generic_c_flags.c")
+C_ATOMIC_TESTS = ("barrier_atomic.c", "producer_consumer.c", "scatter_gather.c")
 
 _NAME = re.compile(r"[a-z][a-z0-9_]*")
 _MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
 _MARCH = re.compile(r"rv(32|64|128)([a-z]+)((_[a-z0-9]+)*)")
 _FIELDS = (
     "core", "top_module", "wrapper", "sources", "include_dirs", "isa", "bus", "reset_vector",
-    "ram_base", "atomics", "private_cache", "harts", "own_interconnect", "hart_id", "notes",
+    "ram_base", "ram_size", "atomics", "private_cache", "harts", "own_interconnect", "hart_id", "notes",
 )
 _REQUIRED = ("core", "top_module", "wrapper", "sources", "isa", "bus", "reset_vector", "atomics")
 
@@ -88,6 +104,7 @@ class CoreDescriptor:
     atomics: str
     include_dirs: tuple[str, ...] = ()
     ram_base: int = RAM_BASE
+    ram_size: int = RAM_SIZE
     private_cache: str = "none"
     harts: int = 1
     own_interconnect: bool = False
@@ -118,12 +135,14 @@ class CoreDescriptor:
         ):
             if value not in allowed:
                 raise ValueError(f"{name} must be one of {', '.join(allowed)}, got {value!r}")
-        for name in ("reset_vector", "ram_base", "harts"):
+        for name in ("reset_vector", "ram_base", "ram_size", "harts"):
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise ValueError(f"{name} must be a non-negative int, got {value!r}")
         if self.harts < 1:
             raise ValueError(f"harts must be at least 1, got {self.harts}")
+        if self.ram_size < 1:
+            raise ValueError(f"ram_size must be at least 1, got {self.ram_size}")
         if not isinstance(self.own_interconnect, bool):
             raise ValueError(f"own_interconnect must be true or false, got {self.own_interconnect!r}")
         if not isinstance(self.notes, str):
@@ -143,14 +162,17 @@ class CoreDescriptor:
 
     def sims_flags(self) -> tuple[str, ...]:
         """The sims flags that assemble test programs for this core's ISA."""
-        return (f"-rv32_march={self.march}", f"-rv32_mabi={self.mabi}")
+        return (f"-rv32_march={self.march}", f"-rv32_mabi={self.mabi}",
+                f"-rv32_image_base={self.ram_base:016x}")
 
     def ladder_tests(self) -> dict[str, tuple[str, ...]]:
         """Test programs per ladder step, chosen from the ISA and atomics."""
         m_tests = M_TESTS if "m" in self.extensions else ()
         steps = {"isa": ISA_TESTS + m_tests, "mesh": MESH_TESTS + m_tests, "shared": SHARED_TESTS}
+        steps["c"] = C_TESTS
         if self.atomics == "bus":
             steps["atomics"] = ATOMIC_TESTS
+            steps["c"] = C_TESTS + C_ATOMIC_TESTS
         return steps
 
 
@@ -211,13 +233,19 @@ def support_problems(desc: CoreDescriptor) -> tuple[str, ...]:
     if desc.own_interconnect:
         problems.append("the core brings its own L2, L3, or NoC; the generic tile connects a core to the "
                         "tile's L1.5 only")
-    if desc.ram_base != RAM_BASE:
-        problems.append(f"ram_base is {desc.ram_base:#x}; programs are loaded at {RAM_BASE:#x}")
-    offset = desc.reset_vector - RAM_BASE
-    if not 0 <= offset < RESET_WINDOW or desc.reset_vector % 4:
+    ram_end = desc.ram_base + desc.ram_size
+    if desc.ram_base % RAM_ALIGN or desc.ram_size % RAM_ALIGN:
+        problems.append(f"ram_base {desc.ram_base:#x} and ram_size {desc.ram_size:#x} must be multiples of "
+                        f"{RAM_ALIGN}: the image loader works in {RAM_ALIGN}-byte lines")
+    low, high = BACKED_RAM
+    if desc.ram_base < low or ram_end > high:
+        problems.append(f"RAM {desc.ram_base:#x}-{ram_end - 1:#x} (ram_base, ram_size) must lie within "
+                        f"{low:#x}-{high - 1:#x}, the addresses a 32-bit tile reaches DRAM for; "
+                        "bit 31 set is I/O")
+    if not desc.ram_base <= desc.reset_vector < ram_end or desc.reset_vector % 4:
         problems.append(
-            f"reset_vector {desc.reset_vector:#x} must be word-aligned and within the first "
-            f"{RESET_WINDOW:#x} bytes of RAM ({RAM_BASE:#x}-{RAM_BASE + RESET_WINDOW - 1:#x})"
+            f"reset_vector {desc.reset_vector:#x} must be word-aligned and inside RAM "
+            f"({desc.ram_base:#x}-{ram_end - 1:#x})"
         )
     if desc.atomics == "bus" and desc.bus != "simple":
         problems.append(f"atomics: bus needs a bus that carries amo_op; the {desc.bus} bridge does not "
@@ -239,23 +267,32 @@ def flist_core(desc: CoreDescriptor) -> str:
 
 
 def link_ld(desc: CoreDescriptor) -> str:
-    """The generic test environment's link script for this reset vector."""
-    offset = desc.reset_vector - RAM_BASE
+    """The generic test environment's link script for this RAM and reset
+    vector. The image starts at ``ram_base`` (sims -rv32_image_base), so
+    ``.text.init`` is padded up to the reset vector. The script defines
+    ``__bss_start``, ``__bss_end``, ``_end``, and ``__stack_top`` for the C
+    runtime, and fails the link when the program does not fit in RAM."""
+    offset = desc.reset_vector - desc.ram_base
     init = f"{{ . = {offset:#x}; *(.text.init) }}" if offset else "{ *(.text.init) }"
+    ram_end = desc.ram_base + desc.ram_size
     return (
-        f"/* {desc.core}: written from its core descriptor. The reset vector is "
-        f"{desc.reset_vector:#x}; rv32_as loads the image at {RAM_BASE:#x}. */\n"
+        f"/* {desc.core}: written from its core descriptor. RAM is {desc.ram_base:#x}-{ram_end - 1:#x}, "
+        f"the reset vector {desc.reset_vector:#x}; rv32_as loads the image at {desc.ram_base:#x}. */\n"
         'OUTPUT_ARCH( "riscv" )\n'
         "ENTRY(_start)\n\n"
         "SECTIONS\n{\n"
-        f"  . = {RAM_BASE:#x};\n"
+        f"  . = {desc.ram_base:#x};\n"
         f"  .text.init : {init}\n"
         "  . = ALIGN(0x1000);\n"
-        "  .text : { *(.text) }\n"
+        "  .text : { *(.text .text.*) }\n"
         "  . = ALIGN(0x1000);\n"
-        "  .data : { *(.data) }\n"
-        "  .bss : { *(.bss) }\n"
+        "  .rodata : { *(.rodata .rodata.* .srodata .srodata.*) }\n"
+        "  . = ALIGN(0x1000);\n"
+        "  .data : { *(.data .data.* .sdata .sdata.*) }\n"
+        "  .bss : { . = ALIGN(4); __bss_start = .; *(.bss .bss.* .sbss .sbss.* COMMON) . = ALIGN(4); __bss_end = .; }\n"
         "  _end = .;\n"
+        f"  __stack_top = {ram_end:#x};\n"
+        '  ASSERT(_end <= __stack_top, "the program does not fit in RAM")\n'
         "}\n"
     )
 
@@ -279,6 +316,7 @@ def wrapper_skeleton(desc: CoreDescriptor) -> str:
         "simple": "no bridge: the core's memory interface is the simple bus",
         "obi": "generic_bridge_obi (tile/generic/rtl/generic_bridge_obi.v)",
         "wishbone": "generic_bridge_wishbone (tile/generic/rtl/generic_bridge_wishbone.v)",
+        "wishbone_split": "generic_bridge_wishbone2 (tile/generic/rtl/generic_bridge_wishbone2.v)",
     }[desc.bus]
     lines = [
         f"// generic_core_wrapper for {desc.core} ({desc.top_module}) on the generic tile.",
@@ -318,7 +356,7 @@ SKELETON_MARK = "wrapper body"
 
 def apply_descriptor(desc: CoreDescriptor, piton_root: str) -> tuple[str, ...]:
     """Write ``Flist.core`` and ``link.ld`` for this core into a checkout
-    patched with fixes 14-17, and :func:`wrapper_skeleton` in place of a
+    patched with fixes 14-18, and :func:`wrapper_skeleton` in place of a
     missing wrapper. Returns the paths written, relative to the checkout.
     Raises ``ValueError`` for an unsupported core or missing files, before
     writing anything."""
@@ -331,7 +369,7 @@ def apply_descriptor(desc: CoreDescriptor, piton_root: str) -> tuple[str, ...]:
     files = [(FLIST_CORE, flist_core(desc)), (LINK_LD, link_ld(desc))]
     for rel, _ in files:
         if not os.path.isdir(os.path.join(piton_root, os.path.dirname(rel))):
-            raise ValueError(f"{os.path.dirname(rel)} not found: patch the checkout with fixes 14-17 first")
+            raise ValueError(f"{os.path.dirname(rel)} not found: patch the checkout with fixes 14-19 first")
     wrapper = os.path.join(TILE_DIR, desc.wrapper).replace(os.sep, "/")
     if not os.path.isfile(os.path.join(piton_root, wrapper)):
         files.append((wrapper, wrapper_skeleton(desc)))
