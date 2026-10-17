@@ -872,6 +872,10 @@ class TestNoAdapterPostMortem:
         assert "my_custom_core" in pm.explanation
         assert "ariane" in pm.explanation and "sparc" in pm.explanation and "pico" in pm.explanation
 
+    def test_points_an_rv32_core_at_the_generic_tile(self):
+        pm = no_adapter_post_mortem(Session(piton_root="/x", top_module="serv_rf_top"))
+        assert "generic_integrate.py" in pm.next_steps and "generic tile" in pm.next_steps
+
 
 class TestDoRun:
     def test_no_adapter_path_clears_a_stale_coverage_report(self):

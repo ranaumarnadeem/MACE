@@ -317,18 +317,16 @@ def no_adapter_post_mortem(session: Session) -> PostMortem:
     return PostMortem(
         assessment="likely_hardware_limitation",
         explanation=(
-            f"'{session.top_module}' does not match any of the cores chia_openpiton has a "
-            f"working L15 adapter for (ariane, sparc, pico). OpenPiton has no generic "
-            f"core-to-NoC bridge -- every core needs a hand-written adapter translating its "
-            f"own memory/cache-miss interface into OpenPiton's L15 coherence protocol. This "
-            f"is not a configuration problem `run` can iterate its way past."
+            f"'{session.top_module}' does not match any of the native cores the shell runs "
+            f"(ariane, sparc, pico), each of which has its own L15 adapter in OpenPiton. "
+            f"This is not a configuration problem `run` can iterate its way past."
         ),
         next_steps=(
-            "Adding real support for this core means writing new coherence-adapter RTL by "
-            "hand (see how pico_l15_transducer.v does it for PicoRV32) -- a hardware design "
-            "task, not something this loop automates. If an adapter already exists for this "
-            "core elsewhere, extend chia_openpiton's PitonCore literal and sims_flags() the "
-            "same way the pico core was added (docs/TECHNICAL_GUIDE.md section 7)."
+            "If this is a single-hart RV32 core with no private cache to keep coherent, write a "
+            "core descriptor for it and run examples/generic_integrate.py: MACE writes the "
+            "core's wrapper for OpenPiton's generic tile (docs/05_mace_cores/generic.md). Any "
+            "other core needs its own L15 adapter RTL, as pico_l15_transducer.v is for "
+            "PicoRV32, and a new PitonCore entry (docs/05_mace_cores/adding_a_core.md)."
         ),
     )
 
