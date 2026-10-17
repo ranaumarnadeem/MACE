@@ -7,7 +7,7 @@
 #
 # The clone is https://github.com/litex-hub/pythondata-cpu-vexriscv. The
 # checkout must already be patched with scripts/patch_openpiton.sh (fixes
-# 14-17). VexRiscv is MIT-licensed; its LICENSE is copied beside its RTL.
+# 14-19). VexRiscv is MIT-licensed; its LICENSE is copied beside its RTL.
 set -euo pipefail
 
 VEX="${1:?usage: $0 <pythondata_cpu_vexriscv_clone> <piton_root>}"

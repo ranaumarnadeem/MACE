@@ -6,7 +6,7 @@
 # Usage: examples/cores/picorv32_wb/install.sh <piton_root>
 #
 # The checkout must already be patched with scripts/patch_openpiton.sh
-# (fixes 14-17).
+# (fixes 14-19).
 set -euo pipefail
 
 ROOT="${1:?usage: $0 <piton_root>}"

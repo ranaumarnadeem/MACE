@@ -369,7 +369,7 @@ def apply_descriptor(desc: CoreDescriptor, piton_root: str) -> tuple[str, ...]:
     files = [(FLIST_CORE, flist_core(desc)), (LINK_LD, link_ld(desc))]
     for rel, _ in files:
         if not os.path.isdir(os.path.join(piton_root, os.path.dirname(rel))):
-            raise ValueError(f"{os.path.dirname(rel)} not found: patch the checkout with fixes 14-17 first")
+            raise ValueError(f"{os.path.dirname(rel)} not found: patch the checkout with fixes 14-19 first")
     wrapper = os.path.join(TILE_DIR, desc.wrapper).replace(os.sep, "/")
     if not os.path.isfile(os.path.join(piton_root, wrapper)):
         files.append((wrapper, wrapper_skeleton(desc)))

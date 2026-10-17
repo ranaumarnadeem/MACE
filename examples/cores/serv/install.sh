@@ -6,7 +6,7 @@
 # Usage: examples/cores/serv/install.sh <serv_clone> <piton_root>
 #
 # The checkout must already be patched with scripts/patch_openpiton.sh
-# (fixes 14-17). SERV is ISC-licensed; its LICENSE is copied beside its RTL.
+# (fixes 14-19). SERV is ISC-licensed; its LICENSE is copied beside its RTL.
 set -euo pipefail
 
 SERV="${1:?usage: $0 <serv_clone> <piton_root>}"

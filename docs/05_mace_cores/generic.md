@@ -9,7 +9,7 @@ core RTL -- wrapper -- bridge -- simple bus -- generic_l15_transducer -- tile L1
             (per core)  (shared)               (shared)
 ```
 
-`scripts/patch_openpiton.sh` fixes 14 to 17 install the tile into a checkout. See [Environment Patches](../04_chia_openpiton/environment_patches.md).
+`scripts/patch_openpiton.sh` fixes 14 to 17 install the tile into a checkout; fix 18 lets a program load at the descriptor's RAM base, and fix 19 builds C programs. See [Environment Patches](../04_chia_openpiton/environment_patches.md).
 
 ## Status
 
@@ -79,7 +79,7 @@ wrapper: ibex/generic_core_wrapper.sv
 include_dirs: [ibex/vendor/lowrisc_ip/ip/prim/rtl]
 sources: [ibex/rtl/ibex_pkg.sv, ibex/rtl/ibex_top.sv]
 isa: {march: rv32imc, mabi: ilp32}
-bus: obi                    # simple | obi | wishbone
+bus: obi                    # simple | obi | wishbone | wishbone_split
 reset_vector: 0x40000080
 atomics: none               # none | bus
 private_cache: none         # none | disabled | write_through | write_back

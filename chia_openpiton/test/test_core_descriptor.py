@@ -245,7 +245,7 @@ class TestApply:
 
     def test_an_unpatched_checkout_is_refused(self, patched_root):
         (patched_root / LINK_LD).parent.rmdir()
-        with pytest.raises(ValueError, match="patch the checkout with fixes 14-17 first"):
+        with pytest.raises(ValueError, match="patch the checkout with fixes 14-19 first"):
             apply_descriptor(parse_descriptor(ibex()), str(patched_root))
         assert not (patched_root / FLIST_CORE).exists()
 

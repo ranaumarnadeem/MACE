@@ -5,7 +5,7 @@
 # Usage: examples/cores/ibex/install.sh <ibex_clone> <piton_root>
 #
 # The checkout must already be patched with scripts/patch_openpiton.sh
-# (fixes 14-17). Ibex is Apache-2.0; its LICENSE is copied beside its RTL.
+# (fixes 14-19). Ibex is Apache-2.0; its LICENSE is copied beside its RTL.
 set -euo pipefail
 
 IBEX="${1:?usage: $0 <ibex_clone> <piton_root>}"

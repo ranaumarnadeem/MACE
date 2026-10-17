@@ -6,8 +6,8 @@ programs, and checks each verdict: the passing tests must pass,
 generic_expect_fail.S must fail, and generic_expect_timeout.S must time out.
 It needs no LLM.
 
-The checkout must be patched with scripts/patch_openpiton.sh (fixes 14-17
-add the generic tile), and tile/generic/rtl/Flist.core must name PicoRV32's
+The checkout must be patched with scripts/patch_openpiton.sh (fixes 14-19
+add the generic tile, its image base, and C programs), and tile/generic/rtl/Flist.core must name PicoRV32's
 wrapper, which fix 14 writes when the file is missing.
 
 Run with PITON_ROOT set to the checkout:
