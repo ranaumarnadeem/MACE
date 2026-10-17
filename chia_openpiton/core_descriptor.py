@@ -59,6 +59,11 @@ M_TESTS = ("mul.S", "div.S")
 MESH_TESTS = ("addi.S", "beq.S", "jal.S", "lw.S")
 SHARED_TESTS = ("generic_tile_id.S", "generic_shared_flag.S")
 ATOMIC_TESTS = ("generic_amo_counter.S",)
+# C programs (crt.S and syscalls.c in the generic test environment). The
+# atomic ones are MACE's gate workloads under mace/workloads/, which a run
+# finds with asm_diag_root; they use amo instructions.
+C_TESTS = ("generic_c_hello.c", "generic_c_flags.c")
+C_ATOMIC_TESTS = ("barrier_atomic.c", "producer_consumer.c", "scatter_gather.c")
 
 _NAME = re.compile(r"[a-z][a-z0-9_]*")
 _MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
@@ -149,8 +154,10 @@ class CoreDescriptor:
         """Test programs per ladder step, chosen from the ISA and atomics."""
         m_tests = M_TESTS if "m" in self.extensions else ()
         steps = {"isa": ISA_TESTS + m_tests, "mesh": MESH_TESTS + m_tests, "shared": SHARED_TESTS}
+        steps["c"] = C_TESTS
         if self.atomics == "bus":
             steps["atomics"] = ATOMIC_TESTS
+            steps["c"] = C_TESTS + C_ATOMIC_TESTS
         return steps
 
 
