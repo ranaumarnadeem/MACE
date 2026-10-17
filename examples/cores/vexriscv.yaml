@@ -1,0 +1,25 @@
+# VexRiscv (SpinalHDL, RV32I) on the generic tile: the Wishbone core held out
+# for MACE, like SERV. It is the LiteX "Min" variant, pre-generated Verilog
+# from litex-hub/pythondata-cpu-vexriscv: no instruction or data cache, no MMU,
+# Wishbone classic instruction and data masters. examples/cores/vexriscv/install.sh
+# copies the Verilog into the checkout and writes the wrapper skeleton; the
+# wrapper itself is MACE's to write.
+core: vexriscv
+top_module: VexRiscv
+wrapper: vexriscv/generic_core_wrapper.v
+sources: [vexriscv/VexRiscv_Min.v]
+isa: {march: rv32i, mabi: ilp32}
+bus: wishbone_split
+reset_vector: 0x40000000
+atomics: none
+private_cache: none
+hart_id: register
+notes: |
+  The top module is VexRiscv; its ports are iBusWishbone_* and dBusWishbone_*
+  (CYC, STB, ACK, WE, ADR, DAT_MISO, DAT_MOSI, SEL, ERR, CTI, BTE), clk, and
+  an active-high reset. ADR is a 30-bit word address, so the wrapper drives the
+  bridge with {ADR, 2'b00}. The reset vector is the input externalResetVector,
+  not a parameter. timerInterrupt, softwareInterrupt, and externalInterruptArray
+  are inputs to tie off, and so are the ERR inputs. CTI and BTE are always 0
+  (classic cycles). It has no hart ID input; programs read the tile ID register.
+  MIT-licensed.

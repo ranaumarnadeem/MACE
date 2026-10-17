@@ -429,3 +429,41 @@ class TestCLadder:
         from chia_openpiton.core_descriptor import C_ATOMIC_TESTS
 
         assert set(C_ATOMIC_TESTS) <= listed
+
+
+class TestWishbone:
+    def test_both_wishbone_buses_are_accepted(self):
+        for bus in ("wishbone", "wishbone_split"):
+            assert support_problems(parse_descriptor(ibex(bus=bus))) == ()
+
+    def test_the_skeleton_names_the_bridge_of_each_bus(self):
+        one = wrapper_skeleton(parse_descriptor(ibex(bus="wishbone")))
+        two = wrapper_skeleton(parse_descriptor(ibex(bus="wishbone_split")))
+        assert "generic_bridge_wishbone (" in one and "generic_bridge_wishbone2" not in one
+        assert "generic_bridge_wishbone2 (tile/generic/rtl/generic_bridge_wishbone2.v)" in two
+        assert two.count(SKELETON_MARK) == 2
+
+    @pytest.mark.parametrize("bus", ["wishbone", "wishbone_split"])
+    def test_atomics_on_a_wishbone_bus_are_rejected(self, bus):
+        (problem,) = support_problems(
+            parse_descriptor(ibex(bus=bus, atomics="bus", isa={"march": "rv32imac", "mabi": "ilp32"})))
+        assert f"the {bus} bridge does not" in problem
+
+    def test_the_wishbone_bridges_are_installed_and_listed(self):
+        rtl = REPO / "scripts/openpiton_generic/piton/design/chip/tile/generic/rtl"
+        flist = (rtl / "Flist.generic").read_text().split()
+        for name in ("generic_bridge_wishbone.v", "generic_bridge_wishbone2.v"):
+            assert name in flist and (rtl / name).is_file()
+
+    def test_picorv32_wb_is_a_supported_one_port_wishbone_core(self):
+        desc = load_descriptor(str(REPO / "examples" / "cores" / "picorv32_wb.yaml"))
+        assert (desc.bus, desc.atomics, desc.march, desc.reset_vector) == ("wishbone", "none", "rv32im", 0x4000_0000)
+        assert support_problems(desc) == ()
+        assert (REPO / "examples" / "cores" / "picorv32_wb" / "generic_core_wrapper.v").is_file()
+        assert "mul.S" in desc.ladder_tests()["isa"] and "atomics" not in desc.ladder_tests()
+
+    def test_vexriscv_is_a_supported_split_wishbone_core_without_a_wrapper(self):
+        desc = load_descriptor(str(REPO / "examples" / "cores" / "vexriscv.yaml"))
+        assert (desc.bus, desc.atomics, desc.march, desc.reset_vector) == ("wishbone_split", "none", "rv32i", 0x4000_0000)
+        assert support_problems(desc) == ()
+        assert not (REPO / "examples" / "cores" / "vexriscv" / "generic_core_wrapper.v").exists()
