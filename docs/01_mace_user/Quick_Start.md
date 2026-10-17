@@ -94,3 +94,4 @@ python examples/mace_end_to_end.py \
 
 Before a 4x4 run, export `MAKEFLAGS=-j1` to limit the memory the Verilator C++ compile uses; [Troubleshooting](Troubleshooting.md) explains why.
 [Running the Loop](Running_the_Loop.md) covers the spec, the budget, and planner directives.
+To have MACE write the wrapper of an RV32 core with no OpenPiton adapter, see [Generic Tile](../05_mace_cores/generic.md).

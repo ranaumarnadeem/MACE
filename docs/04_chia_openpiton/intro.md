@@ -2,7 +2,7 @@
 
 # Introduction
 
-`chia_openpiton` is a CHIA adapter for OpenPiton, Princeton's manycore RTL platform. It wraps OpenPiton's `sims` tool as CHIA nodes, so an agentic loop can configure, build, simulate, and collect results from an OpenPiton manycore through one interface. MACE drives OpenPiton through it. The adapter supports three cores: [Ariane](../05_mace_cores/ariane.md), [OpenSPARC T1](../05_mace_cores/sparc.md), and [PicoRV32](../05_mace_cores/pico.md).
+`chia_openpiton` is a CHIA adapter for OpenPiton, Princeton's manycore RTL platform. It wraps OpenPiton's `sims` tool as CHIA nodes, so an agentic loop can configure, build, simulate, and collect results from an OpenPiton manycore through one interface. MACE drives OpenPiton through it. The adapter supports three native cores, [Ariane](../05_mace_cores/ariane.md), [OpenSPARC T1](../05_mace_cores/sparc.md), and [PicoRV32](../05_mace_cores/pico.md), and RV32 cores on the [Generic Tile](../05_mace_cores/generic.md) (core `generic`).
 
 ## What the adapter exposes
 

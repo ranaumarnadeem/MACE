@@ -10,7 +10,7 @@ MACE has two parts. `chia_openpiton` is a CHIA adapter for OpenPiton's configure
 - [MACE Requirements Specification](https://ranaumarnadeem.github.io/MACE/02_mace_requirements/mace_requirements_specification.html): what MACE must do
 - [MACE Design Document](https://ranaumarnadeem.github.io/MACE/03_mace_design/index.html): planning, parallel task execution, integration, verification, and failure analysis in the MACE loop
 - [chia_openpiton Adapter](https://ranaumarnadeem.github.io/MACE/04_chia_openpiton/index.html): how the loop builds and runs OpenPiton
-- [Supported Cores](https://ranaumarnadeem.github.io/MACE/05_mace_cores/index.html): the three OpenPiton cores (Ariane, OpenSPARC T1, and PicoRV32) and how to add another
+- [Supported Cores](https://ranaumarnadeem.github.io/MACE/05_mace_cores/index.html): the three native OpenPiton cores (Ariane, OpenSPARC T1, and PicoRV32), the generic tile for RV32 cores with no OpenPiton adapter (MACE can write a core's wrapper), and how to add another core
 - [MACE Evaluation](https://ranaumarnadeem.github.io/MACE/06_mace_evaluation/index.html): the baselines, results, and cost measurements
 
 ## Related projects

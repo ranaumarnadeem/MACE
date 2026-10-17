@@ -2,7 +2,7 @@
 
 **MACE is an LLM-agent system that turns a single-core design into a verified multicore OpenPiton system: it plans, builds and simulates OpenPiton meshes on the CHIA framework from a hardware objective written in English.**
 
-You give MACE an objective, a core (Ariane/CVA6 or PicoRV32) and a target mesh size. An LLM planner turns the objective into a task DAG; independent tasks run in parallel, one per OpenPiton checkout. A configuration passes only when its Verilator build succeeds and every tile of the simulated mesh reaches its good trap. When a task fails, a failure-analysis agent reads the logs and the planner replans, until the design passes or the run's budget is spent. The agents do not edit the cores; MACE reuses OpenPiton's NoC, caches and coherence infrastructure to make the system multicore.
+You give MACE an objective, a core (Ariane/CVA6, PicoRV32, OpenSPARC T1, or an RV32 core on the generic tile) and a target mesh size. An LLM planner turns the objective into a task DAG; independent tasks run in parallel, one per OpenPiton checkout. A configuration passes only when its Verilator build succeeds and every tile of the simulated mesh reaches its good trap. When a task fails, fixed checks and a failure-analysis agent find the cause and the planner replans, until the design passes or the run's budget is spent. MACE reuses OpenPiton's NoC, caches and coherence infrastructure to make the system multicore. For a core with no OpenPiton adapter, such as SERV or Ibex, MACE writes the small wrapper that joins the core to the [generic tile](https://ranaumarnadeem.github.io/MACE/05_mace_cores/generic.html).
 
 - Accepted as a poster at the A3 workshop, MICRO 2026
 - Built for the A3 CHIA Hackathon at MICRO 2026
@@ -94,7 +94,7 @@ git -C ~/openpiton submodule update --init --recursive piton/design/chip/tile/ar
 bash scripts/patch_openpiton.sh ~/openpiton
 ```
 
-The patch script applies thirteen numbered fixes and is safe to run again.
+The patch script applies nineteen numbered fixes and is safe to run again; fixes 14 to 19 install the generic tile.
 
 ## Run
 
@@ -110,6 +110,15 @@ python examples/mace_end_to_end.py --piton-root ~/openpiton --core ariane --mesh
 `--mesh` sets the size of every build. `--piton-root-2` adds a second checkout,
 so independent tasks run in parallel. Before a 4x4 run, export `MAKEFLAGS=-j1`
 to keep the Verilator C++ compile within memory.
+
+To have MACE write the wrapper of a core with no OpenPiton adapter, install the
+core's RTL and run the generic-tile driver with its core descriptor:
+
+```bash
+bash examples/cores/serv/install.sh ~/serv ~/openpiton
+python examples/generic_integrate.py --piton-root ~/openpiton \
+    --descriptor examples/cores/serv.yaml --method mace --mesh 2x2
+```
 
 The `mace` command runs the same loop from an interactive shell in the style of
 Yosys and OpenROAD:
@@ -146,10 +155,10 @@ cover the flags, the shell commands, and the comparison runs.
 ## FAQ
 
 **Can an LLM agent build a multicore RISC-V system?**
-MACE does this for OpenPiton: from an English objective it configures, builds and verifies 2x2 and 4x4 meshes of Ariane or PicoRV32 cores, replanning on failure until simulation passes or the run's budget is spent.
+MACE does this for OpenPiton: from an English objective it configures, builds and verifies 2x2 and 4x4 meshes of Ariane or PicoRV32 cores, replanning on failure until simulation passes or the run's budget is spent. For an RV32 core with no OpenPiton adapter, it writes the core's wrapper for the generic tile.
 
 **Does MACE change the CPU core?**
-MACE's agents do not edit the cores. They configure OpenPiton's tiles, caches and NoC around them and can add RTL defines. Before the first build, `scripts/patch_openpiton.sh` fixes three bugs in OpenPiton's copies of the cores: PicoRV32 never booting from reset (fix 6), CVA6's tracer writing every hart to one file (fix 12), and CVA6's L1.5 adapter dropping invalidations under Verilator 5 (fix 13).
+MACE's agents configure OpenPiton's tiles, caches and NoC around the cores and can add RTL defines. RTL edits are off by default; when they are on, an agent may edit sources under `piton/design/`, such as a generic-tile core's wrapper, and every edit is reverted after the run. Before the first build, `scripts/patch_openpiton.sh` fixes three bugs in OpenPiton's copies of the cores: PicoRV32 never booting from reset (fix 6), CVA6's tracer writing every hart to one file (fix 12), and CVA6's L1.5 adapter dropping invalidations under Verilator 5 (fix 13).
 
 **Can I use the OpenPiton support without the agents?**
 Yes. `chia_openpiton/` is a standalone CHIA adapter for OpenPiton with no dependency on `mace/`.

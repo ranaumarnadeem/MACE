@@ -23,7 +23,7 @@ The :doc:`MACE Design Document <03_mace_design/index>` describes the MACE loop: 
 
 The :doc:`chia_openpiton Adapter <04_chia_openpiton/index>` describes how the loop builds and runs OpenPiton.
 
-The :doc:`Supported Cores <05_mace_cores/index>` part covers MACE's three OpenPiton cores (Ariane, OpenSPARC T1, and PicoRV32) and how to add another.
+The :doc:`Supported Cores <05_mace_cores/index>` part covers MACE's three native OpenPiton cores (Ariane, OpenSPARC T1, and PicoRV32), the generic tile for RV32 cores with no OpenPiton adapter, and how to add another core.
 
 The :doc:`MACE Evaluation <06_mace_evaluation/index>` part collects the baselines, results, and cost measurements.
 
