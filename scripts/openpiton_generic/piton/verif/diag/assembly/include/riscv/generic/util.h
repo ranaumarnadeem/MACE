@@ -48,8 +48,8 @@
   __asm__ __volatile__ (".option push\n.option arch, +zicsr\ncsrw " #reg ", %0\n.option pop" \
                         :: "rK" (val)); })
 
+// putchar is not declared here: stdio.h defines it as a macro.
 void printstr(const char *s);
-int putchar(int c);
 int printf(const char *fmt, ...);
 void exit(int code) __attribute__((noreturn));
 
