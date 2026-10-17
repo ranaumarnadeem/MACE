@@ -61,9 +61,14 @@ The transducer also prints each tile's first request address (`generic tile <n>:
 |---|---|
 | none | Cores whose memory interface is the simple bus, such as PicoRV32 |
 | `generic_bridge_obi.v` | Separate instruction and data ports in OBI style (req/gnt, then rvalid), such as Ibex. Data goes before instruction, one request at a time. |
-| `generic_bridge_wishbone.v` | Wishbone classic masters |
+| `generic_bridge_wishbone.v` | One Wishbone classic master (`bus: wishbone`), such as PicoRV32's Wishbone top, `picorv32_wb` |
+| `generic_bridge_wishbone2.v` | Separate instruction and data Wishbone classic masters (`bus: wishbone_split`), such as VexRiscv. Data goes before instruction, one request at a time. |
 
-Neither bridge carries atomics. Each core has a module named `generic_core_wrapper` with a fixed interface: `clk`, `rst_n`, `hart_id`, the simple bus as master, and `wake` (the L1.5's wake-up interrupt). The wrapper instantiates the core and its bridge and ties off the inputs the tile doesn't drive. `examples/cores/ibex/generic_core_wrapper.sv` is Ibex's.
+No bridge carries atomics. Both Wishbone bridges take a request when `cyc` and `stb` are both high and raise `ack` for one cycle, with the simple bus's ready. Their `adr` ports are byte addresses: a core with a word address, such as VexRiscv's 30-bit `ADR`, drives `{adr, 2'b00}`. A read is a word read. `sel` gives the byte lanes of a write. The bridges never raise `err` or `rty`.
+
+Each core has a module named `generic_core_wrapper` with a fixed interface: `clk`, `rst_n`, `hart_id`, the simple bus as master, and `wake` (the L1.5's wake-up interrupt). The wrapper instantiates the core and its bridge and ties off the inputs the tile doesn't drive. `examples/cores/ibex/generic_core_wrapper.sv` is Ibex's, and `examples/cores/picorv32_wb/generic_core_wrapper.v` is the one-port Wishbone example.
+
+`scripts/generic_ut/run_bridge_wishbone_ut.sh` runs a unit testbench for both Wishbone bridges against a stub simple bus, and `scripts/generic_ut/mutate_wishbone_ut.py` runs it against 24 mutated copies of the bridges, each of which it must fail.
 
 ## The core descriptor
 
