@@ -39,7 +39,7 @@ Replay covers the return values of tagged calls and does not reproduce edits tha
 - **REQ-PLAN-5:** MACE shall produce each plan from one LLM call whose prompt states the core, the objective, the target mesh, and the gate workloads, plus at most two more calls in the same iteration under REQ-PLAN-16.
 - **REQ-PLAN-6:** MACE shall read each task from a line of the form `TASK: <id> | deps=<ids> | kind=<kind> | <instruction>`.
 - **REQ-PLAN-7:** MACE shall recognize a directive tag case-insensitively at the start of a line, including after a list marker such as `-`, `*`, or `1.`.
-- **REQ-PLAN-8:** MACE shall accept the task kinds `config`, `workload`, `unit_test`, and `rtl`, and no others.
+- **REQ-PLAN-8:** MACE shall accept the task kinds `config`, `workload`, `unit_test`, and `rtl` from the planner, and no others; a `test` task enters a plan only through a plan hook.
 - **REQ-PLAN-9:** MACE shall skip a malformed task line and keep the well-formed ones.
 - **REQ-PLAN-10:** MACE shall let a plan set the `l1i`, `l1d`, `l15`, and `l2` cache geometry of the task a line names, with lines of the form `CACHES: <task id> | <name>=<size>,<associativity> ...`, accepting only positive integers.
 - **REQ-PLAN-11:** MACE shall let a plan add RTL defines to the task a line names, with lines of the form `CONFIG_RTL: <task id> | <FLAG> ...`, accepting only upper-snake-case identifiers.

@@ -25,7 +25,7 @@ The planner sees the mesh in its prompt but cannot change it.
 
 ## Gate workloads
 
-A `config` or `workload` task runs one build, with no LLM call of its own by default (the fast path in [Fixed Checks](../03_mace_design/fixed_checks.md) turns task calls off).
+A `config` or `workload` task runs one build, with no LLM call of its own by default: the fast path, one of the [Fixed Checks](../03_mace_design/fixed_checks.md), turns task calls off because their replies change nothing that is built.
 If the build succeeds, the task simulates each entry of `workloads` in order on that build.
 It passes when every one reports `pass`, and it stops at the first that does not.
 The run passes as soon as one task's design passes every gate workload, even if another task of the plan failed.

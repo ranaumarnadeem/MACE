@@ -20,7 +20,7 @@ core RTL -- wrapper -- bridge -- simple bus -- generic_l15_transducer -- tile L1
 | Ibex with its RAM at `0x20000000` | `examples/cores/ibex_moved.yaml`, by hand | 2x2 | The ISA, ID, and shared-memory programs and both C programs pass, with every tile starting at `0x20000080`. |
 | PicoRV32 on Wishbone (`picorv32_wb`) | `examples/cores/picorv32_wb.yaml`, by hand | 2x2 | The ISA, ID, and shared-memory programs and both C programs pass. |
 | SERV (bit-serial, OBI) | `examples/cores/serv.yaml`, wrapper written by MACE | 1x1, 2x2 | With Vertex Gemini 2.5 Flash, MACE wrote a wrapper that passed `addi.S` and `generic_tile_id.S` in 5 of 5 runs at 1x1, and those two with `generic_shared_flag.S` in 4 of 5 runs at 2x2 (commit `8520a28`). With one of those wrappers, the ISA, ID, and shared-memory programs and both C programs pass at 2x2. |
-| VexRiscv (`VexRiscv_Min`, two Wishbone ports) | `examples/cores/vexriscv.yaml`, no wrapper | none yet | Held out for MACE: `examples/cores/vexriscv/install.sh` installs the core and a skeleton wrapper. |
+| VexRiscv (`VexRiscv_Min`, two Wishbone ports) | `examples/cores/vexriscv.yaml`, no wrapper | none yet | Held out: no wrapper was written by hand, so MACE's runs are the first. `examples/cores/vexriscv/install.sh` installs the core, and `core_descriptor apply`, which it runs, writes a skeleton wrapper. |
 
 `scripts/local_generic_gate.py` runs the PicoRV32 gate through the adapter MACE uses. At 2x2, 12 of 12 verdicts matched: 10 passes, the expected fail, and the expected timeout.
 
@@ -165,7 +165,7 @@ On a 2x2 mesh, PicoRV32 passes all five programs it can run and fails `generic_c
 
 ## Integrating a core with MACE
 
-MACE can write the wrapper itself. Copy only the core's RTL and write its descriptor; `examples/cores/serv/install.sh` and `examples/cores/vexriscv/install.sh` do both for SERV and VexRiscv. When the wrapper the descriptor names does not exist, `core_descriptor apply` writes a skeleton in its place: the module with its fixed ports and a block marked `wrapper body` where the core and its bridge go. No core runs while that block is there.
+MACE can write the wrapper itself. Copy only the core's RTL and write its descriptor. For SERV and VexRiscv the descriptors are in `examples/cores/`, and `examples/cores/serv/install.sh <serv clone> <piton root>` and `examples/cores/vexriscv/install.sh <pythondata-cpu-vexriscv clone> <piton root>` copy the RTL. When the wrapper the descriptor names does not exist, `core_descriptor apply` writes a skeleton in its place: the module with its fixed ports and a block marked `wrapper body` where the core and its bridge go. No core runs while that block is there.
 
 ```bash
 MAKEFLAGS=-j1 python examples/generic_integrate.py --piton-root ~/openpiton \
@@ -176,13 +176,13 @@ MAKEFLAGS=-j1 python examples/generic_integrate.py --piton-root ~/openpiton \
 The run turns RTL edits on and goes through the loop like any other:
 
 - Before its first LLM call it checks the descriptor and the core's files, and ends with status `unsupported_core` if the tile cannot run the core.
-- Before its first build it writes the descriptor's `Flist.core` and `link.ld` into the checkout.
+- Before its first build it writes the descriptor's `Flist.core` and `link.ld` into the checkout, and the skeleton if the wrapper file is missing.
 - The planner's inputs name the core, its bus and reset vector, and the wrapper file, and say that an `rtl` task must write the `wrapper body` block first.
 - The `rtl` task's agent is told which bridge to instantiate, that the wrapper's ports stay as they are, which reset vector to set, and which inputs to tie off. PicoRV32's wrapper is named as a finished example.
 - A task passes when every gate program passes on every tile and every tile's first request is at the reset vector.
 - After a failed iteration, the edits of the last task that built carry into the next one (see [Fixed Checks](../03_mace_design/fixed_checks.md)).
 
-Like every RTL edit, the wrapper is applied for the run's builds and reverted afterwards, so the checkout keeps the skeleton. The `rtl_edits` column of the run's `tasks` table holds each task's diff.
+Like every RTL edit, the wrapper is applied for the run's builds and reverted afterwards, so the checkout keeps the skeleton. The wrapper is not lost: the `rtl_edits` column of the run's `tasks` table holds each task's diff, and the diff of the task that passed is the finished wrapper. Apply it to the skeleton with `patch -p1` from the checkout's root to keep it.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -190,7 +190,7 @@ Like every RTL edit, the wrapper is applied for the run's builds and reverted af
 | `--mesh` | `1x1` | The target mesh |
 | `--workloads` | `addi.S generic_tile_id.S` | The gate programs |
 | `--max-iterations`, `--max-usd`, `--max-wall-s` | 5, 20, 10800 | The run's budget |
-| `--off PART` | none | With `--method mace`, turns one loop part off for an ablation: `plan_check`, `raw_evidence`, `narrowing`, `fast_path`, `gate_pass_ends_run`, or `carry_edits`. The run is recorded as method `no_<part>`. |
+| `--off PART` | none | With `--method mace` only, turns one loop part off for an ablation (one part per run): `plan_check`, `raw_evidence`, `narrowing`, `fast_path`, `gate_pass_ends_run`, or `carry_edits`. The run is recorded as method `no_<part>`. |
 | `--repeat`, `--tag` | 0, empty | Recorded in the run's labels; the tag is appended to the task label |
 | `--db-path` | `runs/generic_integrate.db` | The run database |
 | `--backend`, `--model` | `vertex`, the backend's default | The LLM; Vertex needs `GOOGLE_CLOUD_PROJECT` |

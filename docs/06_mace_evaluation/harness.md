@@ -44,7 +44,7 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `seeded_<fault>` | RQ3 | The loop with its first plan broken by one seeded fault; see below. |
 | `seeded_retry_<fault>` | RQ3, B2 | The retry agent with its first design broken by one seeded fault, on one checkout; see below. |
 | `faultcheck_<fault>` | Fault check | The expert configuration with one seeded fault applied, with no LLM; it should fail. See below. |
-| `no_<part>` | Ablation | The loop with one of the four [fixed checks](../03_mace_design/fixed_checks.md) off (`no_plan_check`, `no_raw_evidence`, `no_narrowing`, or `no_fast_path`), or with a gate pass no longer ending the run (`no_gate_pass_ends_run`). |
+| `no_<part>` | Ablation | The loop with one part of [Fixed Checks](../03_mace_design/fixed_checks.md) off: `no_plan_check`, `no_raw_evidence`, `no_narrowing`, `no_fast_path`, or `no_gate_pass_ends_run`. Carried edits act only on RTL edits, which bring-up tasks do not make, so they have no batch method; `examples/generic_integrate.py --off carry_edits` turns them off. |
 | `seeded_no_<part>_<fault>` | RQ3, ablation | `seeded_<fault>` with one of those parts off. |
 | `expert_clean` | Bug check | The expert configuration on the design without the task's source fault, with no LLM; it should pass. See [Directed-Test Evaluation](directed_tests.md). |
 | `testgen` | Detection | An agent writes directed tests for the planted bug, and the mutation check judges them. |
@@ -116,7 +116,7 @@ Three faults make two changes at once, each a single fault above that breaks the
 `Fault.parts` names the single faults of such a fault, and a report groups them apart from the single-change faults.
 Their fault checks ran on `ariane-2x2-barrier` and `pico-2x2-addi` (`bist_and_synth` on PicoRV32 only) and failed the build on the first part in every run; the second part's failure is its single fault's own.
 A loop that reads one failure at a time needs a build or simulation per change, while narrowing's `combination` verdict undoes both together.
-With the default budget of three iterations, a method that finds one cause per iteration has no attempt to spare.
+With the suite's default budget of three iterations, a method that finds one cause per iteration has no attempt to spare.
 
 A fault applies to bring-up tasks on the cores it lists, and `crossbar` only to meshes with two or more rows, since OpenPiton's crossbar has one port per column.
 A `seeded_<fault>` method runs the loop with that fault seeded, only when a batch names it; `examples/recovery_seeded.py` runs one fault on one task.

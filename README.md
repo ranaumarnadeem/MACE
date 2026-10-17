@@ -2,7 +2,7 @@
 
 **MACE is an LLM-agent system that turns a single-core design into a verified multicore OpenPiton system: it plans, builds and simulates OpenPiton meshes on the CHIA framework from a hardware objective written in English.**
 
-You give MACE an objective, a core (Ariane/CVA6, PicoRV32, OpenSPARC T1, or an RV32 core on the generic tile) and a target mesh size. An LLM planner turns the objective into a task DAG; independent tasks run in parallel, one per OpenPiton checkout. A configuration passes only when its Verilator build succeeds and every tile of the simulated mesh reaches its good trap. When a task fails, fixed checks and a failure-analysis agent find the cause and the planner replans, until the design passes or the run's budget is spent. MACE reuses OpenPiton's NoC, caches and coherence infrastructure to make the system multicore. For a core with no OpenPiton adapter, such as SERV or Ibex, MACE writes the small wrapper that joins the core to the [generic tile](https://ranaumarnadeem.github.io/MACE/05_mace_cores/generic.html).
+You give MACE an objective, a core (Ariane/CVA6, PicoRV32, OpenSPARC T1, or an RV32 core on the generic tile) and a target mesh size. An LLM planner turns the objective into a task DAG; independent tasks run in parallel, one per OpenPiton checkout. A configuration passes only when its Verilator build succeeds and every tile of the simulated mesh reaches its good trap. When a task fails, fixed checks and a failure-analysis agent find the cause and the planner replans, until the design passes or the run's budget is spent. MACE reuses OpenPiton's NoC, caches and coherence infrastructure to make the system multicore. For an RV32 core with no OpenPiton adapter, such as SERV, MACE writes the small wrapper that joins the core to the [generic tile](https://ranaumarnadeem.github.io/MACE/05_mace_cores/generic.html).
 
 - Accepted as a poster at the A3 workshop, MICRO 2026
 - Built for the A3 CHIA Hackathon at MICRO 2026
@@ -40,8 +40,8 @@ These are single runs from the 0.0.1 pre-release (commit `05dd97e`, September 20
 evaluation on the current code, with repeats, baselines, and ablations, is running in October 2026.
 
 [Results](https://ranaumarnadeem.github.io/MACE/06_mace_evaluation/results.html)
-explains each run. OpenSPARC T1 builds but does not run under the Verilator 5
-used here.
+explains each run. OpenSPARC T1 builds but does not run under the Verilator 5.020
+used here; it runs under Verilator 5.052.
 
 ### Run records
 
@@ -97,7 +97,7 @@ git -C ~/openpiton submodule update --init --recursive piton/design/chip/tile/ar
 bash scripts/patch_openpiton.sh ~/openpiton
 ```
 
-The patch script applies nineteen numbered fixes and is safe to run again; fixes 14 to 19 install the generic tile.
+The patch script applies nineteen numbered fixes and is safe to run again; fixes 14 to 17 install the generic tile, and fixes 18 and 19 add its RAM base and C programs.
 
 ## Run
 

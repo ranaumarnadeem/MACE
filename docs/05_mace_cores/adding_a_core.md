@@ -2,7 +2,7 @@
 
 # Adding a Core
 
-Under BYOC, each OpenPiton core reaches the tile's L1.5 through its own transducer. There are two ways to add a core. An RV32 core with one hart and no private cache can use the [Generic Tile](generic.md), where only a per-core wrapper is new RTL and MACE can write that wrapper itself. Any other core needs RTL in OpenPiton and a small amount of code in MACE, as this page describes.
+Under BYOC, each OpenPiton core reaches the tile's L1.5 through its own transducer. There are two ways to add a core. An RV32 core with one hart and no private cache to keep coherent can use the [Generic Tile](generic.md), where only a per-core wrapper is new RTL and MACE can write that wrapper itself. Any other core needs RTL in OpenPiton and a small amount of code in MACE, as this page describes.
 
 ## What a core needs in OpenPiton
 

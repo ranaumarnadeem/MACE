@@ -4,7 +4,7 @@
 
 The table gives each approach's Verilator verdict and end-to-end wall time. [Methodology](methodology.md) describes the setup.
 
-These runs are from the 0.0.1 pre-release (commit `05dd97e`, 2026-09-25), with patch fixes 1 to 12, one run per cell. The loop has changed since then: [Fixed Checks](../03_mace_design/fixed_checks.md) describes the checks added after it, which also ask the planner again for a reply with no plan and turn per-task LLM calls off. A larger evaluation on the current code, with the baselines and ablations of the [Evaluation Harness](harness.md), is running in October 2026, and this page will report it when it finishes.
+Every run on this page, the table's, the coverage run, and the seeded-failure runs below, is from the 0.0.1 pre-release (commit `05dd97e`, 2026-09-25), with patch fixes 1 to 12; the table has one run per cell. Those runs made a per-task LLM call and ended a run on the planner's first unusable reply. The loop has changed since: [Fixed Checks](../03_mace_design/fixed_checks.md) describes the checks added after them, which ask the planner again for a reply with no plan and turn per-task calls off. A larger evaluation on the current code, with the baselines and ablations of the [Evaluation Harness](harness.md), is running in October 2026, and this page will report it when it finishes.
 
 | Core | Mesh | (a) Manual | (b) One-shot | (c) MACE loop |
 |---|---|---|---|---|

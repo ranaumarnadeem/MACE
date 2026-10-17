@@ -71,7 +71,7 @@ The defaults are the full loop.
 | `triage` | `"llm"` | `"raw"`: the next plan gets the failed task's raw evidence, the text triage would have read (`mace.triage.failure_evidence()`), and the failure is recorded as `raw_evidence`. `"off"`: the next plan gets nothing, and the failure is recorded as `not_triaged`. |
 | `check` | `"sim"` | `"build"`: a task passes when its build succeeds, and no gate workload runs. |
 | `reuse_builds` | `True` | `False`: every build passes `clean=True`, so no earlier model is reused. |
-| `task_prompts` | `True` | `False`: tasks make no LLM call of their own. That call's reply changes nothing that is built. |
+| `task_prompts` | `True` | `False`: tasks make no LLM call of their own. That call's reply changes nothing that is built. The orchestrator sets it to `False` for every plan while `fast_path` is on. |
 | `post_mortem` | `True` | `False`: a run that ends without passing gets no post-mortem. |
 | `rtl_edits` | `False` | `True`: the planner's prompt offers the `rtl` kind, and each `rtl` task's agent gets an `RtlEditTool`; see [Parallel Task Execution](task_execution.md). |
 | `plan_check` | `True` | `False`: each plan runs as the planner wrote it. |
