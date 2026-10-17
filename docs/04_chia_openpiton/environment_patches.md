@@ -45,6 +45,7 @@ The script's edits change the checkout's source fingerprint, so a model built be
 | 15 | `define.h.pyv`, `tile.v.pyv`, `chip.v.pyv`, `pyhplib.py`, `cross_module.h.pyv` | Adds `GENERIC_TILE` as tile type 3, its generate block in the tile, the tile type for every tile under `PITON_GENERIC`, one thread per tile, and the `GENERIC_CORE<n>` and `GENERIC_TRANSDUCER<n>` hierarchy names. |
 | 16 | `piton/verif/env/manycore/pc_cmp.v.pyv` | Adds an `RTL_GENERIC<n>` branch that reports the transducer's finish register as the program's good or bad trap, once. |
 | 17 | `piton/tools/src/sims/sims,2.0`, `manycore.config`, `piton/tools/bin/rv32_as` | Adds `sims -generic`: `PITON_GENERIC`, `FLIST_GENERIC` (the generic tile's file lists, `-rv32`, and `CONFIG_DISABLE_BIST_CLEAR`), an `RTL_GENERIC<n>` define per tile, and the RV32 assembly flow. `rv32_as` takes its include directory and link script from `RV32_ENV`. |
+| 18 | `piton/tools/src/sims/sims,2.0` | `rv32_as` loads every program image at `0x40000000`. Adds `sims -rv32_image_base=<16 hex digits>` (default `0000000040000000`) and exports it as `RV32_IMAGE_BASE` before `rv32_as` runs, so a generic-tile core whose RAM is elsewhere gets its image where its link script puts it. |
 
 Fixes 3 and 4 address checkouts on a Windows-mounted path, such as `/mnt/c` under WSL. Fixes 14 to 17 change nothing for the other cores: every edit sits behind `PITON_GENERIC`, `FLIST_GENERIC`, `RTL_GENERIC<n>`, or `-generic`.
 

@@ -81,7 +81,9 @@ private_cache: none         # none | disabled | write_through | write_back
 hart_id: port               # port | register
 ```
 
-Paths are relative to `piton/design/chip/tile/`. `ram_base` (default `0x40000000`), `harts` (default 1), `own_interconnect` (default false), and `notes` are optional. `chia_openpiton/core_descriptor.py` reads it and writes two files into the checkout: `tile/generic/rtl/Flist.core`, which lists the core's sources and wrapper, and the test environment's `link.ld`, which places the program's first instruction at the reset vector. The descriptor's digest is part of the build ID, so two cores never share a model.
+Paths are relative to `piton/design/chip/tile/`. `ram_base` (default `0x40000000`), `ram_size` (default `0x100000`, 1 MB), `harts` (default 1), `own_interconnect` (default false), and `notes` are optional. `chia_openpiton/core_descriptor.py` reads it and writes two files into the checkout: `tile/generic/rtl/Flist.core`, which lists the core's sources and wrapper, and the test environment's `link.ld`. The descriptor's digest is part of the build ID, so two cores never share a model.
+
+The RAM is `ram_base` up to `ram_base + ram_size`. The build passes `-rv32_image_base=<ram_base>` to `sims`, so `rv32_as` loads the program image at `ram_base` (patch fix 18). The link script starts there, puts `.text.init` at the reset vector, then `.text`, `.rodata`, `.data`, and `.bss`, and defines `__bss_start`, `__bss_end`, `_end`, and `__stack_top` (the end of RAM). The link fails if the program does not fit. A core that resets elsewhere than `0x40000000` needs a wrapper that sets its boot address to match: `examples/cores/ibex_moved.yaml` is Ibex with its RAM at `0x20000000`.
 
 `support_problems()` checks the descriptor before any build. It rejects:
 
@@ -89,8 +91,8 @@ Paths are relative to `piton/design/chip/tile/`. `ram_base` (default `0x40000000
 - more than one hart;
 - a write-back or write-through private cache, since the tile has no invalidation path to keep it coherent;
 - a core with its own L2, L3, or NoC;
-- RAM other than `0x40000000`, where `rv32_as` loads programs;
-- a reset vector outside the first 4 KB of RAM, or not word-aligned;
+- RAM outside `0x40`-`0x7fffffff`, the addresses a 32-bit tile reaches DRAM for in the simulation (an address with bit 31 set is I/O), or a `ram_base` or `ram_size` that is not a multiple of 64, the image loader's line size;
+- a reset vector that is not word-aligned or not inside RAM;
 - `atomics: bus` on a bus other than `simple`;
 - an A extension in `isa.march` with `atomics: none`.
 
