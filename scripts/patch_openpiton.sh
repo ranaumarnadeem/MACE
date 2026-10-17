@@ -1333,3 +1333,70 @@ sys.exit(1 if failed else 0)
 PYEOF
 )
 fi
+
+# 19. rv32_as builds C programs and takes its image base from the
+#     environment. A diag.c is compiled with the generic test environment's
+#     runtime (crt.S, syscalls.c, util.h, and its link.ld) for RV32_MARCH and
+#     RV32_MABI, with no startup files or system libraries but libgcc; a
+#     diag.S is assembled as before. The toolchain has no newlib, so picolibc's
+#     headers (stdio.h and the like) are added when its specs file exists.
+#     mem.image starts at RV32_IMAGE_BASE (16 hex digits), default
+#     0000000040000000. Needs fix 17 (RV32_ENV).
+if ! skip 19; then
+(
+    cd "$ROOT"
+    python3 - <<'PYEOF'
+import os
+import sys
+
+PATH = "piton/tools/bin/rv32_as"
+MARKER = "RV32_IMAGE_BASE"
+DETECT = 'printf "\\n@0000000040000000'
+
+C_BRANCH = """if [ -f diag.c ]; then
+    GCC=${RV32_TARGET_TRIPLE}-gcc
+    INC=${DV_ROOT}/verif/diag/assembly/include/riscv/${RV32_ENV:-pico}
+    if [ ! -f $INC/crt.S ]; then
+        echo "rv32_as: $INC has no crt.S, so it cannot build a C program" >&2
+        exit 1
+    fi
+    SPECS=
+    if [ "$($GCC -print-file-name=picolibc.specs)" != picolibc.specs ]; then
+        SPECS=--specs=picolibc.specs
+    fi
+    $GCC $SPECS -march=${RV32_MARCH} -mabi=${RV32_MABI} -O2 -std=gnu99 -static \\
+         -nostdlib -nostartfiles -fno-common -fno-builtin-printf -msmall-data-limit=0 \\
+         -I$INC -T$INC/link.ld $INC/crt.S $INC/syscalls.c diag.c -lgcc -o diag.exe || exit 1
+else
+"""
+
+SWAPS = [
+    ("${RV32_TARGET_TRIPLE}-gcc -march=${RV32_MARCH} -mabi=${RV32_MABI} -nostdlib -nostartfiles   \\\n",
+     C_BRANCH + "${RV32_TARGET_TRIPLE}-gcc -march=${RV32_MARCH} -mabi=${RV32_MABI} -nostdlib -nostartfiles   \\\n"),
+    ("diag.S -o diag.exe\n", "diag.S -o diag.exe\nfi\n"),
+    ("@0000000040000000", "@${RV32_IMAGE_BASE:-0000000040000000}"),
+]
+
+if not os.path.isfile(PATH):
+    print(f"not found, skipping fix 19: {PATH}")
+    sys.exit(0)
+with open(PATH) as f:
+    content = f.read()
+if MARKER in content:
+    print(f"already patched: {PATH} (fix 19)")
+    sys.exit(0)
+if DETECT not in content:
+    print(f"not found, skipping fix 19 (no image base line): {PATH}")
+    sys.exit(0)
+for old, new in SWAPS:
+    count = content.count(old)
+    if count != 1:
+        print(f"ERROR: {PATH}: expected exactly 1 match for {old.splitlines()[0]!r}, found {count}", file=sys.stderr)
+        sys.exit(1)
+    content = content.replace(old, new)
+with open(PATH, "w") as f:
+    f.write(content)
+print(f"patched: {PATH} builds C programs and reads RV32_IMAGE_BASE")
+PYEOF
+)
+fi
