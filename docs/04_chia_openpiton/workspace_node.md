@@ -244,6 +244,7 @@ OpenPiton's prebuilt `configsrch`, which `sims` runs to look up each tool's vers
 | `status_log` | `str` | Tail of `status.log` |
 | `fake_uart` | `str` | Tail of `fake_uart.log`, the program's UART output |
 | `stdout`, `stderr` | `str` | As in `PitonBuildArtifact` |
+| `first_requests` | `dict[int, int]` | For `core="generic"`, each tile's first request address, read from the whole `sim.log` with [first_requests](parsers.md); `{}` for the other cores |
 
 Each tail keeps the last 8000 characters. For the configurations this adapter builds, `status.log` has no `Cyc=` field, so `cycles` stays `None` and `sim_time` measures run length. The static method `PitonRunResult.decide(returncode, verdict)` holds the pass rule.
 

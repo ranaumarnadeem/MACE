@@ -29,6 +29,7 @@ sim_verdict(text: str) -> Verdict | None
 sim_time(text: str) -> int | None
 fail_reason(text: str) -> str
 max_cycles(text: str) -> int | None
+first_requests(text: str) -> dict[int, int]  # generic tile: {tile: first request address}
 
 # fake_uart.log
 hart_cycles(text: str) -> dict[int, tuple[int, int]]

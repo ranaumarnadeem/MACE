@@ -93,6 +93,7 @@ For `sys="manycore"`, `sims_flags()` emits these flags in order:
 | `network_config` | `-network_config=<value>` |
 | `core="ariane"` | `-ariane` |
 | `core="pico"` | `-pico`, `-rv32_target_triple=riscv64-unknown-elf` |
+| `core="generic"` | `-generic`, `-rv32_target_triple=riscv64-unknown-elf`; MACE adds the core descriptor's `-rv32_march`, `-rv32_mabi`, and `-rv32_image_base` through `extra_flags` |
 | `core="sparc"` | No flag |
 | `config_rtl` | `-config_rtl=<define>` for each entry |
 | `caches` | `-config_<name>_size=<size>` and `-config_<name>_associativity=<assoc>` for each cache, sorted by name |
