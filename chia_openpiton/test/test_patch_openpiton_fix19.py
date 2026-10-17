@@ -72,7 +72,7 @@ STUBS = {
 
 
 @pytest.fixture
-def rv32_as_root(generic_piton_root) -> Path:
+def rv32_as_root(generic_piton_root) -> Path:  # noqa: F811  (a fixture, used by name)
     """generic_piton_root with the whole upstream rv32_as in place of the two
     lines the fix 14-17 tests use."""
     shutil.copy(FIXTURES / "rv32_as_upstream.sh", generic_piton_root / RV32_AS)
@@ -169,7 +169,7 @@ class TestFix19Text:
         assert result.returncode != 0
         assert "rv32_as: expected exactly 1 match" in result.stderr
 
-    def test_a_script_without_the_image_base_line_is_skipped(self, generic_piton_root):
+    def test_a_script_without_the_image_base_line_is_skipped(self, generic_piton_root):  # noqa: F811  (a fixture, used by name)
         result = _run_patch_skipping(generic_piton_root, "8 9")
         assert result.returncode == 0, result.stderr
         assert "not found, skipping fix 19" in result.stdout
