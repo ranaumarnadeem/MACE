@@ -29,7 +29,7 @@ from mace.llm import VertexQueryResult  # noqa: E402
 from mace.metrics import open_db, summary  # noqa: E402
 from mace.orchestrator import run_mace_loop  # noqa: E402
 from mace.report import generate_post_mortem  # noqa: E402
-from mace.spec import Budget, MaceSpec  # noqa: E402
+from mace.spec import Budget, LoopOptions, MaceSpec  # noqa: E402
 from mace.test.conftest import FakeLLM  # noqa: E402
 from mace.triage import triage  # noqa: E402
 
@@ -107,6 +107,11 @@ def make_spec(**override):
 
 
 TASK_LINE = "TASK: t1 | deps= | kind=workload | run hello_world.c\n"
+# For a control-flow test that re-plans a configuration that already failed, which the plan
+# check would send back to the planner (mace.plan_check's repeat rule).
+NO_PLAN_CHECK = LoopOptions(plan_check=False)
+# A reply with no plan. The plan check asks again twice before the run ends planning_failed.
+NO_PLAN = "I don't have enough information to plan yet."
 
 
 class TestPassesImmediately:
@@ -187,7 +192,7 @@ class TestNeverPasses:
             ]
         )
 
-        result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db)
+        result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db, options=NO_PLAN_CHECK)
 
         assert result.status == "budget_exceeded"
         assert len(result.iterations) == 2
@@ -217,10 +222,10 @@ class TestNeverPasses:
 
 
 class TestPlanningFailsOutright:
-    def test_no_task_lines_stops_immediately(self, ray_local, tmp_path):
+    def test_no_task_lines_ends_the_run_after_two_retries(self, ray_local, tmp_path):
         checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
         db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
-        llm = FakeLLM(responses=["I don't have enough information to plan yet."])
+        llm = FakeLLM(responses=[NO_PLAN] * 3)
 
         result = run_mace_loop((checkout,), make_spec(), llm, db)
 
@@ -273,7 +278,7 @@ class TestCostBudget:
             ]
         )
 
-        result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db)
+        result = run_mace_loop((checkout,), make_spec(budget=budget), llm, db, options=NO_PLAN_CHECK)
 
         assert result.status == "budget_exceeded"
         # iter0: total=0.6 (<=1.0, iter1 allowed); iter1: total=1.2 (iter2 blocked)
@@ -282,10 +287,11 @@ class TestCostBudget:
     def test_iteration_usd_is_recorded_in_the_db(self, ray_local, tmp_path):
         checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
         db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
-        # The task call's reply carries the cost back from the Ray worker.
+        # The task call's reply carries the cost back from the Ray worker. The fast path
+        # skips that call, so it is off here.
         llm = FakeLLM(responses=[TASK_LINE, _costed("edit t1", 0.25)])
 
-        result = run_mace_loop((checkout,), make_spec(), llm, db)
+        result = run_mace_loop((checkout,), make_spec(), llm, db, options=LoopOptions(fast_path=False))
 
         assert result.status == "passed"
         row = db.query_one(
@@ -400,7 +406,7 @@ class TestPostMortem:
     def test_not_generated_when_planning_fails_outright(self, ray_local, tmp_path):
         checkout = _make_stub_checkout(tmp_path / "openpiton", verdict="pass")
         db = open_db(str(tmp_path / "metrics.db"), ray_placement=False)
-        llm = FakeLLM(responses=["I don't have enough information to plan yet."])
+        llm = FakeLLM(responses=[NO_PLAN] * 3)
 
         result = run_mace_loop((checkout,), make_spec(), llm, db)
 
@@ -506,7 +512,7 @@ class TestTriageToolServer:
         monkeypatch.setattr("mace.orchestrator.triage", grepping(triage))
         monkeypatch.setattr("mace.orchestrator.generate_post_mortem", grepping(generate_post_mortem))
 
-        result = run_mace_loop((checkout,), make_spec(budget=Budget(max_iterations=2)), llm, db)
+        result = run_mace_loop((checkout,), make_spec(budget=Budget(max_iterations=2)), llm, db, options=NO_PLAN_CHECK)
 
         assert result.status == "budget_exceeded"
         assert [name for name, _, _ in calls] == ["triage", "triage", "generate_post_mortem"]
