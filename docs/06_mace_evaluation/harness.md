@@ -44,8 +44,8 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `seeded_<fault>` | RQ3 | The loop with its first plan broken by one seeded fault; see below. |
 | `seeded_retry_<fault>` | RQ3, B2 | The retry agent with its first design broken by one seeded fault, on one checkout; see below. |
 | `faultcheck_<fault>` | Fault check | The expert configuration with one seeded fault applied, with no LLM; it should fail. See below. |
-| `no_<part>` | Ablation | The loop with one of the four [fixed checks](../03_mace_design/fixed_checks.md) off: `no_plan_check`, `no_raw_evidence`, `no_narrowing`, or `no_fast_path`. |
-| `seeded_no_<part>_<fault>` | RQ3, ablation | `seeded_<fault>` with one of those checks off. |
+| `no_<part>` | Ablation | The loop with one of the four [fixed checks](../03_mace_design/fixed_checks.md) off (`no_plan_check`, `no_raw_evidence`, `no_narrowing`, or `no_fast_path`), or with a gate pass no longer ending the run (`no_gate_pass_ends_run`). |
+| `seeded_no_<part>_<fault>` | RQ3, ablation | `seeded_<fault>` with one of those parts off. |
 
 The co-design methods run only on tasks with a `codesign` block, and the others only on tasks without one.
 `expert`, `codesign_grid`, and the fault checks have no randomness, so they run once per task unless `--expert-repeats` asks for more.

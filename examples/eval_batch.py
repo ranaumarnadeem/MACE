@@ -11,7 +11,8 @@ Methods (see mace/eval/runner.py): mace, mace_rtl, one_shot, one_shot_rtl,
 retry_agent, retry_agent_rtl, expert, no_triage, one_checkout, build_check, and no_reuse
 run on bring-up tasks, as do seeded_<fault>, seeded_retry_<fault>, and
 faultcheck_<fault> for each seeded fault, no_plan_check, no_raw_evidence,
-no_narrowing, and no_fast_path (the loop with one fixed check off), and
+no_narrowing, no_fast_path, and no_gate_pass_ends_run (the loop with one
+fixed check off), and
 seeded_no_<part>_<fault> (the same with a seeded fault);
 codesign_mace, codesign_random, codesign_grid, and codesign_bayes run on
 co-design tasks. Each method runs only on the tasks it applies to. A batch

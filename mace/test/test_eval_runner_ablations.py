@@ -13,7 +13,7 @@ from mace.eval.faults import FAULTS
 from mace.spec import LoopOptions, Task
 from mace.test.test_eval_runner import make_env, suite_task
 
-PARTS = ("plan_check", "raw_evidence", "narrowing", "fast_path")
+PARTS = ("plan_check", "raw_evidence", "narrowing", "fast_path", "gate_pass_ends_run")
 
 
 class TestRegistered:
@@ -66,6 +66,7 @@ class TestParsing:
     def test_options_with_a_part_off(self):
         assert runner.a_options(LoopOptions(), "no_narrowing") == LoopOptions(narrowing=False)
         assert runner.a_options(LoopOptions(), "seeded_no_fast_path_crossbar") == LoopOptions(fast_path=False)
+        assert runner.a_options(LoopOptions(), "no_gate_pass_ends_run") == LoopOptions(gate_pass_ends_run=False)
         assert runner.a_options(LoopOptions(), "mace") == LoopOptions()
         assert runner.a_options(LoopOptions(task_prompts=False), "no_plan_check") == LoopOptions(
             task_prompts=False, plan_check=False

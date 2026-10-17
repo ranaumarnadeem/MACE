@@ -92,10 +92,11 @@ for _name in FAULTS:
     METHODS[f"{FAULTCHECK_PREFIX}{_name}"] = f"The expert configuration with {_name} applied; it should fail."
 
 # ---- session A (a stronger loop) -----------------------------------------------------------------------
-# The four fixed checks of mace.orchestrator are LoopOptions fields, on by default. Each ablation is the full
-# loop with one of them off: no_<part> on the bring-up tasks, and seeded_no_<part>_<fault> with a seeded fault's
-# first plan broken. Runs of these methods record the part in meta["ablation"].
-A_PARTS = ("plan_check", "raw_evidence", "narrowing", "fast_path")
+# The four fixed checks of mace.orchestrator and gate_pass_ends_run are LoopOptions fields, on by default. Each
+# ablation is the full loop with one of them off: no_<part> on the bring-up tasks, and seeded_no_<part>_<fault> with
+# a seeded fault's first plan broken. Runs of these methods record the part in meta["ablation"]. carry_edits is left
+# out: it acts only on RTL edits, which the bring-up tasks do not make.
+A_PARTS = ("plan_check", "raw_evidence", "narrowing", "fast_path", "gate_pass_ends_run")
 A_PREFIX = "no_"
 A_SEEDED_PREFIX = "seeded_no_"
 for _part in A_PARTS:
