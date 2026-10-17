@@ -37,9 +37,9 @@ A changed file, a file missing from `CHECKSUMS`, or a listed file that no longer
 
 | Status | Meaning |
 |---|---|
-| `passed` | Every task in an iteration passed |
+| `passed` | Every task in an iteration passed, or one task's design passed every gate workload |
 | `failed` | An iteration returned no task results |
-| `planning_failed` | `plan()` raised `PlanningError` |
+| `planning_failed` | `plan()` raised `PlanningError`, and the plan check's retries gave no usable plan either |
 | `budget_exceeded` | A limit ran out before any iteration passed |
 | `checksum_mismatch` | A C program in `mace/workloads/` does not match `CHECKSUMS` |
 | `unsupported_core` | The core descriptor's core fails the [Generic Tile](../05_mace_cores/generic.md) support check |
@@ -54,6 +54,7 @@ f"{run_id}/iter{iteration}/{task_id}/{phase}"  # phase: "prompt", "build", "run"
 ```
 
 The first gate workload's run takes the phase `run`, and each later one `run:<workload>`.
+A `prompt` phase appears only when `LoopOptions.task_prompts` is on, which the fast path turns off by default.
 
 `run_mace_loop()` passes its run ID and iteration number, so the remote calls of every run are tagged.
 Tags take effect once a caller enables CHIA's cache and bypass.

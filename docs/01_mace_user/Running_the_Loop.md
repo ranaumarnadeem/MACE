@@ -25,9 +25,10 @@ The planner sees the mesh in its prompt but cannot change it.
 
 ## Gate workloads
 
-A `config` or `workload` task runs one LLM turn and one build.
+A `config` or `workload` task runs one build, with no LLM call of its own by default (the fast path in [Fixed Checks](../03_mace_design/fixed_checks.md) turns task calls off).
 If the build succeeds, the task simulates each entry of `workloads` in order on that build.
 It passes when every one reports `pass`, and it stops at the first that does not.
+The run passes as soon as one task's design passes every gate workload, even if another task of the plan failed.
 A `unit_test` task builds a standalone testbench for one RTL module and is gated on that build alone.
 
 `mace/workloads/` holds five RISC-V C gate programs:

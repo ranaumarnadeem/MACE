@@ -22,12 +22,13 @@ Levels run in order (see [Integration and Verification](integrator.md)).
 A level with more tasks than checkouts runs in batches of `len(piton_roots)`, one after another.
 The i-th task of a batch runs on the i-th checkout.
 
-Within a batch, each `config`, `workload`, or `rtl` task runs on its own thread as three CHIA remote calls, each resolved with `get()` before the next:
+Within a batch, each `config`, `workload`, or `rtl` task runs on its own thread as up to three CHIA remote calls, each resolved with `get()` before the next:
 
-- `llm.prompt.chia_remote()` with the task's instruction and the caller's tools;
+- `llm.prompt.chia_remote()` with the task's instruction and the caller's tools, only when `LoopOptions.task_prompts` is on;
 - `node.build.chia_remote()` with the task's configuration;
 - `node.run.chia_remote()` for each gate workload in turn, if the build succeeded, stopping at the first that does not pass.
 
+The orchestrator turns `task_prompts` off for every plan when `LoopOptions.fast_path` is on, which is the default, so a `config` or `workload` task normally makes no LLM call (see [Fixed Checks](fixed_checks.md)).
 Each call carries a replay tag (see [Budgets and Replay](budget_and_replay.md)).
 The prompt's reply changes nothing that is built or run, so when that call fails, for example with a reply cut off at the model's output limit, the task logs a warning and still builds and runs.
 Tasks in a batch advance through these stages independently.
@@ -55,7 +56,7 @@ On Ariane, [build()](../04_chia_openpiton/workspace_node.md) refuses a task whos
 ## RTL Tasks
 
 An `rtl` task changes the design's source.
-Its agent call runs locally through `usage.prompt()` with the prompt from `rtl_prompt()`: the run's inputs, the task's instruction, and the editing rules.
+Its agent call runs locally through `usage.prompt_retrying()`, which waits and retries a rate-limited call, with the prompt from `rtl_prompt()`: the run's inputs, the task's instruction, and the editing rules.
 The call runs whether or not `LoopOptions.task_prompts` is on, because it makes the edit.
 When Ray is initialized, the call gets a `mace.tools.RtlEditTool`, placed with the node's `task_options` and stopped after the call.
 Its functions `{name}_list`, `{name}_read`, `{name}_search`, and `{name}_replace` take paths relative to the checkout and refuse any path outside `piton/design/`, so the testbench and the monitors under `piton/verif/` cannot change.
