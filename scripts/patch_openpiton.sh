@@ -1333,3 +1333,58 @@ sys.exit(1 if failed else 0)
 PYEOF
 )
 fi
+
+# 18. sims -rv32_image_base: the address rv32_as loads a program image at, as
+#     16 hex digits (default 0000000040000000, rv32_as's own address). sims
+#     exports it as RV32_IMAGE_BASE before it runs rv32_as, so a core whose
+#     RAM is not at 0x40000000 gets the image where its link script puts it.
+#     Fix 19 makes rv32_as read the variable. Skipped on a sims without the
+#     -rv32_mabi option, whose anchors it shares.
+if ! skip 18; then
+(
+    cd "$ROOT"
+    python3 - <<'PYEOF'
+import os
+import sys
+
+path = "piton/tools/src/sims/sims,2.0"
+if not os.path.isfile(path):
+    print(f"not found, skipping fix 18: {path}")
+    sys.exit(0)
+with open(path) as f:
+    content = f.read()
+if "rv32_image_base" in content:
+    print(f"already patched: {path} (fix 18)")
+    sys.exit(0)
+if "'rv32_mabi=s' => \"\",\n" not in content:
+    print(f"not found, skipping fix 18 (no -rv32_mabi option): {path}")
+    sys.exit(0)
+
+HELP_OLD = "    -rv32_mabi\n           specifies rv32 mabi string (e.g. ilp32)\n           default varies by core\n"
+swaps = [
+    ("        'rv32_mabi=s' => \"\",\n",
+     "        'rv32_mabi=s' => \"\",\n        'rv32_image_base=s' => \"0000000040000000\",\n"),
+    ("            'rv32_mabi=s',\n",
+     "            'rv32_mabi=s',\n            'rv32_image_base=s',\n"),
+    ('      my $cmd = "rv32_as " ;\n',
+     '      die ("DIE. -rv32_image_base must be 16 hex digits, got $opt{rv32_image_base}") '
+     'unless ($opt{rv32_image_base} =~ /^[0-9a-fA-F]{16}$/) ;\n'
+     '      $ENV{RV32_IMAGE_BASE} = $opt{rv32_image_base} ;\n'
+     '      my $cmd = "rv32_as " ;\n'),
+    (HELP_OLD,
+     HELP_OLD + "\n    -rv32_image_base\n"
+     "           address rv32_as loads the program image at, as 16 hex digits\n"
+     "           default 0000000040000000\n"),
+]
+for old, new in swaps:
+    count = content.count(old)
+    if count != 1:
+        print(f"ERROR: {path}: expected exactly 1 match for {old.strip().splitlines()[0]!r}, found {count}", file=sys.stderr)
+        sys.exit(1)
+    content = content.replace(old, new)
+with open(path, "w") as f:
+    f.write(content)
+print(f"patched: {path} takes -rv32_image_base")
+PYEOF
+)
+fi
