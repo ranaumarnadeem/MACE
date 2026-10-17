@@ -335,3 +335,9 @@ class TestWishbone:
         assert support_problems(desc) == ()
         assert (REPO / "examples" / "cores" / "picorv32_wb" / "generic_core_wrapper.v").is_file()
         assert "mul.S" in desc.ladder_tests()["isa"] and "atomics" not in desc.ladder_tests()
+
+    def test_vexriscv_is_a_supported_split_wishbone_core_without_a_wrapper(self):
+        desc = load_descriptor(str(REPO / "examples" / "cores" / "vexriscv.yaml"))
+        assert (desc.bus, desc.atomics, desc.march, desc.reset_vector) == ("wishbone_split", "none", "rv32i", 0x4000_0000)
+        assert support_problems(desc) == ()
+        assert not (REPO / "examples" / "cores" / "vexriscv" / "generic_core_wrapper.v").exists()
