@@ -2,7 +2,7 @@
 
 # Generic Tile
 
-The generic tile runs an RV32 core that has no OpenPiton adapter of its own. The core sits in a per-core wrapper that presents one simple memory bus. A shared transducer connects that bus to the tile's L1.5. A short YAML core descriptor tells the build where the core's RTL is and what it supports. MACE selects the tile with `core="generic"` and a descriptor, which adds `-generic` and the descriptor's `-rv32_march`/`-rv32_mabi` to the `sims` command line.
+The generic tile runs an RV32 core that has no OpenPiton adapter of its own. The core sits in a per-core wrapper that presents one simple memory bus. A shared transducer connects that bus to the tile's L1.5. A short YAML core descriptor tells the build where the core's RTL is and what it supports. MACE selects the tile with `core="generic"` and a descriptor, which adds `-generic`, the descriptor's `-rv32_march`/`-rv32_mabi`, and `-rv32_image_base` to the `sims` command line. MACE can also write a new core's wrapper itself, as the last section of this page describes.
 
 ```text
 core RTL -- wrapper -- bridge -- simple bus -- generic_l15_transducer -- tile L1.5 wires
@@ -17,6 +17,10 @@ core RTL -- wrapper -- bridge -- simple bus -- generic_l15_transducer -- tile L1
 |---|---|---|---|
 | PicoRV32 | `examples/cores/picorv32.yaml`, the regression core | 1x1, 2x2, 4x2, 4x4 | PicoRV32's gate tests and the generic tile's programs pass on every mesh. At 1x1, all nine AMO tests pass. |
 | Ibex (`ibex_top`, RV32IMC) | `examples/cores/ibex.yaml`, by hand | 1x1, 2x2, 4x4 | At 1x1 and 2x2, the 44 RV32I/M tests other than `simple.S` and the AMO tests pass, with the ID and shared-memory programs. At 4x4, `addi`, `beq`, `jal`, `lw`, `mul`, `div`, and those two programs pass. |
+| Ibex with its RAM at `0x20000000` | `examples/cores/ibex_moved.yaml`, by hand | 2x2 | The ISA, ID, and shared-memory programs and both C programs pass, with every tile starting at `0x20000080`. |
+| PicoRV32 on Wishbone (`picorv32_wb`) | `examples/cores/picorv32_wb.yaml`, by hand | 2x2 | The ISA, ID, and shared-memory programs and both C programs pass. |
+| SERV (bit-serial, OBI) | `examples/cores/serv.yaml`, wrapper written by MACE | 1x1, 2x2 | With Vertex Gemini 2.5 Flash, MACE wrote a wrapper that passed `addi.S` and `generic_tile_id.S` in 5 of 5 runs at 1x1, and those two with `generic_shared_flag.S` in 4 of 5 runs at 2x2 (commit `8520a28`). With one of those wrappers, the ISA, ID, and shared-memory programs and both C programs pass at 2x2. |
+| VexRiscv (`VexRiscv_Min`, two Wishbone ports) | `examples/cores/vexriscv.yaml`, no wrapper | none yet | Held out for MACE: `examples/cores/vexriscv/install.sh` installs the core and a skeleton wrapper. |
 
 `scripts/local_generic_gate.py` runs the PicoRV32 gate through the adapter MACE uses. At 2x2, 12 of 12 verdicts matched: 10 passes, the expected fail, and the expected timeout.
 
@@ -53,7 +57,7 @@ It answers three addresses itself, without an L1.5 request:
 
 Every core gets its hart ID and its finish signal the same way, so test programs need no per-core code. In `pc_cmp.v.pyv`, the `RTL_GENERIC<n>` branch reports a set finish register as the program's good-trap or bad-trap address, and the existing compare, finish mask, and timeout decide the run. A program that never writes the register times out.
 
-The transducer also prints each tile's first request address (`generic tile <n>: first request at <addr>`). `boot_problems()` in `chia_openpiton/core_descriptor.py` compares it with the descriptor's reset vector. A test pass does not show the vector is right: with Ibex's descriptor set to `0x40000000`, Ibex still starts at `0x40000080`, which skips only the test's 32 register-clearing instructions, and `addi.S` passes. `boot_problems()` reports the mismatch.
+The transducer also prints each tile's first request address (`generic tile <n>: first request at <addr>`). `boot_problems()` in `chia_openpiton/core_descriptor.py` compares it with the descriptor's reset vector. A test pass does not show the vector is right: with Ibex's descriptor set to `0x40000000`, Ibex still starts at `0x40000080`, which skips only the test's 32 register-clearing instructions, and `addi.S` passes. `boot_problems()` reports the mismatch, and in a MACE run a task with a boot problem fails even when its programs pass.
 
 ## Bridges and wrappers
 
@@ -158,3 +162,37 @@ On a 2x2 mesh, PicoRV32 passes all five programs it can run and fails `generic_c
 1. Copy the core's RTL under `piton/design/chip/tile/<core>/` and write its `generic_core_wrapper`. `examples/cores/ibex/install.sh` does both for Ibex.
 2. Write the descriptor and run `core_descriptor check`, then `core_descriptor apply`.
 3. Climb the ladder, starting with `lint_core.sh` and a 1x1 build with `-generic` and the descriptor's ISA flags.
+
+## Integrating a core with MACE
+
+MACE can write the wrapper itself. Copy only the core's RTL and write its descriptor; `examples/cores/serv/install.sh` and `examples/cores/vexriscv/install.sh` do both for SERV and VexRiscv. When the wrapper the descriptor names does not exist, `core_descriptor apply` writes a skeleton in its place: the module with its fixed ports and a block marked `wrapper body` where the core and its bridge go. No core runs while that block is there.
+
+```bash
+MAKEFLAGS=-j1 python examples/generic_integrate.py --piton-root ~/openpiton \
+    --descriptor examples/cores/serv.yaml --method mace --mesh 2x2 \
+    --workloads addi.S generic_tile_id.S generic_shared_flag.S generic_c_hello.c
+```
+
+The run turns RTL edits on and goes through the loop like any other:
+
+- Before its first LLM call it checks the descriptor and the core's files, and ends with status `unsupported_core` if the tile cannot run the core.
+- Before its first build it writes the descriptor's `Flist.core` and `link.ld` into the checkout.
+- The planner's inputs name the core, its bus and reset vector, and the wrapper file, and say that an `rtl` task must write the `wrapper body` block first.
+- The `rtl` task's agent is told which bridge to instantiate, that the wrapper's ports stay as they are, which reset vector to set, and which inputs to tie off. PicoRV32's wrapper is named as a finished example.
+- A task passes when every gate program passes on every tile and every tile's first request is at the reset vector.
+- After a failed iteration, the edits of the last task that built carry into the next one (see [Fixed Checks](../03_mace_design/fixed_checks.md)).
+
+Like every RTL edit, the wrapper is applied for the run's builds and reverted afterwards, so the checkout keeps the skeleton. The `rtl_edits` column of the run's `tasks` table holds each task's diff.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--method` | `mace` | `mace`, or `retry_agent_rtl` for the retry agent with RTL designs; both get the same spec |
+| `--mesh` | `1x1` | The target mesh |
+| `--workloads` | `addi.S generic_tile_id.S` | The gate programs |
+| `--max-iterations`, `--max-usd`, `--max-wall-s` | 5, 20, 10800 | The run's budget |
+| `--off PART` | none | With `--method mace`, turns one loop part off for an ablation: `plan_check`, `raw_evidence`, `narrowing`, `fast_path`, `gate_pass_ends_run`, or `carry_edits`. The run is recorded as method `no_<part>`. |
+| `--repeat`, `--tag` | 0, empty | Recorded in the run's labels; the tag is appended to the task label |
+| `--db-path` | `runs/generic_integrate.db` | The run database |
+| `--backend`, `--model` | `vertex`, the backend's default | The LLM; Vertex needs `GOOGLE_CLOUD_PROJECT` |
+
+The script exits 0 when the run passes, and prints each iteration's tasks, their verdicts, and any boot problems.
