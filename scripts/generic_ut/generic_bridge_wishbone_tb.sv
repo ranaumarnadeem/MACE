@@ -202,11 +202,15 @@ module generic_bridge_wishbone_tb;
 
     // Drop the request at the next falling edge, then wait n more cycles. The
     // fields are garbage, so a bridge that looks at them while idle is caught.
+    // Tasks return 1 ns after an edge, never on it, so the next wait for an
+    // edge cannot catch the one that woke the caller.
     task automatic idle(input integer p, input integer n);
+        integer w;
         begin
             @(negedge clk);
             drive(p, 1'b0, 1'b0, 1'b1, 4'hf, 32'hdeadbee3, 32'hdeadbeef);
-            repeat (n) @(negedge clk);
+            for (w = 0; w < n; w = w + 1) @(negedge clk);
+            #1;
         end
     endtask
 
@@ -215,13 +219,13 @@ module generic_bridge_wishbone_tb;
     // next call is back-to-back; idle() drops them. Port 2 only reads.
     task automatic xfer(input integer p, input we, input [3:0] sel, input [31:0] adr, input [31:0] dat,
                         input integer pre, output [31:0] rd, output integer ack_at);
-        integer n, base, k;
+        integer n, w, base, k;
         reg [31:0] exp_addr, got_addr, got_wdata, want;
         reg [3:0]  exp_wstrb, got_wstrb;
         begin
             k    = adr[9:2];
             base = (p == 0) ? 0 : 256;
-            repeat (pre + 1) @(negedge clk);
+            for (w = 0; w <= pre; w = w + 1) @(negedge clk);
             drive(p, 1'b1, 1'b1, we, we ? sel : 4'hf, adr, we ? dat : 32'hdeadbeef);
             n = 0;
             @(posedge clk);
@@ -263,6 +267,7 @@ module generic_bridge_wishbone_tb;
             @(negedge clk);
             drive(p, cyc_only, !cyc_only, 1'b1, 4'hf, 32'h0000_0040, 32'h1234_5678);
             repeat (6) @(negedge clk);
+            #1;
             idle(p, 1);
             if (((p == 0) ? s1.n_rise : s2.n_rise) !== r0) die("a request started without both cyc and stb");
         end
@@ -357,6 +362,7 @@ module generic_bridge_wishbone_tb;
         if (b1_valid !== 1'b0 || b2_valid !== 1'b0) die("bus_valid high in reset");
         rst_n = 1'b1;
         repeat (3) @(negedge clk);
+        #1;
 
         for (wm = 0; wm < 4; wm = wm + 1) begin
             max_wait = wmax[wm];               // zero wait, slowest, medium, short
