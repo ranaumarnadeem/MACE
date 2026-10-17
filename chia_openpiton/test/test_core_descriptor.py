@@ -328,3 +328,10 @@ class TestWishbone:
         flist = (rtl / "Flist.generic").read_text().split()
         for name in ("generic_bridge_wishbone.v", "generic_bridge_wishbone2.v"):
             assert name in flist and (rtl / name).is_file()
+
+    def test_picorv32_wb_is_a_supported_one_port_wishbone_core(self):
+        desc = load_descriptor(str(REPO / "examples" / "cores" / "picorv32_wb.yaml"))
+        assert (desc.bus, desc.atomics, desc.march, desc.reset_vector) == ("wishbone", "none", "rv32im", 0x4000_0000)
+        assert support_problems(desc) == ()
+        assert (REPO / "examples" / "cores" / "picorv32_wb" / "generic_core_wrapper.v").is_file()
+        assert "mul.S" in desc.ladder_tests()["isa"] and "atomics" not in desc.ladder_tests()
