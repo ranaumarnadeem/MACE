@@ -64,7 +64,7 @@ The shell starts its own local Ray instance.
 | `read_verilog <file> [file2 ...]` | Checks that the files exist. It does not add them to the build. |
 | `top_module <name>` | Declares the top module and checks it against the supported cores. |
 | `read_spec <file>` | Reads the objective, and optionally the workloads and core, from a text file. |
-| `set_core <N>` | Targets N tiles and picks the mesh. |
+| `set_core <N>` | Sets the number of tiles, N, and picks the mesh from it. It does not choose the core; `top_module` does. |
 | `run [-coverage]` | Runs the loop. `-coverage` adds line coverage to this and every later `run` in the session. `-verbose` is accepted and has no effect. |
 | `write_report > <name>.rpt` | Writes the last run's report to a file. |
 | `help [command]`, `h` | Lists the commands, or shows the help of one. |
@@ -85,7 +85,7 @@ The shell keeps command history in `~/.mace/.shell_history`.
 | `sparc`, `opensparc` | `sparc` |
 | `picorv32`, `pico` | `pico` |
 
-When nothing matches, `run` builds nothing and prints a static post-mortem with the assessment `likely_hardware_limitation`.
+When nothing matches, `run` builds nothing and prints a static post-mortem with the assessment `likely_hardware_limitation`, which points an RV32 core at the generic tile.
 The shell runs only these native cores.
 An RV32 core with no OpenPiton adapter runs on the [Generic Tile](../05_mace_cores/generic.md) instead, through `examples/generic_integrate.py`, and [Adding a Core](../05_mace_cores/adding_a_core.md) describes both routes.
 

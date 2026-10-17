@@ -72,7 +72,7 @@ run_id=<run_id> status=passed
 ```
 
 `compute_usd` sums the cost of every LLM call the run made; see [Results and Metrics](Results_and_Metrics.md).
-`mace results` lists past runs, and `--trace` shows one run's plan, dispatch, and triage:
+`mace results` lists past runs, and `--trace` shows one run's plan, dispatch, and triage, the LLM call that diagnoses a failed task for the next plan (see [Failure Analysis](../03_mace_design/failure_analysis.md)):
 
 ```bash
 mace results --db-path runs/mace_end_to_end.db
@@ -94,4 +94,4 @@ python examples/mace_end_to_end.py \
 
 Before a 4x4 run, export `MAKEFLAGS=-j1` to limit the memory the Verilator C++ compile uses; [Troubleshooting](Troubleshooting.md) explains why.
 [Running the Loop](Running_the_Loop.md) covers the spec, the budget, and planner directives.
-To have MACE write the wrapper of an RV32 core with no OpenPiton adapter, see [Generic Tile](../05_mace_cores/generic.md).
+`examples/mace_end_to_end.py` and the shell take only the native cores (`--core ariane`, `sparc`, or `pico`). To have MACE write the wrapper of an RV32 core with no OpenPiton adapter, use `examples/generic_integrate.py` instead; see [Generic Tile](../05_mace_cores/generic.md).

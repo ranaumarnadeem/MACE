@@ -5,6 +5,10 @@ records what was tried, what failed, and why each decision was made, in the
 order it happened, so some sections describe states that later work
 superseded. For how MACE works now, read the
 [documentation site](https://ranaumarnadeem.github.io/MACE/) and the paper;
+in particular, the log's statements that OpenPiton has no generic core-to-NoC
+bridge predate the [generic tile](05_mace_cores/generic.md), the `MACE_LLM`
+default is now `vertex`, and its counts of fixes, programs, and tests are
+from the day each section was written;
 the logs and databases behind the paper's results are attached to the
 [0.0.1 pre-release](https://github.com/ranaumarnadeem/MACE/releases/tag/v0.0.1).
 

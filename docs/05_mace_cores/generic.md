@@ -173,6 +173,8 @@ MAKEFLAGS=-j1 python examples/generic_integrate.py --piton-root ~/openpiton \
     --workloads addi.S generic_tile_id.S generic_shared_flag.S generic_c_hello.c
 ```
 
+Pick gate programs the core can run. `generic_amo_counter.S` and MACE's atomic C workloads need `atomics: bus`, which only a core on the simple bus has, so a core such as SERV or VexRiscv takes `addi.S`, `generic_tile_id.S`, `generic_shared_flag.S`, and `generic_c_hello.c` or `generic_c_flags.c`. The descriptor check does not look at the workloads.
+
 The run turns RTL edits on and goes through the loop like any other:
 
 - Before its first LLM call it checks the descriptor and the core's files, and ends with status `unsupported_core` if the tile cannot run the core.
