@@ -2,7 +2,7 @@
 
 # Environment Patches
 
-`scripts/patch_openpiton.sh` applies seventeen numbered fixes to an OpenPiton checkout and adds one unit-test environment. The fixes edit files in the checkout because some settings have no other hook. The boot ROM `Makefile`, for example, sets its compiler flags with plain `=` assignments, which neither the environment nor a `sims` flag can override.
+`scripts/patch_openpiton.sh` applies nineteen numbered fixes to an OpenPiton checkout and adds one unit-test environment. The fixes edit files in the checkout because some settings have no other hook. The boot ROM `Makefile`, for example, sets its compiler flags with plain `=` assignments, which neither the environment nor a `sims` flag can override.
 
 ## Running the script
 
@@ -13,7 +13,7 @@ PITON_ROOT=/path/to/openpiton bash scripts/patch_openpiton.sh
 
 Run it once per checkout, on every worker that hosts one. The GCP worker in `cluster/local.yaml` runs it from `worker_setup_commands`. The script needs `bash`, `git`, `python3`, and GNU `grep` and `sed`. It exits with status 2 when no root is given or the root has no `piton/` directory. It exits with status 1 when the boot ROM `Makefile` is missing, when a text block or anchor it edits does not appear exactly once, or when fix 5 finds a half-applied guard.
 
-The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 17 skip with a `not found, skipping fix N` message when their target file is absent. Fix 14 also skips when `scripts/openpiton_generic/` is not beside the script.
+The script is idempotent. Each fix checks whether its change is already present and, if so, skips it with a message such as `already patched: <path>`. Fixes 5 to 19 skip with a `not found, skipping fix N` message when their target file is absent. Fix 14 also skips when `scripts/openpiton_generic/` is not beside the script.
 
 `PATCH_SKIP` names fixes to leave out, as space-separated numbers, and the script prints `skipped fix N (PATCH_SKIP)` for each. A checkout patched with `PATCH_SKIP="11"` has every fix but 11, so the failure fix 11 addresses comes back; the evaluation's reverted-fix runs prepare their checkouts this way.
 Fix 9 edits the make line that fix 8 writes, so `PATCH_SKIP="8"` on an unpatched checkout makes fix 9 fail and the script exit 1.

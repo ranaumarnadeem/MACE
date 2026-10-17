@@ -109,7 +109,7 @@ bash scripts/patch_openpiton.sh ~/openpiton
 
 With no argument, the script uses `PITON_ROOT`.
 Running it again is safe.
-It applies thirteen fixes:
+It applies nineteen fixes:
 
 | Fix | File | Change |
 |---|---|---|
@@ -126,6 +126,12 @@ It applies thirteen fixes:
 | 11 | Ariane `syscalls.c` | Polls the multi-hart exit barrier with atomic reads. |
 | 12 | CVA6 `cva6.sv` | Writes one `trace_hart_<id>.dasm` file per tile. |
 | 13 | CVA6 `wt_l15_adapter.sv` | Stops the L1.5 adapter from dropping cache invalidations under Verilator 5, as upstream cva6#2809 does. |
+| 14 | `tile/generic/`, generic test programs | Installs the [Generic Tile](../05_mace_cores/generic.md) from `scripts/openpiton_generic/`. |
+| 15 | tile and chip templates | Adds the generic tile as tile type 3. |
+| 16 | `pc_cmp.v.pyv` | Reads the generic tile's finish register as the good or bad trap. |
+| 17 | `sims,2.0`, `manycore.config`, `rv32_as` | Adds `sims -generic` and its RV32 build flow. |
+| 18 | `sims,2.0` | Adds `-rv32_image_base`, so a program loads at a core's own RAM base. |
+| 19 | `rv32_as` | Builds C programs for the generic tile with its runtime. |
 
 The script also adds `pico_reset_ut`, a standalone unit-test environment for PicoRV32's reset behavior.
 A model built before a fix rebuilds on its next build; [Troubleshooting](Troubleshooting.md) explains when.

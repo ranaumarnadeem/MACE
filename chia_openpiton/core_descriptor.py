@@ -1,7 +1,7 @@
 """Core descriptors for the generic tile.
 
 A core descriptor is a short YAML file that says what a RISC-V core needs to
-run on the generic tile (scripts/patch_openpiton.sh fixes 14-18): where its
+run on the generic tile (scripts/patch_openpiton.sh fixes 14-19): where its
 RTL is, its ISA, which bus its wrapper presents, its reset vector, and what
 it has that the tile cannot support. :func:`support_problems` checks it
 before any build, and the generators write the two files the build reads:
@@ -356,7 +356,7 @@ SKELETON_MARK = "wrapper body"
 
 def apply_descriptor(desc: CoreDescriptor, piton_root: str) -> tuple[str, ...]:
     """Write ``Flist.core`` and ``link.ld`` for this core into a checkout
-    patched with fixes 14-18, and :func:`wrapper_skeleton` in place of a
+    patched with fixes 14-19, and :func:`wrapper_skeleton` in place of a
     missing wrapper. Returns the paths written, relative to the checkout.
     Raises ``ValueError`` for an unsupported core or missing files, before
     writing anything."""
