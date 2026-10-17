@@ -3,7 +3,7 @@
 # Results and Metrics
 
 `mace.metrics` records every loop run in a SQLite database.
-`examples/mace_end_to_end.py` writes to `runs/mace_end_to_end.db`, and `mace shell` to `runs/mace_cli.db`; both accept `--db-path`.
+`examples/mace_end_to_end.py` writes to `runs/mace_end_to_end.db`, `mace shell` to `runs/mace_cli.db`, and `examples/generic_integrate.py` to `runs/generic_integrate.db`; all accept `--db-path`.
 The one-shot baseline prints its result and records nothing.
 Git ignores `runs/` and `*.db`.
 
@@ -20,17 +20,20 @@ Every insert except into `llm_calls` uses `INSERT OR REPLACE` on the table's pri
 | `failures` | `run_id`, `iteration`, `task_id` | `diagnosis`, `fix`, `recovered` |
 | `post_mortems` | `run_id` | `assessment`, `explanation`, `next_steps` |
 | `llm_calls` | `run_id`, `seq` | `iteration`, `phase`, `input_tokens`, `output_tokens`, `thinking_tokens`, `usd`, `wall_s`, `ok`, `reply` |
-| `evaluations` | `run_id`, `idx` | `round`, `design`, `passed`, `feasible`, `sim_time`, `area_um2`, `read_energy_nj`, `area_source`, `wall_s`, `simulated`, `rejected` |
+| `evaluations` | `run_id`, `idx` | `round`, `design`, `passed`, `feasible`, `sim_time`, `area_um2`, `read_energy_nj`, `area_source`, `wall_s`, `simulated`, `rejected`, `hart_cycles`, `note`, `storage_bits` |
 | `resimulations` | `run_id`, `task_id`, `program` | `verdict`, `passed`, `wall_s` |
 | `plan_checks` | `run_id`, `iteration`, `attempt` | `action`, `problems`, `stripped` |
 | `probes` | `run_id`, `iteration`, `probe` | `failed_task`, `task_id`, `undone`, `verdict`, `ran`, `passed`, `build_success`, `run_verdict`, `build_s`, `run_s` |
 | `fast_paths` | `run_id`, `iteration` | `kept`, `dropped` |
+| `directed_tests` | `run_id`, `iteration`, `task_id`, `attempt`, `name` | `target`, `form`, `source`, `verdict`, `wall_s`, `evidence` |
+| `test_checks` | `run_id`, `iteration`, `task_id`, `attempt`, `name` | `fault_verdict`, `clean_verdict`, `outcome`, `wall_s` |
 
 - `run_id` is 12 hex digits.
 - `runs.method` names what ran: `mace` for a plain loop run, or the baseline or ablation an evaluation run was. `runs.task`, `runs.repeat`, and `runs.seed` identify the evaluation task and repeat, and `runs.meta` holds the run's environment as JSON. A database written before these columns existed gets them empty.
 - `iterations.wall_s` runs from the start of the planner call to the end of the iteration's last task, and excludes triage. `iterations.usd` is the cost of the iteration's planner, task, and triage calls; see [LLM Backends](LLM_Backends.md).
 - `tasks.build_s` and `tasks.run_s` are the build time and the summed simulation time, and `tasks.wall_s` is their sum; a reused build counts as 0. `tasks.programs` lists each gate workload run with its verdict, as JSON. `tasks.caches` holds the build configuration's cache map as JSON, and `tasks.config_rtl` its sorted RTL defines as a JSON list. `tasks.rtl_edits` holds the unified diff of the RTL edits the build carried, or nothing. `tasks.module` names the module of a `unit_test` task. `tasks.evidence` holds, for a task that did not pass, the text triage reads: the build flags and their changes from the defaults, then the build's errors and output tail or the failing simulation's transcript tail and status log, then the diff of any RTL edits the build carried. It stays after an evaluation job's cache clear removes the logs.
 - `plan_checks` holds one row for each look the [plan check](../03_mace_design/fixed_checks.md) took at an iteration's plan that found a problem or removed a define, and for each retry's look. `attempt` counts the plans the iteration asked for, `action` is `rejected`, `accepted`, `kept`, or `unusable` (a planner reply with no plan), and `problems` and `stripped` are JSON lists. `probes` holds one row per narrowing probe, tied to the task whose failure it examined by `failed_task`; `undone` lists the changes the probe put back as JSON, and `verdict` repeats the narrowing's verdict on every row. Probes stay out of `tasks`. `fast_paths` has a row for each iteration whose plan ran as one task: `kept` is that task and `dropped` the ids of the tasks it replaced, as JSON.
+- `directed_tests` holds each test a `test` task wrote, with its verdict on the design the task built, and `test_checks` the evaluation's mutation check of each test (see [Directed Tests](../03_mace_design/directed_tests.md) and [Directed-Test Evaluation](../06_mace_evaluation/directed_tests.md)). In `evaluations`, `hart_cycles` holds an RTL-parameter design's per-hart cycle counts as JSON, `storage_bits` the flip-flop bits it adds per tile, and `note` the bottleneck line of the MACE proposer that chose it (see [RTL-Parameter Searches](../06_mace_evaluation/rtl_params.md)).
 - `llm_calls` holds one row per LLM call, numbered in the order the calls finished. `phase` is `plan`, `plan_retry` (a plan asked for again after the plan check rejected one), `task`, `triage`, or `post_mortem` for the loop, `agent` for the retry-agent baseline, and `propose` for the co-design LLM proposer; a post-mortem call has no iteration. `ok` is 0 for a call that failed; such a call records no tokens. `reply` holds the reply's text, such as a plan's `TASK:` lines or a triage diagnosis.
 - `failures.diagnosis` is free text. The triage prompt suggests `test_bug`, `config_error`, `timeout`, `maxcycles`, `rtl_suspect`, and `testbench_mismatch`. The loop records `unknown` when the reply has no `DIAGNOSIS:` line, and `config_change` when narrowing decided the diagnosis without a triage call. When a run passes after earlier failures, all of its failures are marked `recovered`.
 - The post-mortem prompt asks for the assessment `fixable_config`, `likely_hardware_limitation`, or `inconclusive`.
@@ -40,9 +43,9 @@ Every insert except into `llm_calls` uses `INSERT OR REPLACE` on the table's pri
 | Status | Meaning |
 |---|---|
 | `running` | The run started and has not finished. A killed process leaves its run in this state. |
-| `passed` | Every task of one iteration passed. |
+| `passed` | Every task of one iteration passed, or one task's design passed every gate workload. |
 | `budget_exceeded` | `max_iterations`, `max_wall_s`, or `max_usd` ran out before any iteration passed. |
-| `planning_failed` | The planner's reply held no valid task DAG. |
+| `planning_failed` | The planner's reply held no valid task DAG, and the two retries the plan check allows gave none either. |
 | `failed` | An iteration produced no task results. |
 | `checksum_mismatch` | A C program in `mace/workloads/` failed its checksum; nothing ran. |
 | `unsupported_core` | The generic tile cannot run the core descriptor's core, or the checkout lacks its files; nothing ran. `LoopResult.unsupported` holds the reasons. |

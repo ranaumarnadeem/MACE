@@ -50,7 +50,7 @@ Each iteration then checks the wall-clock and USD limits, calls `plan()` with th
 The orchestrator opens one `OpenPitonWorkspaceNode` per checkout when the first iteration reaches execution, reuses the nodes in later iterations, and closes them after the loop.
 
 `record_iteration()` stores each iteration's results, and the optional `on_iteration(iteration, results)` callback reports them to the caller.
-When every task passed, the run ends with `passed`.
+When every task passed, or one task's design passed every gate workload (`gate_pass_ends_run`), the run ends with `passed`.
 Otherwise the orchestrator narrows the first failed task, `triage()` diagnoses it when narrowing settles nothing, and `record_failure()` stores the diagnosis for later plans (see [Failure Analysis](failure_analysis.md) and [Fixed Checks](fixed_checks.md)).
 Budget limits end the run with `budget_exceeded` (see [Budgets and Replay](budget_and_replay.md)).
 
