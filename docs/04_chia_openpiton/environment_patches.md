@@ -45,8 +45,9 @@ The script's edits change the checkout's source fingerprint, so a model built be
 | 15 | `define.h.pyv`, `tile.v.pyv`, `chip.v.pyv`, `pyhplib.py`, `cross_module.h.pyv` | Adds `GENERIC_TILE` as tile type 3, its generate block in the tile, the tile type for every tile under `PITON_GENERIC`, one thread per tile, and the `GENERIC_CORE<n>` and `GENERIC_TRANSDUCER<n>` hierarchy names. |
 | 16 | `piton/verif/env/manycore/pc_cmp.v.pyv` | Adds an `RTL_GENERIC<n>` branch that reports the transducer's finish register as the program's good or bad trap, once. |
 | 17 | `piton/tools/src/sims/sims,2.0`, `manycore.config`, `piton/tools/bin/rv32_as` | Adds `sims -generic`: `PITON_GENERIC`, `FLIST_GENERIC` (the generic tile's file lists, `-rv32`, and `CONFIG_DISABLE_BIST_CLEAR`), an `RTL_GENERIC<n>` define per tile, and the RV32 assembly flow. `rv32_as` takes its include directory and link script from `RV32_ENV`. |
+| 19 | `piton/tools/bin/rv32_as` | Builds a C diag with the generic test environment's runtime (`crt.S`, `syscalls.c`, `util.h`, `link.ld`), for `RV32_MARCH` and `RV32_MABI`, and starts `mem.image` at `RV32_IMAGE_BASE` (16 hex digits, default `0000000040000000`). Adds picolibc's headers when the toolchain has the specs file, since it has no newlib. An assembly diag is built as before. Needs fix 17. |
 
-Fixes 3 and 4 address checkouts on a Windows-mounted path, such as `/mnt/c` under WSL. Fixes 14 to 17 change nothing for the other cores: every edit sits behind `PITON_GENERIC`, `FLIST_GENERIC`, `RTL_GENERIC<n>`, or `-generic`.
+Fixes 3 and 4 address checkouts on a Windows-mounted path, such as `/mnt/c` under WSL. Fixes 14 to 17 change nothing for the other cores: every edit sits behind `PITON_GENERIC`, `FLIST_GENERIC`, `RTL_GENERIC<n>`, or `-generic`. Fix 19 changes only how `rv32_as` builds a C diag and where `mem.image` starts.
 
 ## The pico_reset_ut environment
 
@@ -57,6 +58,8 @@ The environment builds under Verilator, using fix 8. Running it, or any other no
 ## Tests
 
 `chia_openpiton/test/test_patch_openpiton.py` runs the script against a small synthetic tree: a git repository with the boot ROM `Makefile`, `picorv32.v`, `pc_cmp.v.pyv`, `syscalls.c`, `cva6.sv`, and `wt_l15_adapter.sv`. It checks that fixes 6, 7, 10, 11, 12, and 13 replace their exact text blocks, that a second run changes nothing and reports `already patched`, and that `PATCH_SKIP` leaves the named fixes out. A second tree with the text fixes 15 to 17 anchor on checks the generic tile's fixes the same way, and that fix 14 installs every file and keeps a descriptor's `Flist.core`. The test holds its own copy of each original and replacement block, so an edit to the script's blocks fails the test. It cannot detect changes in upstream OpenPiton.
+
+`chia_openpiton/test/test_patch_openpiton_fix19.py` checks fix 19 the same way on a copy of the whole upstream `rv32_as` (`fixtures/rv32_as_upstream.sh`). It runs the patched script with stub compiler tools, and with the installed `riscv64-unknown-elf-gcc` on every C program the generic ladder uses, for `rv32i`, `rv32im`, `rv32ima`, and `rv32imc`.
 
 ```bash
 pytest chia_openpiton/test/test_patch_openpiton.py -q
