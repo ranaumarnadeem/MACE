@@ -20,10 +20,13 @@ void __attribute__((noreturn)) abort(void)
   _generic_exit(134);
 }
 
+// A byte store: the transducer repeats it across the byte lanes, so the
+// character reaches the UART's data[7:0]. A word store would put it in the top
+// lane, since the L1.5 keeps data big-endian, and the log would hold NULs.
 #undef putchar
 int putchar(int c)
 {
-  *(volatile uint32_t *)GENERIC_UART = (uint8_t)c;
+  *(volatile uint8_t *)GENERIC_UART = (uint8_t)c;
   return (uint8_t)c;
 }
 
