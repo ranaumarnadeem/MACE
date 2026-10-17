@@ -6,7 +6,7 @@ PicoRV32 is a small 32-bit RISC-V core with no cache of its own. It reaches the 
 
 ## Status
 
-MACE's loop passes 2x2 and 4x4 PicoRV32 meshes on `addi.S`, with every tile reaching `Hit Good trap`. See [Results](../06_mace_evaluation/results.md).
+MACE's loop passes 2x2 and 4x4 PicoRV32 meshes on `addi.S`, with every tile reaching `Hit Good trap`, in the runs of the 0.0.1 pre-release. See [Results](../06_mace_evaluation/results.md).
 
 ## Bring-up fixes
 

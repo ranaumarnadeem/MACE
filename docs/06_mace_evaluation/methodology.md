@@ -28,7 +28,7 @@ All approaches share one build cache, so an approach pays for a build only when 
 
 ## Environment
 
-- One job at a time on a single OpenPiton checkout, with all fixes from `scripts/patch_openpiton.sh` applied.
+- One job at a time on a single OpenPiton checkout, patched with fixes 1 to 12 of `scripts/patch_openpiton.sh`, the fixes the 0.0.1 pre-release had.
 - `MAKEFLAGS=-j1` for all builds, as [Ariane (CVA6)](../05_mace_cores/ariane.md) explains.
 - Verilator 5.020 with `--no-timing`. The Nix shell pins Verilator 5.052.
 - The one-shot baseline allows 15000 s for a build and 3600 s for a run; the loop's run limit is also 3600 s.

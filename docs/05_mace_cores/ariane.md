@@ -6,7 +6,7 @@ Ariane is OpenPiton's RV64GC core, built from the CVA6 repository that OpenPiton
 
 ## Status
 
-MACE's loop passes 2x2 and 4x4 Ariane meshes on `barrier_atomic.c`, with every tile reaching `Hit Good trap`. The manual baseline passes both sizes as well. See [Results](../06_mace_evaluation/results.md).
+MACE's loop passes 2x2 and 4x4 Ariane meshes on `barrier_atomic.c`, with every tile reaching `Hit Good trap`, in the runs of the 0.0.1 pre-release. The manual baseline passes both sizes as well. See [Results](../06_mace_evaluation/results.md).
 
 ## Multi-tile fixes
 

@@ -36,6 +36,9 @@ configuration:
 
 \* Invalid configuration (L1.5 size 0), rejected before any build.
 
+These are single runs from the 0.0.1 pre-release (commit `05dd97e`, September 2026). A larger
+evaluation on the current code, with repeats, baselines, and ablations, is running in October 2026.
+
 [Results](https://ranaumarnadeem.github.io/MACE/06_mace_evaluation/results.html)
 explains each run. OpenSPARC T1 builds but does not run under the Verilator 5
 used here.
