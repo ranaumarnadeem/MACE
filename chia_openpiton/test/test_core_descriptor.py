@@ -394,3 +394,38 @@ class TestMemoryMap:
         a = parse_descriptor(ibex())
         assert a.digest != parse_descriptor(ibex(ram_size=0x2_0000)).digest
         assert a.digest != parse_descriptor(moved()).digest
+
+
+class TestCLadder:
+    """The ladder's `c` step: C programs on the generic tile."""
+
+    GENERIC_PROGRAMS = REPO / "scripts/openpiton_generic/piton/verif/diag/assembly/riscv/generic"
+
+    def test_a_core_without_atomics_runs_the_two_plain_programs(self):
+        steps = parse_descriptor(ibex()).ladder_tests()
+        assert steps["c"] == ("generic_c_hello.c", "generic_c_flags.c")
+
+    def test_a_core_with_bus_atomics_adds_the_atomic_workloads(self):
+        steps = load_descriptor(str(PICORV32)).ladder_tests()
+        assert steps["c"] == (
+            "generic_c_hello.c", "generic_c_flags.c",
+            "barrier_atomic.c", "producer_consumer.c", "scatter_gather.c",
+        )
+
+    def test_every_program_in_the_step_exists(self):
+        for name in load_descriptor(str(PICORV32)).ladder_tests()["c"]:
+            directory = self.GENERIC_PROGRAMS if name.startswith("generic_") else REPO / "mace" / "workloads"
+            assert (directory / name).is_file(), name
+
+    def test_the_failing_program_is_not_a_ladder_step(self):
+        from chia_openpiton.core_descriptor import C_ATOMIC_TESTS, C_TESTS
+
+        assert (self.GENERIC_PROGRAMS / "generic_c_fail.c").is_file()
+        assert "generic_c_fail.c" not in C_TESTS + C_ATOMIC_TESTS
+
+    def test_the_atomic_workloads_stay_the_checksummed_files(self):
+        lines = (REPO / "mace" / "workloads" / "CHECKSUMS").read_text().splitlines()
+        listed = {line.split("*")[1] for line in lines if "*" in line}
+        from chia_openpiton.core_descriptor import C_ATOMIC_TESTS
+
+        assert set(C_ATOMIC_TESTS) <= listed

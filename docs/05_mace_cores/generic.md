@@ -115,10 +115,38 @@ Each step runs only when the one before it passes.
 | 4 | The ISA tests whose stores stay private, at 2x2 and 4x4 | `ladder_tests()["mesh"]` |
 | 5 | `generic_tile_id.S` and `generic_shared_flag.S`: ID registers, and shared memory without atomics | `ladder_tests()["shared"]` |
 | 6 | `generic_amo_counter.S`, for `atomics: bus` only | `ladder_tests()["atomics"]` |
+| 7 | C programs: `generic_c_hello.c` and `generic_c_flags.c`, plus MACE's atomic workloads for `atomics: bus` | `ladder_tests()["c"]` |
 
 Tests run in `piton/verif/diag/assembly/include/riscv/generic/`. Its `riscv_test.h` stores to the finish register and assembles tests without compressed instructions, since the RV32I tests assume 4-byte instructions. The generic tile's own programs are in `piton/verif/diag/assembly/riscv/generic/`, beside `generic_expect_fail.S` and `generic_expect_timeout.S`, which must end in a failure and a timeout.
 
 `scripts/generic_ut/run_generic_ut.sh` runs the transducer's unit testbench against a stub L1.5.
+
+## C programs
+
+A C program runs on the generic tile with the runtime in `piton/verif/diag/assembly/include/riscv/generic/`: `crt.S`, `syscalls.c`, `util.h`, and the link script. Fix 19 teaches `rv32_as` to build a `diag.c` with them. It passes the descriptor's `-rv32_march` and `-rv32_mabi`, `-nostdlib -nostartfiles`, and libgcc. The toolchain has no newlib, so it adds picolibc's headers when the toolchain has them. An assembly test is built as before. `mem.image` starts at `RV32_IMAGE_BASE`, 16 hex digits with a default of `0000000040000000`.
+
+libgcc comes from the nearest multilib the compiler has: `rv32ima` links the `rv32ia` library and `rv32imc` the `rv32im` one. `rv32i` and `rv32im` have their own.
+
+The link script defines `__bss_start`, `__bss_end`, and `__stack_top`. `crt.S` starts every tile:
+
+- It clears the registers and reads the tile ID and the number of tiles from the transducer's registers.
+- It gives each tile a 4 KB stack, below `__stack_top` by tile ID.
+- Tile 0 clears `.bss` between `__bss_start` and `__bss_end`, then sets a flag in `.data`. The other tiles wait for it.
+- It calls `main(1, argv)`. `argv[0][0]` is the tile ID and `argv[0][1]` the number of tiles, as in Ariane's runtime.
+- It writes `main`'s return value to the finish register: 0 becomes 1 (pass), and any other value `v` becomes `(v << 1) | 1` (fail).
+
+The `pass` and `fail` labels at the two stores give `rv32_as` its good-trap and bad-trap symbols. There is no trap handler, so a trap ends in a timeout.
+
+`syscalls.c` has `exit`, `putchar`, `printstr`, a small `printf` (`%d %i %u %x %c %s %%`, a `0` flag, and a width), and the string functions gcc may call on its own. Output goes to the fake UART at `0xF0C2C000`, one character per store, and lands in `fake_uart.log` in the run directory. `util.h` has `ATOMIC_OP` and `ATOMIC_FETCH_OP` for cores with the A extension, and `read_csr`.
+
+| Program | Where | Checks |
+|---|---|---|
+| `generic_c_hello.c` | `riscv/generic/` | Every hart prints its ID, one after another, and returns 0. |
+| `generic_c_flags.c` | `riscv/generic/` | Hart 0 writes sixteen words, then a flag. The other harts wait for the flag and check the words. No atomics. |
+| `generic_c_fail.c` | `riscv/generic/` | Returns 3. A run of it must fail. |
+| `barrier_atomic.c`, `producer_consumer.c`, `scatter_gather.c` | `mace/workloads/` | MACE's gate workloads. They build unchanged and need `atomics: bus`. A run finds them through `asm_diag_root`. |
+
+On a 2x2 mesh, PicoRV32 passes all five programs it can run and fails `generic_c_fail.c`. Ibex passes `generic_c_hello.c` and `generic_c_flags.c`, with every tile starting at its reset vector, and fails `generic_c_fail.c`.
 
 ## Adding a core
 
