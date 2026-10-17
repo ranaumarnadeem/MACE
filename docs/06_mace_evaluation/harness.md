@@ -46,9 +46,17 @@ Loading checks every field and builds each expert configuration as a `PitonConfi
 | `faultcheck_<fault>` | Fault check | The expert configuration with one seeded fault applied, with no LLM; it should fail. See below. |
 | `no_<part>` | Ablation | The loop with one of the four [fixed checks](../03_mace_design/fixed_checks.md) off (`no_plan_check`, `no_raw_evidence`, `no_narrowing`, or `no_fast_path`), or with a gate pass no longer ending the run (`no_gate_pass_ends_run`). |
 | `seeded_no_<part>_<fault>` | RQ3, ablation | `seeded_<fault>` with one of those parts off. |
+| `expert_clean` | Bug check | The expert configuration on the design without the task's source fault, with no LLM; it should pass. See [Directed-Test Evaluation](directed_tests.md). |
+| `testgen` | Detection | An agent writes directed tests for the planted bug, and the mutation check judges them. |
+| `mace_rtl_defs` | Repair, control | `mace_rtl` with the task's required RTL defines added to every task. |
+| `mace_rtl_test` | Repair | `mace_rtl_defs` with a `test` task before each `rtl` task; the mutation check judges the tests. |
+| `rtlparam_default`, `rtlparam_sweep`, `rtlparam_trades` | RP0, RP1, RP4 | The default RTL-parameter design, a one-at-a-time sweep, and the task's listed trades, with no LLM. See [RTL-Parameter Searches](rtl_params.md). |
+| `rtlparam_mace`, `rtlparam_bayes` | RP2, RP3 | RTL-parameter searches by MACE's LLM proposer and by Optuna's TPE sampler. |
 
-The co-design methods run only on tasks with a `codesign` block, and the others only on tasks without one.
-`expert`, `codesign_grid`, and the fault checks have no randomness, so they run once per task unless `--expert-repeats` asks for more.
+The co-design methods run only on tasks with a `codesign` block, and the `rtlparam_*` methods only on tasks with an `rtlparam` block (`rtlparam_trades` only when the block lists trades).
+`expert_clean`, `testgen`, `mace_rtl_defs`, and `mace_rtl_test` run only on bring-up tasks with a source fault, and a seeded fault's methods only on the tasks it breaks.
+The others run on bring-up tasks.
+`expert`, `expert_clean`, `codesign_grid`, `rtlparam_default`, `rtlparam_sweep`, `rtlparam_trades`, and the fault checks have no randomness, so they run once per task unless `--expert-repeats` asks for more.
 
 The LLM methods state a task's inputs with the planner's own `render_inputs()` and ask for cache and define overrides with its `OVERRIDE_RULES`, so a comparison differs in what each method does, not in what it is told.
 `mace/baselines/` holds `expert`, `one_shot`, and `retry_agent`.
@@ -63,8 +71,8 @@ Models built by hand or by other tools stay.
 On a checkout whose cached models you want to keep, pass `--keep-cache`.
 
 Each run records its method, task, and repeat in the `runs` table, and the environment in `runs.meta`: MACE's commit and whether the tree had uncommitted changes, each checkout's source fingerprint and Verilator version, the backend, the model, the host, and `MAKEFLAGS`.
-`--no-task-prompts` turns off each task's own LLM call in `mace`, `one_shot`, and the ablations, and the choice is recorded in `runs.meta`.
-A batch whose methods are all among `expert`, the `faultcheck_<fault>` methods, `codesign_random`, `codesign_grid`, and `codesign_bayes` calls no LLM, so it builds no backend, needs no GCP project, and records the backend and model as null.
+`--no-task-prompts` turns off each task's own LLM call, and the choice is recorded in `runs.meta`. The fast path already does this in every method that keeps it on, `one_shot` included, so the flag changes only `no_fast_path`.
+A batch whose methods are all among `expert`, `expert_clean`, the `faultcheck_<fault>` methods, `codesign_random`, `codesign_grid`, `codesign_bayes`, and the `rtlparam_*` methods other than `rtlparam_mace` calls no LLM, so it builds no backend, needs no GCP project, and records the backend and model as null.
 
 ```bash
 python examples/eval_batch.py --piton-root ~/openpiton --dry-run
