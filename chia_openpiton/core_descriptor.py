@@ -35,7 +35,7 @@ from dataclasses import asdict, dataclass
 
 import yaml
 
-BUSES = ("simple", "obi", "wishbone")
+BUSES = ("simple", "obi", "wishbone", "wishbone_split")
 ATOMICS = ("none", "bus")
 PRIVATE_CACHES = ("none", "disabled", "write_through", "write_back")
 HART_IDS = ("register", "port")
@@ -279,6 +279,7 @@ def wrapper_skeleton(desc: CoreDescriptor) -> str:
         "simple": "no bridge: the core's memory interface is the simple bus",
         "obi": "generic_bridge_obi (tile/generic/rtl/generic_bridge_obi.v)",
         "wishbone": "generic_bridge_wishbone (tile/generic/rtl/generic_bridge_wishbone.v)",
+        "wishbone_split": "generic_bridge_wishbone2 (tile/generic/rtl/generic_bridge_wishbone2.v)",
     }[desc.bus]
     lines = [
         f"// generic_core_wrapper for {desc.core} ({desc.top_module}) on the generic tile.",

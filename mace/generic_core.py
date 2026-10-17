@@ -117,7 +117,13 @@ def wrapper_brief(spec: MaceSpec) -> str:
         "obi": "Instantiate generic_bridge_obi (piton/design/chip/tile/generic/rtl/generic_bridge_obi.v) "
                "between the core's instruction and data ports and the simple bus.",
         "wishbone": "Instantiate generic_bridge_wishbone (piton/design/chip/tile/generic/rtl/"
-                    "generic_bridge_wishbone.v) between the core's Wishbone master port and the simple bus.",
+                    "generic_bridge_wishbone.v) between the core's Wishbone master port and the simple bus. "
+                    "Its adr is a byte address, so a core with a word address drives {adr, 2'b00}; "
+                    "leave the core's err and rty inputs at 0.",
+        "wishbone_split": "Instantiate generic_bridge_wishbone2 (piton/design/chip/tile/generic/rtl/"
+                          "generic_bridge_wishbone2.v) between the core's instruction and data Wishbone "
+                          "master ports and the simple bus. Its adr ports are byte addresses, so a core "
+                          "with word addresses drives {adr, 2'b00}; leave the core's err and rty inputs at 0.",
     }[desc.bus]
     return "\n".join((
         f"The core's wrapper is piton/design/chip/tile/{desc.wrapper}. Replace its '{SKELETON_MARK}' block, "
