@@ -57,7 +57,7 @@ class TestParse:
 
     def test_defaults(self):
         desc = parse_descriptor(ibex())
-        assert desc.ram_base == 0x4000_0000
+        assert (desc.ram_base, desc.ram_size) == (0x4000_0000, 0x10_0000)
         assert (desc.private_cache, desc.harts, desc.own_interconnect, desc.hart_id) == ("none", 1, False, "register")
         assert desc.notes == ""
 
@@ -126,12 +126,11 @@ class TestSupportCheck:
         assert "write-through" in support_problems(parse_descriptor(ibex(private_cache="write_through")))[0]
 
     def test_ram_at_or_above_bit_31_is_rejected(self):
-        problems = support_problems(parse_descriptor(ibex(ram_base=0x8000_0000, reset_vector=0x8000_0000)))
-        assert any("ram_base is 0x80000000" in p for p in problems)
-        assert any("reset_vector 0x80000000" in p for p in problems)
+        (problem,) = support_problems(parse_descriptor(ibex(ram_base=0x8000_0000, reset_vector=0x8000_0000)))
+        assert problem.startswith("RAM 0x80000000-0x800fffff") and "bit 31 set is I/O" in problem
 
-    @pytest.mark.parametrize("vector", [0x3FFF_FFFC, 0x4000_1000, 0x4000_0082])
-    def test_a_reset_vector_outside_the_first_page_or_unaligned_is_rejected(self, vector):
+    @pytest.mark.parametrize("vector", [0x3FFF_FFFC, 0x4010_0000, 0x4000_0082])
+    def test_a_reset_vector_outside_ram_or_unaligned_is_rejected(self, vector):
         (problem,) = support_problems(parse_descriptor(ibex(reset_vector=vector)))
         assert problem.startswith(f"reset_vector {vector:#x}")
 
@@ -173,7 +172,8 @@ class TestGenerators:
         assert "  .text.init : { *(.text.init) }\n" in text
 
     def test_sims_flags_carry_the_isa(self):
-        assert parse_descriptor(ibex()).sims_flags() == ("-rv32_march=rv32imc", "-rv32_mabi=ilp32")
+        assert parse_descriptor(ibex()).sims_flags() == (
+            "-rv32_march=rv32imc", "-rv32_mabi=ilp32", "-rv32_image_base=0000000040000000")
 
     def test_ladder_tests_follow_the_isa_and_atomics(self):
         steps = parse_descriptor(ibex()).ladder_tests()
@@ -303,3 +303,94 @@ class TestWrapperSkeleton:
         assert "assign bus_valid  = 1'b0;" in text
         assert "generic_bridge_obi" in text and "0x40000080" in text
         assert text.count(SKELETON_MARK) == 2
+
+
+MOVED = REPO / "examples" / "cores" / "ibex_moved.yaml"
+
+
+def moved(**override) -> dict:
+    return ibex(ram_base=0x2000_0000, reset_vector=0x2000_0080, **override)
+
+
+class TestMemoryMap:
+    """RAM base, RAM size, and the reset vector anywhere in the memory the
+    simulation backs (fix 18 loads the image at ram_base)."""
+
+    def test_ram_size_is_read_from_the_descriptor(self):
+        assert parse_descriptor(ibex(ram_size=0x4000)).ram_size == 0x4000
+
+    @pytest.mark.parametrize(("size", "message"), [(0, "ram_size must be at least 1"),
+                                                   ("1M", "ram_size must be a non-negative int")])
+    def test_a_bad_ram_size_is_rejected(self, size, message):
+        with pytest.raises(ValueError, match=message):
+            parse_descriptor(ibex(ram_size=size))
+
+    @pytest.mark.parametrize("base", [0x40, 0x2000_0000, 0x7FF0_0000])
+    def test_a_base_anywhere_in_the_backed_range_is_supported(self, base):
+        assert support_problems(parse_descriptor(ibex(ram_base=base, reset_vector=base + 0x80))) == ()
+
+    @pytest.mark.parametrize("base", [0])
+    def test_ram_in_the_first_line_is_rejected(self, base):
+        (problem,) = support_problems(parse_descriptor(ibex(ram_base=base, reset_vector=0x80)))
+        assert problem.startswith(f"RAM {base:#x}-") and "0x40-0x7fffffff" in problem
+
+    def test_ram_that_ends_past_bit_31_is_rejected(self):
+        (problem,) = support_problems(parse_descriptor(ibex(ram_base=0x7FF0_0040, reset_vector=0x7FF0_00C0)))
+        assert problem.startswith("RAM 0x7ff00040-0x8000003f")
+
+    def test_ram_base_and_size_must_be_whole_lines(self):
+        (problem,) = support_problems(parse_descriptor(ibex(ram_base=0x2000_0020, reset_vector=0x2000_0080)))
+        assert "must be multiples of 64" in problem
+        (problem,) = support_problems(parse_descriptor(ibex(ram_size=0x1000 + 4)))
+        assert "must be multiples of 64" in problem
+
+    @pytest.mark.parametrize("vector", [0x4000_8000, 0x400F_FFFC, 0x4000_0000])
+    def test_the_reset_vector_may_be_anywhere_in_ram(self, vector):
+        assert support_problems(parse_descriptor(ibex(reset_vector=vector))) == ()
+
+    def test_the_reset_vector_bound_follows_ram_size(self):
+        assert support_problems(parse_descriptor(ibex(ram_size=0x1000, reset_vector=0x4000_0FFC))) == ()
+        (problem,) = support_problems(parse_descriptor(ibex(ram_size=0x1000, reset_vector=0x4000_1000)))
+        assert problem == "reset_vector 0x40001000 must be word-aligned and inside RAM (0x40000000-0x40000fff)"
+
+    def test_the_reset_vector_must_be_inside_a_moved_ram(self):
+        (problem,) = support_problems(parse_descriptor(ibex(ram_base=0x2000_0000)))
+        assert problem.startswith("reset_vector 0x40000080") and "0x20000000-0x200fffff" in problem
+
+    def test_the_moved_ibex_example_is_supported(self):
+        desc = load_descriptor(str(MOVED))
+        assert (desc.ram_base, desc.reset_vector) == (0x2000_0000, 0x2000_0080)
+        assert support_problems(desc) == ()
+
+    def test_link_ld_pads_to_a_reset_vector_past_the_first_page(self):
+        text = link_ld(parse_descriptor(ibex(reset_vector=0x4000_8000)))
+        assert "  .text.init : { . = 0x8000; *(.text.init) }\n" in text
+
+    def test_link_ld_starts_at_a_moved_base(self):
+        text = link_ld(parse_descriptor(moved(ram_size=0x8_0000)))
+        assert "  . = 0x20000000;\n  .text.init : { . = 0x80; *(.text.init) }\n" in text
+        assert "  __stack_top = 0x20080000;\n" in text
+        assert text.startswith("/* ibex: written from its core descriptor. RAM is 0x20000000-0x2007ffff, the reset "
+                               "vector 0x20000080;")
+
+    def test_link_ld_defines_the_runtime_symbols_in_order(self):
+        text = link_ld(parse_descriptor(ibex()))
+        order = [".text.init :", ".text :", ".rodata :", ".data :", ".bss :", "__bss_start =", "__bss_end =",
+                 "_end =", "__stack_top =", "ASSERT(_end <= __stack_top"]
+        positions = [text.index(item) for item in order]
+        assert positions == sorted(positions)
+        assert "*(.bss .bss.* .sbss .sbss.* COMMON)" in text
+
+    def test_the_default_link_ld_is_the_picorv32_descriptor_s(self):
+        default = (REPO / "scripts/openpiton_generic" / LINK_LD).read_text()
+        generated = link_ld(load_descriptor(str(PICORV32)))
+        assert default.split("*/\n", 1)[1] == generated.split("*/\n", 1)[1]
+
+    def test_sims_flags_carry_the_image_base(self):
+        flags = parse_descriptor(moved()).sims_flags()
+        assert flags[-1] == "-rv32_image_base=0000000020000000"
+
+    def test_the_digest_follows_the_ram(self):
+        a = parse_descriptor(ibex())
+        assert a.digest != parse_descriptor(ibex(ram_size=0x2_0000)).digest
+        assert a.digest != parse_descriptor(moved()).digest
