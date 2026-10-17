@@ -125,7 +125,7 @@ A C program runs on the generic tile with the runtime in `piton/verif/diag/assem
 
 libgcc comes from the nearest multilib the compiler has: `rv32ima` links the `rv32ia` library and `rv32imc` the `rv32im` one. `rv32i` and `rv32im` have their own.
 
-`crt.S` starts every tile:
+The link script defines `__bss_start`, `__bss_end`, and `__stack_top`. `crt.S` starts every tile:
 
 - It clears the registers and reads the tile ID and the number of tiles from the transducer's registers.
 - It gives each tile a 4 KB stack, below `__stack_top` by tile ID.
@@ -143,6 +143,8 @@ The `pass` and `fail` labels at the two stores give `rv32_as` its good-trap and 
 | `generic_c_flags.c` | `riscv/generic/` | Hart 0 writes sixteen words, then a flag. The other harts wait for the flag and check the words. No atomics. |
 | `generic_c_fail.c` | `riscv/generic/` | Returns 3. A run of it must fail. |
 | `barrier_atomic.c`, `producer_consumer.c`, `scatter_gather.c` | `mace/workloads/` | MACE's gate workloads. They build unchanged and need `atomics: bus`. A run finds them through `asm_diag_root`. |
+
+On a 2x2 mesh, PicoRV32 passes all five programs it can run and fails `generic_c_fail.c`. Ibex passes `generic_c_hello.c` and `generic_c_flags.c`, with every tile starting at its reset vector, and fails `generic_c_fail.c`.
 
 ## Adding a core
 
