@@ -53,8 +53,9 @@ On a bug that breaks the build, `testgen` builds the design, fails, and writes n
 The hook of `mace_rtl_test` adds a test only before an `rtl` task, so a plan with no `rtl` task has no test.
 
 The defines hook exists because the planner names a PicoRV32 task's required define, `CONFIG_DISABLE_BIST_CLEAR`, for its first workload task and leaves it out of its `rtl` tasks.
-Every gate run of such a repair then times out, whatever the edit was: this happened in all four pilot runs of the loop that reached a repair iteration.
-`mace_rtl` shows the planner as it is, and `mace_rtl_defs` against `mace_rtl_test` is the comparison that isolates the tests.
+Every gate run of such a repair then times out, whatever the edit was: this happened in all four laptop pilot runs of the loop that reached a repair iteration, in October 2026.
+The [plan check](../03_mace_design/fixed_checks.md) now adds the objective's required defines to every task that builds, `rtl` tasks included, so with it on `mace_rtl` gets the define too and the hook adds nothing more.
+`mace_rtl_defs` against `mace_rtl_test` stays the comparison that isolates the tests.
 On a design that needs no define, such as Ariane's, the hook changes nothing and the two repair methods differ only in the tests.
 
 ## The held-out bugs

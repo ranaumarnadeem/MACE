@@ -158,8 +158,10 @@ Every job on the task runs on checkouts that carry the fault.
 The backup sits apart from the RTL edit tool's, so an `rtl` task's edits and the fault never undo each other.
 The run's `meta` lists the files the fault changed.
 
-`examples/eval/tasks_rtl.yaml` holds three such tasks, two on Ariane and one on PicoRV32, each a misspelled or undeclared name that makes the Verilator build fail with an error that names the file and line.
+`examples/eval/tasks_rtl.yaml` holds seven such tasks.
+In three, two on Ariane and one on PicoRV32, a misspelled or undeclared name makes the Verilator build fail with an error that names the file and line.
 The `ariane-2x2-accu-rtlfault` task was added after the `rtl` prompts were tuned on the other two, so no prompt change has seen it.
+The other four are held-out bugs that build and fail only in simulation, three in PicoRV32 and one in Ariane's atomics; [Directed-Test Evaluation](directed_tests.md) describes them.
 Only a method that can edit RTL can pass: `mace_rtl`, `retry_agent_rtl`, and `one_shot_rtl`.
 `one_shot_rtl` sees no build before its one plan, and the planner plans an `rtl` task only after a failure names the file, so it is expected to fail.
 `mace`, `one_shot`, and `retry_agent` change only the build configuration and are the controls.
