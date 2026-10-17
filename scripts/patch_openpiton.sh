@@ -1362,11 +1362,10 @@ if "'rv32_mabi=s' => \"\",\n" not in content:
 
 HELP_OLD = "    -rv32_mabi\n           specifies rv32 mabi string (e.g. ilp32)\n           default varies by core\n"
 swaps = [
-    ("        'rv32_mabi=s' => \"\",\n",
-     "        'rv32_mabi=s' => \"\",\n        'rv32_image_base=s' => \"0000000040000000\",\n"),
     ("            'rv32_mabi=s',\n",
      "            'rv32_mabi=s',\n            'rv32_image_base=s',\n"),
     ('      my $cmd = "rv32_as " ;\n',
+     '      $opt{rv32_image_base} = "0000000040000000" unless ($opt{rv32_image_base}) ;\n'
      '      die ("DIE. -rv32_image_base must be 16 hex digits, got $opt{rv32_image_base}") '
      'unless ($opt{rv32_image_base} =~ /^[0-9a-fA-F]{16}$/) ;\n'
      '      $ENV{RV32_IMAGE_BASE} = $opt{rv32_image_base} ;\n'

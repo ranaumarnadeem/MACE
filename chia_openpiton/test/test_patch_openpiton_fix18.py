@@ -49,10 +49,17 @@ class TestFix18:
         assert result.returncode == 0, result.stderr
         assert f"patched: {SIMS} takes -rv32_image_base" in result.stdout
         sims = (sims_root / SIMS).read_text()
-        assert OPTION_DEFAULT + "        'rv32_image_base=s' => \"0000000040000000\",\n" in sims
+        assert "'rv32_image_base=s' => " not in sims
         assert OPTION_LIST + "            'rv32_image_base=s',\n" in sims
         assert "      $ENV{RV32_IMAGE_BASE} = $opt{rv32_image_base} ;\n      my $cmd = \"rv32_as \" ;\n" in sims
         assert "    -rv32_image_base\n           address rv32_as loads the program image at" in sims
+
+    def test_the_default_is_set_where_the_option_is_used(self, sims_root):
+        """sims' %opt defaults do not survive argument parsing, so an omitted option is undef."""
+        patch(sims_root)
+        sims = (sims_root / SIMS).read_text()
+        default = '$opt{rv32_image_base} = "0000000040000000" unless ($opt{rv32_image_base}) ;'
+        assert sims.index(default) < sims.index("-rv32_image_base must be 16 hex digits")
 
     def test_the_value_is_checked_before_rv32_as_runs(self, sims_root):
         patch(sims_root)
@@ -68,7 +75,7 @@ class TestFix18:
         assert second.returncode == 0, second.stderr
         assert f"already patched: {SIMS} (fix 18)" in second.stdout
         assert (sims_root / SIMS).read_text() == after_first
-        assert after_first.count("rv32_image_base=s") == 2
+        assert after_first.count("rv32_image_base=s") == 1
 
     def test_it_works_before_or_after_fix_17(self, sims_root):
         patch(sims_root, "8 9 17")
