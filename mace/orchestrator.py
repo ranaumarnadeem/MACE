@@ -121,9 +121,11 @@ def _plan_checked(
     checkout: str | None,
     failed_configs: dict[tuple[str, ...], str],
     bad_changes: list[tuple[Change, ...]],
+    unwritten_wrapper: str | None = None,
 ) -> tuple[Task, ...]:
     """The iteration's plan: one planner call, then :mod:`mace.plan_check`'s
-    look at it before any build.
+    look at it before any build. *unwritten_wrapper* is the generic-tile
+    wrapper that still holds its skeleton, if any.
 
     Defines no file of *checkout* mentions are removed, as they change
     nothing. A plan the loop cannot carry out goes back to the planner with
@@ -172,7 +174,7 @@ def _plan_checked(
         tasks, added = add_required_defines(tasks, keep)
         problems = check_plan(
             spec, tasks, rtl_edits=options.rtl_edits, path_exists=path_exists, failed_configs=failed_configs,
-            bad_changes=bad_changes,
+            bad_changes=bad_changes, unwritten_wrapper=unwritten_wrapper,
         )
         recorded = tuple((p.rule, p.task_id, p.reason) for p in problems) + tuple(
             (REQUIRED_DEFINE_ADDED, task_id, "added " + " ".join(defines)) for task_id, defines in added
@@ -416,6 +418,7 @@ def _run_started_loop(
                     tasks = _plan_checked(
                         db, run_id, iteration, spec, llm, tools, "\n".join(feedback_history), options, checkout,
                         failed_configs, bad_changes,
+                        unwritten_wrapper=generic_core.unwritten_wrapper(spec, checkout, carried),
                     )
                 except PlanningError as e:
                     logger.warning("run %s: %s", run_id, e)

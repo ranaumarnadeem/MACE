@@ -287,6 +287,25 @@ class TestKnownBadChange:
         assert check_plan(s, plan, rtl_edits=True, bad_changes=self.bad(Change(ADDED_DEFINE, self.FPGA))) == ()
 
 
+class TestWrapperSkeleton:
+    WRAPPER = "piton/design/chip/tile/serv/generic_core_wrapper.v"
+    SPEC = spec(objective="Verify addi.S on a 2x2 mesh.")
+
+    def test_a_plan_with_no_rtl_task_is_rejected_while_the_wrapper_is_a_skeleton(self):
+        plan = (task("c1"), task("w1", kind="workload", deps=("c1",)))
+        problems = check_plan(self.SPEC, plan, rtl_edits=True, unwritten_wrapper=self.WRAPPER)
+        assert rules(problems) == [(plan_check.WRAPPER_SKELETON, "")]
+        assert self.WRAPPER in problems[0].reason and "rtl task" in problems[0].reason
+
+    def test_a_plan_with_an_rtl_task_passes(self):
+        plan = (task("r1", kind="rtl", text="Write the wrapper body"), task("w1", kind="workload", deps=("r1",)))
+        assert check_plan(self.SPEC, plan, rtl_edits=True, unwritten_wrapper=self.WRAPPER) == ()
+
+    def test_no_rule_once_the_wrapper_is_written_or_without_rtl_edits(self):
+        assert check_plan(self.SPEC, (task("c1"),), rtl_edits=True) == ()
+        assert check_plan(self.SPEC, (task("c1"),), unwritten_wrapper=self.WRAPPER) == ()
+
+
 class TestNoteFailedConfig:
     def result(self, passed=False, build_ok=True, verdict="timeout", failure_reason="", edits=None, config=None):
         from chia.base.llm_call import QueryResult

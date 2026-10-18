@@ -14,14 +14,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chia_openpiton.core_descriptor import FLIST_CORE, LINK_LD, TILE_DIR
+from chia_openpiton.core_descriptor import FLIST_CORE, LINK_LD, SKELETON_MARK, TILE_DIR
 from chia_openpiton.state_def import PitonRunResult
 from mace import metrics
 from mace.baselines.retry_agent import run_retry_agent
-from mace.generic_core import boot_failures, config_fields, unsupported_reasons
+from mace.generic_core import boot_failures, config_fields, unsupported_reasons, unwritten_wrapper
 from mace.loop import _config_for_task
 from mace.orchestrator import run_mace_loop
-from mace.spec import Budget, MaceSpec, Task
+from mace.spec import Budget, LoopOptions, MaceSpec, Task
 from mace.test.conftest import FakeLLM
 from mace.test.test_orchestrator import fake_integrate_parallel, step_result
 from mace.triage import failure_evidence
@@ -172,6 +172,44 @@ class TestSupportedRun:
         assert result.status == "passed"
         assert len(seen) == 1 and "../../pico/rtl/picorv32.v" in seen[0]
         assert "0x40000000" in (checkout / LINK_LD).read_text()
+
+
+class TestUnwrittenWrapper:
+    WRAPPER = "piton/design/chip/tile/generic/cores/picorv32/generic_core_wrapper.v"
+
+    def test_a_skeleton_in_the_checkout_is_unwritten(self, checkout):
+        (checkout / self.WRAPPER).write_text(f"module generic_core_wrapper;\n// {SKELETON_MARK}\nendmodule\n")
+        assert unwritten_wrapper(generic_spec(str(PICORV32)), str(checkout)) == self.WRAPPER
+
+    def test_a_written_wrapper_or_another_core_is_none(self, checkout):
+        assert unwritten_wrapper(generic_spec(str(PICORV32)), str(checkout)) is None
+        assert unwritten_wrapper(MaceSpec(workloads=("addi.S",), objective="x", core="pico"), str(checkout)) is None
+        assert unwritten_wrapper(generic_spec(str(PICORV32)), None) is None
+
+    def test_carried_edits_decide_over_the_checkout(self, checkout):
+        (checkout / self.WRAPPER).write_text(f"// {SKELETON_MARK}\n")
+        spec = generic_spec(str(PICORV32))
+        assert unwritten_wrapper(spec, str(checkout), {self.WRAPPER: "picorv32 core (...);\n"}) is None
+        assert unwritten_wrapper(spec, str(checkout), {"piton/design/other.v": "x"}) == self.WRAPPER
+
+    def test_the_loop_sends_a_plan_without_an_rtl_task_back(self, tmp_path, checkout, monkeypatch):
+        (checkout / self.WRAPPER).write_text(f"// {SKELETON_MARK}\n")
+        monkeypatch.setattr("mace.orchestrator.open_nodes", lambda piton_roots: [])
+        monkeypatch.setattr("mace.orchestrator.integrate_parallel", fake_integrate_parallel([step_result()]))
+        db = metrics.open_db(str(tmp_path / "metrics.db"), ray_placement=False)
+        llm = FakeLLM(responses=[
+            "TASK: c1 | deps= | kind=config | Configure the 2x2 mesh",
+            "TASK: r1 | deps= | kind=rtl | Write the wrapper body",
+        ])
+        spec = generic_spec(str(PICORV32))
+        result = run_mace_loop((str(checkout),), spec, llm, db=db,
+                               options=dataclasses.replace(LoopOptions(), rtl_edits=True))
+        assert result.status == "passed"
+        assert len(llm.calls) == 2
+        assert "rejected before any build" in llm.calls[1][0] and "wrapper body' skeleton" in llm.calls[1][0]
+        assert "rejected before any build" not in llm.calls[0][0]
+        rows = db.query("SELECT action, problems FROM plan_checks WHERE run_id = ?", (result.run_id,))
+        assert rows[0]["action"] == "rejected" and "wrapper_skeleton" in rows[0]["problems"]
 
 
 def ran(first_requests, run_dir="/x/runs/1"):

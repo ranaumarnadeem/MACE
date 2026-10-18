@@ -21,6 +21,7 @@ import yaml
 
 from chia_openpiton.core_descriptor import (
     SKELETON_MARK,
+    TILE_DIR,
     CoreDescriptor,
     apply_descriptor,
     boot_problems,
@@ -102,6 +103,24 @@ def inputs_brief(spec: MaceSpec) -> str:
         f"While that file still holds its '{SKELETON_MARK}' block, no core runs, and an rtl task must write "
         "the block first.\n"
     )
+
+
+def unwritten_wrapper(spec: MaceSpec, checkout: str | None, edits: dict[str, str] | None = None) -> str | None:
+    """The checkout-relative path of the core's wrapper while it still holds
+    its skeleton, or None: for a core other than "generic", with no checkout,
+    or once the wrapper is written in the checkout or in *edits* (the RTL
+    edits every task of the next iteration starts from)."""
+    desc = descriptor(spec)
+    if desc is None or not checkout:
+        return None
+    rel = os.path.join(TILE_DIR, desc.wrapper).replace(os.sep, "/")
+    if edits and rel in edits:
+        return rel if SKELETON_MARK in edits[rel] else None
+    try:
+        with open(os.path.join(checkout, rel), encoding="utf-8", errors="replace") as f:
+            return rel if SKELETON_MARK in f.read() else None
+    except OSError:
+        return None
 
 
 def wrapper_brief(spec: MaceSpec) -> str:
