@@ -22,9 +22,11 @@ Each rule comes from a recorded failure:
 - ``known_bad_change``: a task that makes a change :mod:`mace.narrowing` showed
   breaks the design, such as the seeded define a re-plan added back beside
   another change, so that it was no longer a repeat of the failed build.
-- ``wrapper_skeleton``: a plan with no ``rtl`` task while a generic-tile
-  core's wrapper is still the skeleton, so no core runs on any build. The
-  planner spent all five iterations of two Ibex runs on config tasks.
+- ``wrapper_skeleton``: while a generic-tile core's wrapper is still the
+  skeleton, a config or workload task that does not depend on an ``rtl``
+  task, and a plan with no ``rtl`` task. No core runs on such a build. The
+  planner spent all five iterations of two Ibex runs on config tasks, and
+  in others put a config task first, so the ``rtl`` task after it never ran.
 
 The check never rejects a plan for being unwise, only for being unable to
 work, and the orchestrator stops asking after a few rejections so the
@@ -256,7 +258,8 @@ def check_plan(
     *rtl_edits* says whether the run allows ``rtl`` tasks. *unwritten_wrapper*
     is the path of a generic-tile core's wrapper that still holds its
     skeleton (see :func:`mace.generic_core.unwritten_wrapper`); a plan with no
-    ``rtl`` task is then rejected. *path_exists*
+    ``rtl`` task, and each config or workload task that does not depend on
+    one, are then rejected. *path_exists*
     enables the ``missing_module`` rule; a caller with no checkout leaves it
     out. *failed_configs* maps the build flags of each configuration that
     already failed in the run (see :func:`config_key`) to a short account of
@@ -266,13 +269,24 @@ def check_plan(
     *tasks* first, so the flags compared are the flags that would build.
     """
     problems: list[PlanProblem] = []
-    if unwritten_wrapper and rtl_edits and tasks and not any(t.kind == "rtl" for t in tasks):
-        problems.append(PlanProblem(
-            WRAPPER_SKELETON, "",
-            f"the core's wrapper, {unwritten_wrapper}, still holds its 'wrapper body' skeleton, so no core runs on "
-            "any build and every config or workload task times out. Add an rtl task that writes the wrapper, and "
-            "make the other tasks depend on it.",
-        ))
+    if unwritten_wrapper and rtl_edits and tasks:
+        if not any(t.kind == "rtl" for t in tasks):
+            problems.append(PlanProblem(
+                WRAPPER_SKELETON, "",
+                f"the core's wrapper, {unwritten_wrapper}, still holds its 'wrapper body' skeleton, so no core runs "
+                "on any build and every config or workload task times out. Add an rtl task that writes the wrapper, "
+                "and make the other tasks depend on it.",
+            ))
+        after_rtl = _builds_on_edits(tasks)
+        for task in tasks:
+            if task.kind in _BUILD_KINDS and task.id not in after_rtl:
+                problems.append(PlanProblem(
+                    WRAPPER_SKELETON, task.id,
+                    f"task {task.id} builds before any rtl task has written the core's wrapper, {unwritten_wrapper}, "
+                    "which still holds its 'wrapper body' skeleton, so no core runs and the task can only time out. "
+                    "A config task cannot change which files are built. Make the task depend on an rtl task that "
+                    "writes the wrapper.",
+                ))
     required = objective_defines(spec.objective)
     edited = _builds_on_edits(tasks) if failed_configs or bad_changes else set()
     reference = reference_config(spec, required) if bad_changes else None

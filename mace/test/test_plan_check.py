@@ -294,12 +294,28 @@ class TestWrapperSkeleton:
     def test_a_plan_with_no_rtl_task_is_rejected_while_the_wrapper_is_a_skeleton(self):
         plan = (task("c1"), task("w1", kind="workload", deps=("c1",)))
         problems = check_plan(self.SPEC, plan, rtl_edits=True, unwritten_wrapper=self.WRAPPER)
-        assert rules(problems) == [(plan_check.WRAPPER_SKELETON, "")]
+        assert rules(problems) == [(plan_check.WRAPPER_SKELETON, ""), (plan_check.WRAPPER_SKELETON, "c1"),
+                                   (plan_check.WRAPPER_SKELETON, "w1")]
         assert self.WRAPPER in problems[0].reason and "rtl task" in problems[0].reason
 
-    def test_a_plan_with_an_rtl_task_passes(self):
-        plan = (task("r1", kind="rtl", text="Write the wrapper body"), task("w1", kind="workload", deps=("r1",)))
+    def test_a_plan_whose_build_tasks_follow_an_rtl_task_passes(self):
+        plan = (task("r1", kind="rtl", text="Write the wrapper body"), task("w1", kind="workload", deps=("r1",)),
+                task("w2", kind="workload", deps=("w1",)))
         assert check_plan(self.SPEC, plan, rtl_edits=True, unwritten_wrapper=self.WRAPPER) == ()
+
+    def test_a_config_task_before_the_rtl_task_is_rejected(self):
+        # The Ibex runs of generic_v5: "add ibex_pkg.sv to the build configuration" ran first and timed out,
+        # so the rtl task that depended on it never ran.
+        plan = (task("01", text="Add ibex_pkg.sv to the build configuration"),
+                task("02", kind="rtl", text="Write the wrapper body", deps=("01",)))
+        problems = check_plan(self.SPEC, plan, rtl_edits=True, unwritten_wrapper=self.WRAPPER)
+        assert rules(problems) == [(plan_check.WRAPPER_SKELETON, "01")]
+        assert "depend on an rtl task" in problems[0].reason
+
+    def test_a_build_task_beside_the_rtl_task_is_rejected(self):
+        plan = (task("r1", kind="rtl", text="Write the wrapper body"), task("c1"))
+        assert rules(check_plan(self.SPEC, plan, rtl_edits=True, unwritten_wrapper=self.WRAPPER)) == [
+            (plan_check.WRAPPER_SKELETON, "c1")]
 
     def test_no_rule_once_the_wrapper_is_written_or_without_rtl_edits(self):
         assert check_plan(self.SPEC, (task("c1"),), rtl_edits=True) == ()
