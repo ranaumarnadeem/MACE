@@ -43,7 +43,7 @@ It builds nothing and calls no LLM.
 A task that builds on `rtl` edits skips the last two rules, since its flags do not show its edits.
 The `missing_module` rule needs a checkout, and the other rules need only the plan and the run's history.
 
-`wrapper_skeleton` applies while a [Generic Tile](../05_mace_cores/generic.md) core's wrapper still holds its `wrapper body` skeleton, in the checkout and in the edits the iteration starts from (`mace.generic_core.unwritten_wrapper()`).
+`wrapper_skeleton` applies while a [Generic Tile](../05_mace_cores/generic.md) core's wrapper is still exactly the skeleton the descriptor generates, in the checkout and in the edits the iteration starts from (`mace.generic_core.unwritten_wrapper()`). A written wrapper may keep the skeleton's `wrapper body` comments, so the comments alone do not count.
 It rejects each `config` or `workload` task that does not depend on an `rtl` task, and a plan with no `rtl` task at all.
 No core runs on such a build, so the task can only time out. The planner spent all five iterations of two Ibex runs on config tasks, and in other runs put a config task first, so the `rtl` task that depended on it never ran.
 

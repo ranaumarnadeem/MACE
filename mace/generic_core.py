@@ -28,6 +28,7 @@ from chia_openpiton.core_descriptor import (
     load_descriptor,
     missing_files,
     support_problems,
+    wrapper_skeleton,
 )
 from chia_openpiton.state_def import PitonRunResult
 from mace.spec import MaceSpec
@@ -106,19 +107,22 @@ def inputs_brief(spec: MaceSpec) -> str:
 
 
 def unwritten_wrapper(spec: MaceSpec, checkout: str | None, edits: dict[str, str] | None = None) -> str | None:
-    """The checkout-relative path of the core's wrapper while it still holds
-    its skeleton, or None: for a core other than "generic", with no checkout,
-    or once the wrapper is written in the checkout or in *edits* (the RTL
-    edits every task of the next iteration starts from)."""
+    """The checkout-relative path of the core's wrapper while it is still
+    exactly the descriptor's skeleton, or None: for a core other than
+    "generic", with no checkout, or once the wrapper differs from the skeleton
+    in the checkout or in *edits* (the RTL edits every task of the next
+    iteration starts from). A written wrapper may keep the skeleton's marker
+    comments, so the marker alone does not show the wrapper is unwritten."""
     desc = descriptor(spec)
     if desc is None or not checkout:
         return None
     rel = os.path.join(TILE_DIR, desc.wrapper).replace(os.sep, "/")
+    skeleton = wrapper_skeleton(desc).strip()
     if edits and rel in edits:
-        return rel if SKELETON_MARK in edits[rel] else None
+        return rel if edits[rel].strip() == skeleton else None
     try:
         with open(os.path.join(checkout, rel), encoding="utf-8", errors="replace") as f:
-            return rel if SKELETON_MARK in f.read() else None
+            return rel if f.read().strip() == skeleton else None
     except OSError:
         return None
 

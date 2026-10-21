@@ -14,7 +14,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chia_openpiton.core_descriptor import FLIST_CORE, LINK_LD, SKELETON_MARK, TILE_DIR
+from chia_openpiton.core_descriptor import (
+    FLIST_CORE,
+    LINK_LD,
+    SKELETON_MARK,
+    TILE_DIR,
+    load_descriptor,
+    wrapper_skeleton,
+)
 from chia_openpiton.state_def import PitonRunResult
 from mace import metrics
 from mace.baselines.retry_agent import run_retry_agent
@@ -177,8 +184,10 @@ class TestSupportedRun:
 class TestUnwrittenWrapper:
     WRAPPER = "piton/design/chip/tile/generic/cores/picorv32/generic_core_wrapper.v"
 
-    def test_a_skeleton_in_the_checkout_is_unwritten(self, checkout):
-        (checkout / self.WRAPPER).write_text(f"module generic_core_wrapper;\n// {SKELETON_MARK}\nendmodule\n")
+    SKELETON = wrapper_skeleton(load_descriptor(str(PICORV32)))
+
+    def test_the_skeleton_in_the_checkout_is_unwritten(self, checkout):
+        (checkout / self.WRAPPER).write_text(self.SKELETON)
         assert unwritten_wrapper(generic_spec(str(PICORV32)), str(checkout)) == self.WRAPPER
 
     def test_a_written_wrapper_or_another_core_is_none(self, checkout):
@@ -186,14 +195,22 @@ class TestUnwrittenWrapper:
         assert unwritten_wrapper(MaceSpec(workloads=("addi.S",), objective="x", core="pico"), str(checkout)) is None
         assert unwritten_wrapper(generic_spec(str(PICORV32)), None) is None
 
+    def test_a_written_wrapper_that_keeps_the_marker_comments_is_written(self, checkout):
+        # On the laptop, MACE's working SERV wrapper kept the "wrapper body" comments around its instance.
+        written = self.SKELETON.replace(f"// end of {SKELETON_MARK}", f"picorv32 core (.clk(clk));\n    // end of {SKELETON_MARK}")
+        assert written != self.SKELETON and SKELETON_MARK in written
+        (checkout / self.WRAPPER).write_text(written)
+        assert unwritten_wrapper(generic_spec(str(PICORV32)), str(checkout)) is None
+
     def test_carried_edits_decide_over_the_checkout(self, checkout):
-        (checkout / self.WRAPPER).write_text(f"// {SKELETON_MARK}\n")
+        (checkout / self.WRAPPER).write_text(self.SKELETON)
         spec = generic_spec(str(PICORV32))
         assert unwritten_wrapper(spec, str(checkout), {self.WRAPPER: "picorv32 core (...);\n"}) is None
+        assert unwritten_wrapper(spec, str(checkout), {self.WRAPPER: self.SKELETON}) == self.WRAPPER
         assert unwritten_wrapper(spec, str(checkout), {"piton/design/other.v": "x"}) == self.WRAPPER
 
     def test_the_loop_sends_a_plan_without_an_rtl_task_back(self, tmp_path, checkout, monkeypatch):
-        (checkout / self.WRAPPER).write_text(f"// {SKELETON_MARK}\n")
+        (checkout / self.WRAPPER).write_text(self.SKELETON)
         monkeypatch.setattr("mace.orchestrator.open_nodes", lambda piton_roots: [])
         monkeypatch.setattr("mace.orchestrator.integrate_parallel", fake_integrate_parallel([step_result()]))
         db = metrics.open_db(str(tmp_path / "metrics.db"), ray_placement=False)
