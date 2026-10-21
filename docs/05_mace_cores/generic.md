@@ -179,7 +179,7 @@ The run turns RTL edits on and goes through the loop like any other:
 
 - Before its first LLM call it checks the descriptor and the core's files, and ends with status `unsupported_core` if the tile cannot run the core.
 - Before its first build it writes the descriptor's `Flist.core` and `link.ld` into the checkout, and the skeleton if the wrapper file is missing.
-- The planner's inputs name the core, its bus and reset vector, and the wrapper file, and say that an `rtl` task must write the `wrapper body` block first. While the skeleton is there, the plan check sends back a plan with no `rtl` task.
+- The planner's inputs name the core, its bus and reset vector, and the wrapper file, and say that an `rtl` task must write the `wrapper body` block first. While the skeleton is there, the plan check sends back a plan with no `rtl` task, and any `config` or `workload` task that does not depend on one.
 - The `rtl` task's agent is told which bridge to instantiate, that the wrapper's ports stay as they are, which reset vector to set, and which inputs to tie off. PicoRV32's wrapper is named as a finished example.
 - A task passes when every gate program passes on every tile and every tile's first request is at the reset vector.
 - After a failed iteration, the edits of the last task that built carry into the next one (see [Fixed Checks](../03_mace_design/fixed_checks.md)).

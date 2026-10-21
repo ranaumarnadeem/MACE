@@ -43,8 +43,9 @@ It builds nothing and calls no LLM.
 A task that builds on `rtl` edits skips the last two rules, since its flags do not show its edits.
 The `missing_module` rule needs a checkout, and the other rules need only the plan and the run's history.
 
-One rule looks at the whole plan: `wrapper_skeleton` rejects a plan with no `rtl` task while a [Generic Tile](../05_mace_cores/generic.md) core's wrapper still holds its `wrapper body` skeleton, in the checkout and in the edits the iteration starts from (`mace.generic_core.unwritten_wrapper()`).
-No core runs on such a build, so every `config` or `workload` task times out; the planner spent all five iterations of two Ibex runs that way.
+`wrapper_skeleton` applies while a [Generic Tile](../05_mace_cores/generic.md) core's wrapper still holds its `wrapper body` skeleton, in the checkout and in the edits the iteration starts from (`mace.generic_core.unwritten_wrapper()`).
+It rejects each `config` or `workload` task that does not depend on an `rtl` task, and a plan with no `rtl` task at all.
+No core runs on such a build, so the task can only time out. The planner spent all five iterations of two Ibex runs on config tasks, and in other runs put a config task first, so the `rtl` task that depended on it never ran.
 
 A rejected plan goes back to `plan()` with the reasons in its `rejection` argument, as a call in the `plan_retry` phase.
 A planner reply that holds no plan at all goes back the same way, with the line format in `rejection`: a `TASK:` line whose third field names no known kind, an empty reply, or a graph with a cycle.
