@@ -182,7 +182,7 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has an RTL error under piton/design/ that its
       build reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
@@ -200,7 +200,7 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has an RTL error under piton/design/ that its
       build reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
@@ -218,7 +218,7 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has an RTL error under piton/design/ that its
       build reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
@@ -236,7 +236,7 @@ tasks:
       task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
       design in this checkout has an RTL error under piton/design/ that its
       build reports, and the workload cannot pass until the error is fixed.
-    verified: false
+    verified: true
     budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
     expert:
       config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
