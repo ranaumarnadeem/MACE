@@ -415,6 +415,7 @@ class TestSourceFault:
             "ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-srai-rtlbug", "pico-2x2-mulhsu-rtlbug",
             "pico-2x2-lw-rtlfault", "pico-2x2-jal-rtlfault", "pico-2x2-beq-rtlfault", "pico-2x2-mul-rtlfault",
             "ariane-2x2-lrsc-rtlfault", "ariane-2x2-producer-consumer-rtlfault",
+            "pico-2x2-sh-rtlfault", "pico-2x2-srai-rtlfault", "pico-2x2-bgeu-rtlfault",
         ]
         assert all(t.source_fault for t in tasks)
 

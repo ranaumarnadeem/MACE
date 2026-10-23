@@ -276,3 +276,62 @@ tasks:
       - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_dcache_wbuffer.sv
         old: "assign miss_req_o = (|dirty) && free_tx_slots;"
         new: "assign miss_req_o = (|dirty) && free_tx_slot;"
+
+  # Third set, defined 2026-10-23 after the second set's runs and BEFORE the fix
+  # those runs led to (build errors that name an undefined name now list the
+  # closest declared names). The fix was written while looking at the second
+  # set, so the second set is its tuning set; these three and the two Ariane
+  # tasks above are held out from it. Same rules as the second set.
+  - id: pico-2x2-sh-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [sh.S]
+    objective: >-
+      Verify the sh.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "instr_sh    <= is_sb_sh_sw && mem_rdata_q[14:12] == 3'b001;"
+        new: "instr_sh    <= is_sb_sh_sv && mem_rdata_q[14:12] == 3'b001;"
+
+  - id: pico-2x2-srai-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [srai.S]
+    objective: >-
+      Verify the srai.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "instr_srai  <= is_alu_reg_imm && mem_rdata_q[14:12] == 3'b101 && mem_rdata_q[31:25] == 7'b0100000;"
+        new: "instr_srai  <= is_alu_reg_im && mem_rdata_q[14:12] == 3'b101 && mem_rdata_q[31:25] == 7'b0100000;"
+
+  - id: pico-2x2-bgeu-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [bgeu.S]
+    objective: >-
+      Verify the bgeu.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "instr_bgeu  <= is_beq_bne_blt_bge_bltu_bgeu && mem_rdata_q[14:12] == 3'b111;"
+        new: "instr_bgeu  <= is_beq_bne_blt_bge_bltu_bgu && mem_rdata_q[14:12] == 3'b111;"
