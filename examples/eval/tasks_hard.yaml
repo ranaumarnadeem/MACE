@@ -1,0 +1,116 @@
+# MACE evaluation suite of hard tasks, in the format of tasks.yaml. Defined
+# 2026-10-23, before any run on them and with no prompt changed afterwards.
+#
+# In tasks.yaml the default design fails only where the objective already says
+# what to change: every PicoRV32 objective names the CONFIG_DISABLE_BIST_CLEAR
+# RTL define. Here the method has to find what is wrong from the failure:
+#
+# - nohint: a tasks.yaml PicoRV32 task with the define left out of the
+#   objective. Without the define the power-on BIST clear discards the core's
+#   first memory writes (docs/05_mace_cores/pico.md), so the build succeeds and
+#   the workload fails in simulation. No prompt names the define; the planner
+#   can request it from triage feedback, and the retry agent from the raw
+#   evidence, through the same CONFIG_RTL: line.
+# - twofault: two build errors in different files, so a fix of the first
+#   error alone still fails the build.
+#
+# pico-2x2-addi-rtlfault-nohint and ariane-2x2-hello-twofault reuse a build
+# error the prompts were tuned on (tasks_rtl.yaml); the missing define or the
+# second error is new.
+#
+# Run with mace and retry_agent (nohint) or mace_rtl and retry_agent_rtl
+# (twofault). A task stays `verified: false` until its expert run passes
+# (nohint) or fails at the build (twofault, with expert_clean passing).
+
+version: 1
+
+defaults:
+  budget:
+    max_iterations: 3
+    max_wall_s: 3600
+    max_usd: 0.5  # credits are short (2026-10-23); a run costs cents
+
+tasks:
+  - id: pico-2x2-addi-nohint
+    core: pico
+    mesh: [2, 2]
+    workloads: [addi.S]
+    objective: Verify the addi.S gate workload passes on a 2x2 pico mesh in a single task.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-2x2-lw-nohint
+    core: pico
+    mesh: [2, 2]
+    workloads: [lw.S]
+    objective: Verify the lw.S gate workload passes on a 2x2 pico mesh in a single task.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  - id: pico-4x2-addi-nohint
+    core: pico
+    mesh: [4, 2]
+    workloads: [addi.S]
+    objective: Verify the addi.S gate workload passes on a 4x2 pico mesh in a single task.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+
+  # The two-problem case: the build error of pico-2x2-addi-rtlfault, and no
+  # define in the objective.
+  - id: pico-2x2-addi-rtlfault-nohint
+    core: pico
+    mesh: [2, 2]
+    workloads: [addi.S]
+    objective: >-
+      Verify the addi.S gate workload passes on a 2x2 pico mesh in a single
+      task. The design in this checkout has an RTL error under piton/design/
+      that its build reports, and the workload cannot pass until the error is
+      fixed.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "assign mem_xfer = (mem_valid && mem_ready) ||"
+        new: "assign mem_xfer = (mem_valid && mem_readyx) ||"
+
+  - id: pico-2x2-lw-twofault
+    core: pico
+    mesh: [2, 2]
+    workloads: [lw.S]
+    objective: >-
+      Verify the lw.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has RTL errors under piton/design/ that its
+      build reports, and the workload cannot pass until they are fixed.
+    verified: false
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "instr_lw    <= is_lb_lh_lw_lbu_lhu && mem_rdata_q[14:12] == 3'b010;"
+        new: "instr_lw    <= is_lb_lh_lw_lbu_lh && mem_rdata_q[14:12] == 3'b010;"
+      - path: piton/design/chip/tile/l15/rtl/l15_picoencoder.v
+        old: "assign picoencoder_l15_req_ack = l15_picoencoder_val;"
+        new: "assign picoencoder_l15_req_ack = l15_picoencoder_vld;"
+
+  - id: ariane-2x2-hello-twofault
+    core: ariane
+    mesh: [2, 2]
+    workloads: [hello_world.c]
+    objective: >-
+      Verify the hello_world.c gate workload passes on a 2x2 mesh. The design
+      in this checkout has RTL errors under piton/design/ that its build
+      reports, and the workload cannot pass until they are fixed.
+    verified: false
+    expert: {}
+    source_fault:
+      - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_l15_adapter.sv
+        old: "icache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_icache_inval;"
+        new: "icache_rtrn_o.inv.vld = rtrn_fifo_data.l15_inval_icache_invalid;"
+      - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_dcache_wbuffer.sv
+        old: "assign miss_req_o = (|dirty) && free_tx_slots;"
+        new: "assign miss_req_o = (|dirty) && free_tx_slot;"

@@ -413,8 +413,17 @@ class TestSourceFault:
         assert [t.id for t in tasks] == [
             "ariane-2x2-hello-rtlfault", "pico-2x2-addi-rtlfault", "ariane-2x2-accu-rtlfault",
             "ariane-2x2-barrier-amobug", "pico-2x2-sh-rtlbug", "pico-2x2-srai-rtlbug", "pico-2x2-mulhsu-rtlbug",
+            "pico-2x2-lw-rtlfault", "pico-2x2-jal-rtlfault", "pico-2x2-beq-rtlfault", "pico-2x2-mul-rtlfault",
+            "ariane-2x2-lrsc-rtlfault", "ariane-2x2-producer-consumer-rtlfault",
         ]
         assert all(t.source_fault for t in tasks)
+
+    def test_the_hard_suite_names_no_define_in_a_nohint_objective(self):
+        tasks = load_suite(SUITE.parent / "tasks_hard.yaml")
+        nohint = [t for t in tasks if t.id.endswith("-nohint")]
+        assert len(nohint) == 4
+        assert all("CONFIG_" not in t.objective and t.expert_config_rtl for t in nohint)
+        assert all(len(t.source_fault) == 2 for t in tasks if t.id.endswith("-twofault"))
 
     def test_the_directed_test_development_suite_loads_with_a_fault(self):
         (task,) = load_suite(SUITE.parent / "tasks_tests.yaml")

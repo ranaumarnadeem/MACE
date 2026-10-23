@@ -164,3 +164,115 @@ tasks:
       - path: piton/design/chip/tile/pico/rtl/picorv32.v
         old: "wire instr_rs2_signed = |{instr_mulh};\n\n\treg pcpi_wait_q;"
         new: "wire instr_rs2_signed = |{instr_mulh, instr_mulhsu};\n\n\treg pcpi_wait_q;"
+
+  # Second set of build errors, defined 2026-10-23 before any run on them and
+  # with no prompt changed afterwards: held out for the mace_rtl and
+  # retry_agent_rtl comparison. Each misspells a name on a path the task's gate
+  # workload needs, inside logic that is always elaborated, so the build stops
+  # with an error that names the file and line, and declaring the misspelled
+  # name builds a design whose workload still fails. Each misspelled name
+  # appears nowhere else in the design. They stay `verified: false` until
+  # their expert run fails at the build and their expert_clean run passes.
+  - id: pico-2x2-lw-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [lw.S]
+    objective: >-
+      Verify the lw.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "instr_lw    <= is_lb_lh_lw_lbu_lhu && mem_rdata_q[14:12] == 3'b010;"
+        new: "instr_lw    <= is_lb_lh_lw_lbu_lh && mem_rdata_q[14:12] == 3'b010;"
+
+  - id: pico-2x2-jal-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [jal.S]
+    objective: >-
+      Verify the jal.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "instr_jal     <= mem_rdata_latched[6:0] == 7'b1101111;"
+        new: "instr_jal     <= mem_rdata_latchd[6:0] == 7'b1101111;"
+
+  - id: pico-2x2-beq-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [beq.S]
+    objective: >-
+      Verify the beq.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "instr_beq   <= is_beq_bne_blt_bge_bltu_bgeu && mem_rdata_q[14:12] == 3'b000;"
+        new: "instr_beq   <= is_beq_bne_blt_bge_bltu_bgeu && mem_rdat_q[14:12] == 3'b000;"
+
+  - id: pico-2x2-mul-rtlfault
+    core: pico
+    mesh: [2, 2]
+    workloads: [mul.S]
+    objective: >-
+      Verify the mul.S gate workload passes on a 2x2 pico mesh in a single
+      task. That task needs the CONFIG_DISABLE_BIST_CLEAR RTL define. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert:
+      config_rtl: [CONFIG_DISABLE_BIST_CLEAR]
+    source_fault:
+      - path: piton/design/chip/tile/pico/rtl/picorv32.v
+        old: "(ENABLE_MUL || ENABLE_FAST_MUL) && pcpi_mul_ready, ENABLE_DIV"
+        new: "(ENABLE_MUL || ENABLE_FAST_MUL) && pcpi_mul_rdy, ENABLE_DIV"
+
+  - id: ariane-2x2-lrsc-rtlfault
+    core: ariane
+    mesh: [2, 2]
+    workloads: [lrsc_test.c]
+    objective: >-
+      Verify the lrsc_test.c gate workload passes on a 2x2 mesh. The design in
+      this checkout has an RTL error under piton/design/ that its build
+      reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert: {}
+    source_fault:
+      - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_dcache_missunit.sv
+        old: "assign mem_data_o.amo_op = (amo_sel) ? amo_req_i.amo_op    : AMO_NONE;"
+        new: "assign mem_data_o.amo_op = (amo_sel) ? amo_req_i.amo_opcode    : AMO_NONE;"
+
+  - id: ariane-2x2-producer-consumer-rtlfault
+    core: ariane
+    mesh: [2, 2]
+    workloads: [producer_consumer.c]
+    objective: >-
+      Verify the producer_consumer.c gate workload passes on a 2x2 mesh. The
+      design in this checkout has an RTL error under piton/design/ that its
+      build reports, and the workload cannot pass until the error is fixed.
+    verified: false
+    budget: {max_usd: 0.5}  # credits are short (2026-10-23); a run costs cents
+    expert: {}
+    source_fault:
+      - path: piton/design/chip/tile/ariane/core/cache_subsystem/wt_dcache_wbuffer.sv
+        old: "assign miss_req_o = (|dirty) && free_tx_slots;"
+        new: "assign miss_req_o = (|dirty) && free_tx_slot;"
