@@ -49,6 +49,9 @@ sims_die(text: str) -> str
 model_dir(text: str) -> str
 build_failure_reason(stdout: str, stderr: str = "") -> str
 build_errors(stdout: str, stderr: str = "", limit: int = 20) -> tuple[str, ...]
+undefined_name(error: str) -> tuple[str, str] | None
+close_names(name: str, source: str, limit: int = 3) -> tuple[str, ...]
+with_close_names(error: str, source: str) -> str
 
 # Verilator
 verilator_version(text: str) -> tuple[int, int] | None
@@ -74,12 +77,15 @@ first_divergence(reference: str, actual: str) -> tuple[int, str, str] | None
 | `model_dir` | The path from `sims: creating model directory <path>`, or `""` |
 | `build_failure_reason` | A failure tag from the table below, or `""` |
 | `build_errors` | The first `limit` Verilator `%Error` lines and C++ compiler `error:` lines, in order, without Verilator's closing `Exiting due to N error(s)` line |
+| `undefined_name` | `(file, name)` from a Verilator error for a name nothing declares, `Can't find definition of variable: 'X'` or `Member 'X' not found in structure`, or `None`. Verilator 5.020 suggests no alternative for these |
+| `close_names` | Up to `limit` names in `source` most like `name`, closest first, at `difflib`'s default cutoff, without `name` itself |
+| `with_close_names` | The error with `(names in <file> closest to 'X': ...)` appended, or the error unchanged when it names no undefined name or no close name exists |
 | `verilator_version` | `(major, minor)` from `verilator --version`, for release strings (`Verilator 4.038 2020-07-11 rev ...`) and development builds (`Verilator 5.049 devel rev ...`), or `None` |
 | `needs_no_timing` | `True` for Verilator 5 and later, which refuse OpenPiton's bare `#1` delays without `--timing` or `--no-timing`. `False` for Verilator 4, which has no such flag, and for text it cannot parse |
 | `diaglist_group` | The tests of one diaglist group, as `DiagEntry` values |
 | `first_divergence` | The 1-based line number and both lines at the first line where the texts differ. `None` when one text is a line-for-line prefix of the other, which includes identical texts |
 
-[run()](workspace_node.md) calls `sim_verdict` and `sim_time` on the full `sim.log`, and `cycles` and `exec_cycles` on `status.log`. `PitonRunResult.fake_uart` keeps the last 8000 characters of `fake_uart.log`. A `hart_cycles` line takes about 16 characters, so the kept text holds the line of every hart on a mesh of up to about 500 harts. `build()` calls `needs_no_timing`, `build_failure_reason`, and, on the full output of a failed build, `build_errors`. [PitonToolServer](tool_server.md) calls `first_divergence`, and the MACE shell calls `coverage_summary` (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
+[run()](workspace_node.md) calls `sim_verdict` and `sim_time` on the full `sim.log`, and `cycles` and `exec_cycles` on `status.log`. `PitonRunResult.fake_uart` keeps the last 8000 characters of `fake_uart.log`. A `hart_cycles` line takes about 16 characters, so the kept text holds the line of every hart on a mesh of up to about 500 harts. `build()` calls `needs_no_timing`, `build_failure_reason`, and, on the full output of a failed build, `build_errors`. For an error that names an undefined name in a file inside the checkout, `build()` reads that file and appends `with_close_names`: a misspelled name was the usual failure of RTL repair on build errors (2026-10-23), where the agents declared the misspelled name instead of correcting it. [PitonToolServer](tool_server.md) calls `first_divergence`, and the MACE shell calls `coverage_summary` (see [Code Coverage](../01_mace_user/Code_Coverage.md)).
 
 ## Build failure tags
 

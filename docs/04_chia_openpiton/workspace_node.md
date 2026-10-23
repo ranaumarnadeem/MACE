@@ -224,7 +224,7 @@ OpenPiton's prebuilt `configsrch`, which `sims` runs to look up each tool's vers
 | `failure_reason` | `str` | Failure tag, `way_rule` for a refused configuration; `""` on success |
 | `reused` | `bool` | `True` when served from the build cache |
 | `stdout`, `stderr` | `str` | Tail of each stream. `sims` prints Verilator's output to stdout |
-| `errors` | `tuple[str, ...]` | Error lines from the full output of a failed build, from [build_errors](parsers.md), or for a `way_rule` refusal the caches that break the rule; `()` on success |
+| `errors` | `tuple[str, ...]` | Error lines from the full output of a failed build, from [build_errors](parsers.md), each one that names an undefined name followed by the closest names in its file ([with_close_names](parsers.md)), or for a `way_rule` refusal the caches that break the rule; `()` on success |
 
 ### PitonRunResult
 
