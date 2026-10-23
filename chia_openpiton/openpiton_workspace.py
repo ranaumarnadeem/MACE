@@ -341,6 +341,20 @@ def _read_full_if_present(path: str) -> str:
         return ""
 
 
+def _with_close_names(root: str, errors: tuple[str, ...]) -> tuple[str, ...]:
+    """*errors*, each one that reports an undefined name in a file under
+    *root* followed by the names in that file closest to it
+    (:func:`chia_openpiton.parse.with_close_names`)."""
+    real_root = os.path.realpath(root)
+    out = []
+    for error in errors:
+        found = parse.undefined_name(error)
+        if found and os.path.realpath(found[0]).startswith(real_root + os.sep):
+            error = parse.with_close_names(error, _read_full_if_present(found[0]))
+        out.append(error)
+    return tuple(out)
+
+
 def _resolve_under(base_dir: str, relpath: str) -> str:
     """Absolute path of *relpath* under *base_dir*; ValueError on escape."""
     base_dir = os.path.abspath(base_dir)
@@ -968,7 +982,7 @@ class OpenPitonWorkspaceNode(ColocatedNode):
             failure_reason=reason,
             stdout=_tail(stdout),
             stderr=_tail(stderr),
-            errors=() if success else parse.build_errors(stdout, stderr),
+            errors=() if success else _with_close_names(root, parse.build_errors(stdout, stderr)),
         )
 
     # -- run -------------------------------------------------------------------

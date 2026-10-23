@@ -477,6 +477,21 @@ class TestBuildResult:
         art = node.build(cfg)
         assert art.errors == ("%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'",)
 
+    def test_an_undefined_name_lists_the_closest_names_in_its_file(self, stub_piton_root, tmp_path):
+        """Only a file inside the checkout is read."""
+        from chia_openpiton.openpiton_workspace import _with_close_names
+
+        rtl = Path(stub_piton_root) / "piton" / "design" / "core.v"
+        rtl.parent.mkdir(parents=True, exist_ok=True)
+        rtl.write_text("reg [31:0] mem_rdata_q;\n")
+        outside = tmp_path / "outside.v"
+        outside.write_text("reg mem_rdata_q;\n")
+        error = f"%Error: {rtl}:9:3: Can't find definition of variable: 'mem_rdat_q'"
+        far = f"%Error: {outside}:9:3: Can't find definition of variable: 'mem_rdat_q'"
+        assert _with_close_names(stub_piton_root, (error, far, "%Error: x.v:1:1: syntax error")) == (
+            error + " (names in core.v closest to 'mem_rdat_q': 'mem_rdata_q')", far, "%Error: x.v:1:1: syntax error",
+        )
+
     def test_a_good_build_has_no_error_lines(self, node, cfg):
         assert node.build(cfg).errors == ()
 

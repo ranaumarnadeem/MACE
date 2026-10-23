@@ -332,6 +332,45 @@ def build_errors(stdout: str, stderr: str = "", limit: int = 20) -> tuple[str, .
     return tuple(ln for ln in lines if not ln.startswith("%Error: Exiting due to"))[:limit]
 
 
+# Verilator's error for a use of a name nothing declares: a variable, task, or
+# function, or a struct member.
+_UNDEFINED_NAME = re.compile(
+    r"^%Error: (?P<path>[^:]+):\d+:\d+: "
+    r"(?:Can't find definition of [a-z ]+: '(?P<name>[^']+)'|Member '(?P<member>[^']+)' not found in structure)"
+)
+_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+
+
+def undefined_name(error: str) -> tuple[str, str] | None:
+    """The file and the name of a Verilator "no such name" error, or None.
+
+    Verilator 5.020 names the missing name but suggests no alternative, and a
+    misspelled name is the usual cause.
+    """
+    m = _UNDEFINED_NAME.match(error)
+    return (m.group("path"), m.group("name") or m.group("member")) if m else None
+
+
+def close_names(name: str, source: str, limit: int = 3) -> tuple[str, ...]:
+    """The names in *source* most like *name*, closest first, *name* left out:
+    what a misspelled name was likely meant to be. difflib's default cutoff."""
+    import difflib
+
+    return tuple(difflib.get_close_matches(name, sorted(set(_IDENTIFIER.findall(source)) - {name}), n=limit))
+
+
+def with_close_names(error: str, source: str) -> str:
+    """*error* with the names in its file closest to the undefined name it
+    reports appended, or *error* unchanged when it reports none or *source*
+    holds none close."""
+    found = undefined_name(error)
+    names = close_names(found[1], source) if found else ()
+    if not names:
+        return error
+    listed = ", ".join(f"'{n}'" for n in names)
+    return f"{error} (names in {found[0].rsplit('/', 1)[-1]} closest to '{found[1]}': {listed})"
+
+
 def build_failure_reason(stdout: str, stderr: str = "") -> str:
     """A short, stable tag for why a build failed, or "".
 

@@ -331,6 +331,41 @@ class TestBuildErrors:
         assert parse.build_errors(fixtures("build_ok_tail.log")) == ()
 
 
+class TestCloseNames:
+    # From a pico 2x2 build with picorv32.v's mem_rdata_q misspelled (2026-10-23).
+    ERROR = (
+        "%Error: /home/u/openpiton/piton/design/chip/tile/pico/rtl/picorv32.v:1069:51: "
+        "Can't find definition of variable: 'mem_rdat_q'"
+    )
+    SOURCE = "reg [31:0] mem_rdata_q;\nwire mem_ready;\nalways @* x = mem_rdata_q[3:0] & mem_rdata_word;\n"
+
+    def test_reads_the_file_and_the_name_of_an_undefined_variable(self):
+        assert parse.undefined_name(self.ERROR) == (
+            "/home/u/openpiton/piton/design/chip/tile/pico/rtl/picorv32.v", "mem_rdat_q",
+        )
+
+    def test_reads_an_undefined_struct_member(self):
+        error = "%Error: /r/wt_dcache_missunit.sv:244:62: Member 'amo_opcode' not found in structure"
+        assert parse.undefined_name(error) == ("/r/wt_dcache_missunit.sv", "amo_opcode")
+
+    def test_other_errors_name_nothing(self):
+        assert parse.undefined_name("%Error-PINNOTFOUND: manycore_top.tmp.v:361:6: Pin not found: 'async_mux'") is None
+        assert parse.undefined_name("%Error: top.v:3:1: syntax error") is None
+
+    def test_lists_the_closest_names_first_and_leaves_out_the_name_itself(self):
+        assert parse.close_names("mem_rdat_q", self.SOURCE + "mem_rdat_q")[0] == "mem_rdata_q"
+        assert "mem_rdat_q" not in parse.close_names("mem_rdat_q", self.SOURCE + "mem_rdat_q")
+
+    def test_appends_the_close_names_to_the_error(self):
+        assert parse.with_close_names(self.ERROR, self.SOURCE).startswith(
+            self.ERROR + " (names in picorv32.v closest to 'mem_rdat_q': 'mem_rdata_q'"
+        )
+
+    def test_leaves_an_error_unchanged_with_no_close_name(self):
+        assert parse.with_close_names(self.ERROR, "wire clk;\n") == self.ERROR
+        assert parse.with_close_names("%Error: top.v:3:1: syntax error", self.SOURCE) == "%Error: top.v:3:1: syntax error"
+
+
 class TestVerilatorVersion:
     def test_release_string(self, fixtures):
         assert parse.verilator_version(fixtures("verilator_4038.txt")) == (4, 38)
